@@ -32,8 +32,9 @@ AI-Edit/
 │   │   ├── EditPanel.swift        # floating NSPanel host
 │   │   └── EditPanelView.swift    # SwiftUI content
 │   ├── Providers/
-│   │   ├── LLMProvider.swift      # protocol + registry
-│   │   └── CopilotCLIProvider.swift
+│   │   ├── LLMProvider.swift      # protocol + ProviderStatus
+│   │   ├── CopilotCLIProvider.swift
+│   │   └── CopilotModelCatalog.swift
 │   ├── Actions.swift              # EditAction enum + prompt templates
 │   ├── Settings/
 │   │   ├── AppSettings.swift      # UserDefaults-backed observable settings
@@ -83,31 +84,27 @@ AI-Edit/
    - Write result to pasteboard, `activate` the target app, wait ~150 ms,
      post ⌘V (for Entire document scope: ⌘A then ⌘V).
    - After ~1 s, restore the user's original pasteboard.
-   - Close panel.
+   - Keep the panel open for iteration navigation or another edit.
 
 ## Actions & prompts (`Actions.swift`)
 
-`enum EditAction: rewrite, summarize, fixGrammar, translate, reply, custom(String)`.
+`enum EditAction: rewrite, summarize, fixGrammar, custom(String)`.
 Every template must end with a strict instruction like:
 "Output ONLY the resulting text. No preamble, no explanations, no quotes, no
-markdown fences." Translate uses `AppSettings.targetLanguage` (default
-"English"). Reply means: draft a reply to the given message (same language as
-the message). Keep templates in one place, unit-testable.
+markdown fences." Keep templates in one place, unit-testable.
 
 ## Provider layer
 
 ```swift
 protocol LLMProvider: Sendable {
-    var id: String { get }        // "copilot-cli"
     var displayName: String { get }
     func complete(_ prompt: String) async throws -> String
     func checkAvailability() async -> ProviderStatus  // .ready / .notFound / .error(String)
 }
 ```
 
-`ProviderRegistry` holds available providers; only Copilot for now, but the
-settings UI shows a provider picker (single entry + "More providers coming
-soon" footnote) so the extension point is visible.
+`AppDelegate` builds the single `CopilotCLIProvider` and passes it directly to
+the coordinator, status menu, settings view, and debug CLI.
 
 `CopilotCLIProvider`:
 - Locates the binary: `AppSettings.copilotPath` if set, else search
@@ -140,10 +137,9 @@ soon" footnote) so the extension point is visible.
 SwiftUI `Settings`-style window (open via menu; make sure it activates the app
 so it comes to front). Sections:
 - **Shortcut**: `KeyboardShortcuts.Recorder` for the global hotkey.
-- **Provider**: picker (GitHub Copilot CLI), model text field (placeholder
-  "auto"), copilot binary path field with "Detect" button + status dot
-  (green ready / red with error tooltip).
-- **Translation**: target language text field (default "English").
+- **GitHub Copilot CLI**: model picker, reasoning-effort picker, Copilot binary
+  path field with "Detect" button + status dot (green ready / red with error
+  tooltip).
 - **General**: Launch at login toggle (`SMAppService.mainApp`).
 
 ## Permissions
@@ -172,7 +168,7 @@ The binary accepts CLI flags when run directly (before NSApplication setup):
 - `AIEdit --provider-check` → prints provider status, exits.
 - `AIEdit --complete <action> <<< "text"` → reads stdin, runs the prompt
   through the real provider, prints result, exits. (action: rewrite|summarize|
-  fix-grammar|translate|reply, or `custom:<instruction>`)
+  fix-grammar, or `custom:<instruction>`)
 These let CI/tests exercise the pipeline without UI.
 
 Additionally, the app registers a URL scheme is NOT required — skip it.
@@ -180,7 +176,7 @@ Additionally, the app registers a URL scheme is NOT required — skip it.
 ## Unit tests
 
 - Prompt template building for every action (contains the input text and the
-  "output only" clause; translate contains the target language).
+  "output only" clause).
 - Copilot argv construction (including `--available-tools=` and `--model`).
 - Output post-processing: trims whitespace, strips code fences, leaves inner
   content intact.

@@ -28,7 +28,7 @@ Sources/AIEdit/
 │   │                             caret, at the mouse, or centered)
 │   └── EditPanelView.swift       SwiftUI content (describe field + action rows + status strip)
 ├── Providers/
-│   ├── LLMProvider.swift         LLMProvider protocol, ProviderStatus, ProviderRegistry
+│   ├── LLMProvider.swift         LLMProvider protocol and ProviderStatus
 │   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, Process)
 │   └── CopilotModelCatalog.swift Reads the CLI's cached model list from ~/.copilot/data.db
 │                                 (SQLite, read-only) for the settings pickers
@@ -49,8 +49,8 @@ There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
 
 ## Core flow
 
-`AppDelegate.applicationDidFinishLaunching` builds one `ProviderRegistry`, one
-`EditCoordinator`, one `StatusBarController`, and one `HotkeyManager`, all
+`AppDelegate.applicationDidFinishLaunching` builds one `CopilotCLIProvider`,
+one `EditCoordinator`, one `StatusBarController`, and one `HotkeyManager`, all
 wired to call `coordinator.start()`.
 
 1. **Trigger** — `HotkeyManager` (global hotkey) or `StatusBarController`
@@ -121,21 +121,19 @@ wired to call `coordinator.start()`.
 Esc anywhere in the panel routes through `KeyablePanel.cancelOperation` →
 `model.onCancel` and closes the session in every phase.
 
-## The `LLMProvider` protocol and adding a provider
+## The `LLMProvider` protocol
 
 ```swift
 // Sources/AIEdit/Providers/LLMProvider.swift
 protocol LLMProvider: Sendable {
-    var id: String { get }
     var displayName: String { get }
     func complete(_ prompt: String) async throws -> String
     func checkAvailability() async -> ProviderStatus   // .ready / .notFound / .error(String)
 }
 ```
 
-`ProviderRegistry` holds an array of providers; `current` is simply
-`providers.first` — today that's the single `CopilotCLIProvider` instance
-built by `ProviderRegistry.makeDefault(settings:)`.
+Today the app constructs one `CopilotCLIProvider` directly and passes it to
+the places that need completion or availability checks.
 
 To add a new provider:
 
@@ -152,20 +150,15 @@ To add a new provider:
    the stored model string when unreadable; the reasoning-effort picker
    narrows to the selected model's `supportedReasoningEfforts` and is passed
    to the CLI as `--reasoning-effort`.
-3. Add it to the array in `ProviderRegistry.makeDefault(settings:)`. Since
-   `current` is `providers.first`, decide the selection strategy at that
-   point (a real picker would need to replace `.first` with a stored
-   selection, e.g. an `AppSettings.selectedProviderID`).
-4. Add a picker entry in `SettingsView` (`Sources/AIEdit/Settings/SettingsView.swift`)
-   — it currently renders a disabled single-entry `Picker` plus a "More
-   providers coming soon" footnote; that's the placeholder to replace.
-5. Add unit tests alongside the existing ones in
+3. Add a real provider-selection path in `AppSettings` and `SettingsView`
+   before wiring multiple providers into `AppDelegate`.
+4. Add unit tests alongside the existing ones in
    `Tests/AIEditTests/AIEditTests.swift` for prompt/argv construction and
    output post-processing.
 
-No other call site needs to change — `EditCoordinator`, `DebugCLI`, and
-`StatusBarController` all go through `registry.current` /
-`provider.complete(_:)` / `provider.checkAvailability()`.
+`EditCoordinator`, `DebugCLI`, and `StatusBarController` should continue to use
+`provider.complete(_:)` / `provider.checkAvailability()` rather than knowing
+provider-specific details.
 
 ## Permissions model
 
@@ -210,7 +203,7 @@ presence — this is a menu-bar-only app) and bundle id
 `NSApplication` at all, so these run headless (no UI, no Accessibility
 prompt):
 
-- `AIEdit --provider-check` — builds the default registry, calls
+- `AIEdit --provider-check` — builds the Copilot provider, calls
   `provider.checkAvailability()`, prints `"<displayName>: ready"` (exit 0),
   `"...: not found"` (exit 1), or `"...: error — <message>"` (exit 1).
 - `AIEdit --complete <action> <<< "text"` — reads stdin as the input text,

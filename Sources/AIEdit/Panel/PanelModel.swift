@@ -35,7 +35,6 @@ final class PanelModel {
     var onCancelRun: (() -> Void)?
     /// Close the whole session (Esc / Done), keeping the document as shown.
     var onCancel: (() -> Void)?
-    var onClose: (() -> Void)?
 
     func reset(hasSelection: Bool, charCount: Int) {
         phase = .idle

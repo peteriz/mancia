@@ -26,11 +26,7 @@ enum DebugCLI {
 
     @MainActor
     private static func providerCheck() async {
-        let registry = ProviderRegistry.makeDefault(settings: AppSettings())
-        guard let provider = registry.current else {
-            printErr("No provider configured.")
-            exit(1)
-        }
+        let provider = CopilotCLIProvider(settings: AppSettings())
         let status = await provider.checkAvailability()
         switch status {
         case .ready:
@@ -54,11 +50,7 @@ enum DebugCLI {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input = String(data: data, encoding: .utf8) ?? ""
         let settings = AppSettings()
-        let registry = ProviderRegistry.makeDefault(settings: settings)
-        guard let provider = registry.current else {
-            printErr("No provider configured.")
-            exit(1)
-        }
+        let provider = CopilotCLIProvider(settings: settings)
         let prompt = PromptBuilder.build(action: action, text: input)
         do {
             let output = try await provider.complete(prompt)

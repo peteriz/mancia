@@ -22,8 +22,6 @@ final class EditPanel {
         case centered
     }
 
-    var isVisible: Bool { panel?.isVisible ?? false }
-
     /// Show the panel at the given placement, clamped on screen.
     func show(placement: Placement = .nearMouse) {
         let panel = panel ?? makePanel()

@@ -40,8 +40,8 @@ copy-pasting into a chat window, no context switch.
   it sound excited", …) before closing. While a request runs, the panel shows
   a spinner and disables everything except Cancel.
 - **Menu bar only** — no Dock icon, no app windows to manage.
-- **Pluggable provider layer** — ships with GitHub Copilot CLI today; the
-  `LLMProvider` protocol is designed so more backends can be added later.
+- **GitHub Copilot CLI provider** — uses your local `copilot` binary with
+  optional model and reasoning-effort settings.
 
 ## Requirements
 
@@ -143,7 +143,7 @@ contents are always restored after each capture/apply.
 Open via the menu bar icon ▸ **Settings…** (`⌘,`):
 
 - **Shortcut** — re-record the global hotkey.
-- **Provider** — GitHub Copilot CLI (only option today); a **Model** picker
+- **GitHub Copilot CLI** — a **Model** picker
   (populated from the Copilot CLI's cached model list in `~/.copilot/data.db`;
   "Default" = provider default); a **Reasoning effort** picker ("Default" =
   no flag, otherwise passed as `--reasoning-effort`, narrowed to the levels
@@ -156,7 +156,7 @@ Open via the menu bar icon ▸ **Settings…** (`⌘,`):
 
 - **"GitHub Copilot CLI was not found"** — install it with
   `npm install -g @github/copilot`, or set the exact binary path in
-  Settings ▸ Provider ▸ Copilot path, then click **Detect**/**Check**.
+  Settings ▸ GitHub Copilot CLI ▸ Copilot path, then click **Detect**/**Check**.
   AI-Edit looks for `copilot` at `/opt/homebrew/bin`, `/usr/local/bin`,
   `~/.local/bin`, and finally falls back to whatever `copilot` resolves to on
   your `PATH`.
@@ -198,12 +198,6 @@ Everything goes through the pasteboard:
 
 This is why Accessibility permission is required, and why the app briefly
 touches your clipboard on each edit (always restoring it afterward).
-
-## Roadmap
-
-- Additional LLM providers behind the existing `LLMProvider` protocol
-  (the provider picker already has a "More providers coming soon" slot).
-- Right-click / Services menu integration as an alternative to the hotkey.
 
 ## License
 

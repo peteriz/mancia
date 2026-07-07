@@ -35,7 +35,6 @@ private struct ProcessResult {
 
 /// LLM provider backed by the GitHub Copilot CLI in non-interactive mode.
 final class CopilotCLIProvider: LLMProvider {
-    let id = "copilot-cli"
     let displayName = "GitHub Copilot CLI"
 
     private let settings: AppSettings

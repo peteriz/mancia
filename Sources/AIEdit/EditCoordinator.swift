@@ -7,8 +7,7 @@ import AppKit
 /// are posted to the target app's pid, so they can't be swallowed by it.
 @MainActor
 final class EditCoordinator {
-    private let registry: ProviderRegistry
-    private let settings: AppSettings
+    private let provider: LLMProvider
     private let model = PanelModel()
     private let panel: EditPanel
 
@@ -24,9 +23,8 @@ final class EditCoordinator {
     /// Guards against overlapping navigation keystroke sequences.
     private var navigating = false
 
-    init(registry: ProviderRegistry, settings: AppSettings) {
-        self.registry = registry
-        self.settings = settings
+    init(provider: LLMProvider) {
+        self.provider = provider
         self.panel = EditPanel(model: model)
         wire()
     }
@@ -37,7 +35,6 @@ final class EditCoordinator {
         model.onRetry = { [weak self] in self?.retry() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
-        model.onClose = { [weak self] in self?.cancel() }
     }
 
     /// Entry point from hotkey or menu. Starts a fresh session.
@@ -92,10 +89,6 @@ final class EditCoordinator {
             // Input capture may have activated the target app; retake key
             // status so Esc reaches the panel while the provider runs.
             panel.focus()
-            guard let provider = registry.current else {
-                fail("No AI provider is configured.")
-                return
-            }
             let prompt = PromptBuilder.build(action: action, text: resolved.text)
             do {
                 let output = try await provider.complete(prompt)

@@ -4,7 +4,7 @@ import KeyboardShortcuts
 /// The app's settings window content.
 struct SettingsView: View {
     @Bindable var settings: AppSettings
-    let registry: ProviderRegistry
+    let provider: LLMProvider
 
     @State private var providerStatus: ProviderStatus = .ready
     @State private var checking = false
@@ -16,11 +16,7 @@ struct SettingsView: View {
                 KeyboardShortcuts.Recorder("Edit Selection:", name: .editSelection)
             }
 
-            Section("Provider") {
-                Picker("Provider:", selection: .constant(0)) {
-                    Text("GitHub Copilot CLI").tag(0)
-                }
-                .disabled(true)
+            Section("GitHub Copilot CLI") {
                 Picker("Model:", selection: $settings.copilotModel) {
                     Text("Default").tag("")
                     ForEach(models) { model in
@@ -39,18 +35,15 @@ struct SettingsView: View {
                 }
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(statusColor)
+                        .fill(providerStatus == .ready ? Color.green : Color.red)
                         .frame(width: 10, height: 10)
-                    Text(statusText)
+                    Text(providerStatus.label)
                         .foregroundStyle(.secondary)
-                        .help(statusTooltip)
+                        .help(providerStatus.detail)
                     if checking { ProgressView().controlSize(.small) }
                     Spacer()
                     Button("Check") { Task { await refreshStatus() } }
                 }
-                Text("More providers coming soon.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section("General") {
@@ -85,32 +78,8 @@ struct SettingsView: View {
     }
 
     private func refreshStatus() async {
-        guard let provider = registry.current else { return }
         checking = true
         providerStatus = await provider.checkAvailability()
         checking = false
-    }
-
-    private var statusColor: Color {
-        switch providerStatus {
-        case .ready: return .green
-        case .notFound, .error: return .red
-        }
-    }
-
-    private var statusText: String {
-        switch providerStatus {
-        case .ready: return "Ready"
-        case .notFound: return "Not found"
-        case .error: return "Error"
-        }
-    }
-
-    private var statusTooltip: String {
-        switch providerStatus {
-        case .ready: return "Copilot CLI is available."
-        case .notFound: return ProviderError.notFound.localizedDescription
-        case .error(let message): return message
-        }
     }
 }

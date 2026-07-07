@@ -4,7 +4,7 @@ import AppKit
 @MainActor
 final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let registry: ProviderRegistry
+    private let provider: LLMProvider
     private let menu = NSMenu()
 
     private var providerItem: NSMenuItem!
@@ -14,8 +14,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     var onSettings: (() -> Void)?
     var onAbout: (() -> Void)?
 
-    init(registry: ProviderRegistry) {
-        self.registry = registry
+    init(provider: LLMProvider) {
+        self.provider = provider
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
 
@@ -63,15 +63,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         accessibilityItem.isHidden = Permissions.isAccessibilityTrusted
         providerItem.title = "Provider: GitHub Copilot"
-        guard let provider = registry.current else { return }
         Task {
             let status = await provider.checkAvailability()
-            let mark: String
-            switch status {
-            case .ready: mark = "✓"
-            case .notFound, .error: mark = "⚠︎"
-            }
-            providerItem.title = "Provider: GitHub Copilot \(mark)"
+            providerItem.title = "Provider: GitHub Copilot \(status.menuMark)"
         }
     }
 

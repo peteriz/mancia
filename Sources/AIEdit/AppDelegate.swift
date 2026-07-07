@@ -6,17 +6,17 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = AppSettings.shared
-    private lazy var registry = ProviderRegistry.makeDefault(settings: settings)
+    private lazy var provider = CopilotCLIProvider(settings: settings)
     private var coordinator: EditCoordinator?
     private var statusBar: StatusBarController?
     private var hotkey: HotkeyManager?
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let coordinator = EditCoordinator(registry: registry, settings: settings)
+        let coordinator = EditCoordinator(provider: provider)
         self.coordinator = coordinator
 
-        let statusBar = StatusBarController(registry: registry)
+        let statusBar = StatusBarController(provider: provider)
         statusBar.onEdit = { [weak self] in self?.coordinator?.start() }
         statusBar.onSettings = { [weak self] in self?.showSettings() }
         statusBar.onAbout = { [weak self] in self?.showAbout() }
@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let hosting = NSHostingController(rootView: SettingsView(settings: settings, registry: registry))
+        let hosting = NSHostingController(rootView: SettingsView(settings: settings, provider: provider))
         // Create the window with its final style mask up front: reassigning
         // styleMask after NSWindow(contentViewController:) collapses the
         // content area to zero height (the "empty settings window" bug).
