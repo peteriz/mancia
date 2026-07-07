@@ -24,7 +24,19 @@ cp "$BIN_PATH" "$BUNDLE/Contents/MacOS/$BIN_NAME"
 cp "$ROOT/Support/Info.plist" "$BUNDLE/Contents/Info.plist"
 printf 'APPL????' > "$BUNDLE/Contents/PkgInfo"
 
-echo "==> codesign (ad-hoc)"
-codesign --force --deep -s - "$BUNDLE"
+# Sign with a stable identity when available so the Accessibility grant
+# survives rebuilds (TCC keys the grant to the code signature; ad-hoc
+# signatures change every build). Override with CODESIGN_ID=<name>.
+IDENTITY="${CODESIGN_ID:-}"
+if [[ -z "$IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "AI-Edit Dev Signing"; then
+    IDENTITY="AI-Edit Dev Signing"
+fi
+if [[ -n "$IDENTITY" ]]; then
+    echo "==> codesign ($IDENTITY)"
+    codesign --force --deep -s "$IDENTITY" "$BUNDLE"
+else
+    echo "==> codesign (ad-hoc — Accessibility must be re-granted after each rebuild)"
+    codesign --force --deep -s - "$BUNDLE"
+fi
 
 echo "==> built $BUNDLE"
