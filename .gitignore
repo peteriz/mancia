@@ -1,0 +1,16 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+# Package.resolved is committed (app, not a library) for reproducible builds.
+
+# App bundle assembled by scripts/make_app.sh
+build/
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
