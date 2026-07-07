@@ -18,6 +18,9 @@ final class PanelModel {
     var scope: Scope = .selection
     var hasSelection = true
     var selectionCharCount = 0
+    /// True while the selection is still being captured after an instant show.
+    /// The status line reads "Reading selection…" until this clears.
+    var capturing = false
     var instruction = ""
     var runningTitle = ""
     var errorText = ""
@@ -25,6 +28,8 @@ final class PanelModel {
     /// result) and which version the document currently shows.
     var versionCount = 0
     var currentIndex = 0
+    /// Bumped on every fresh session so the view can refocus the field.
+    var sessionSeq = 0
 
     // Wired by EditCoordinator.
     var onPerform: ((EditAction) -> Void)?
@@ -41,11 +46,24 @@ final class PanelModel {
         self.hasSelection = hasSelection
         selectionCharCount = charCount
         scope = hasSelection ? .selection : .document
+        capturing = false
         instruction = ""
         runningTitle = ""
         errorText = ""
         versionCount = 0
         currentIndex = 0
+        sessionSeq &+= 1
+    }
+
+    /// Route the hero action. Runs `Improve` when the field is empty, otherwise
+    /// the typed custom instruction — the single Enter/primary path.
+    func runPrimary() {
+        let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            onPerform?(.improve)
+        } else {
+            onPerform?(.custom(trimmed))
+        }
     }
 
     func submitInstruction() {

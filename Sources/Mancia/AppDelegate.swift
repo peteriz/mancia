@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let coordinator = EditCoordinator(provider: provider)
+        let coordinator = EditCoordinator(provider: provider, settings: settings)
         self.coordinator = coordinator
 
         let statusBar = StatusBarController(provider: provider)

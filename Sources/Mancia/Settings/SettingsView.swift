@@ -51,6 +51,11 @@ struct SettingsView: View {
             }
 
             Section("General") {
+                Picker("After applying:", selection: $settings.postApplyBehavior) {
+                    ForEach(PostApplyBehavior.allCases) { behavior in
+                        Text(behavior.label).tag(behavior)
+                    }
+                }
                 Toggle("Launch at login", isOn: Binding(
                     get: { settings.launchAtLogin },
                     set: { settings.launchAtLogin = $0 }

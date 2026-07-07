@@ -1,7 +1,11 @@
 import Foundation
 
 /// A text-editing action the user can invoke from the panel.
+///
+/// `improve` is the panel's single hero action — a proofread + rewrite blend.
+/// The other cases remain available through the debug CLI and prompt tests.
 enum EditAction: Equatable, Sendable {
+    case improve
     case rewrite
     case summarize
     case fixGrammar
@@ -10,6 +14,7 @@ enum EditAction: Equatable, Sendable {
     /// Short user-facing label for buttons/menus.
     var title: String {
         switch self {
+        case .improve: return "Improve"
         case .rewrite: return "Rewrite"
         case .summarize: return "Summarize"
         case .fixGrammar: return "Proofread"
@@ -20,10 +25,22 @@ enum EditAction: Equatable, Sendable {
     /// SF Symbol name for the button.
     var symbol: String {
         switch self {
+        case .improve: return "wand.and.rays"
         case .rewrite: return "pencil.and.outline"
         case .summarize: return "text.line.first.and.arrowtriangle.forward"
         case .fixGrammar: return "text.badge.checkmark"
         case .custom: return "sparkles"
+        }
+    }
+
+    /// Present-participle label shown while the action runs ("Improving…").
+    var progressLabel: String {
+        switch self {
+        case .improve: return "Improving"
+        case .rewrite: return "Rewriting"
+        case .summarize: return "Summarizing"
+        case .fixGrammar: return "Proofreading"
+        case .custom: return "Working"
         }
     }
 
@@ -33,6 +50,7 @@ enum EditAction: Equatable, Sendable {
             return .custom(String(raw.dropFirst("custom:".count)))
         }
         switch raw {
+        case "improve": return .improve
         case "rewrite": return .rewrite
         case "summarize": return .summarize
         case "fix-grammar", "fixGrammar": return .fixGrammar
@@ -74,8 +92,19 @@ enum PromptBuilder {
         ]
     )
 
+    static let improveTemplate = PromptTemplate(
+        task: "Improve the wording, grammar, and clarity of the text so it reads better and more naturally.",
+        requirements: [
+            "Preserve the meaning, factual details, intent, tone, language, and formatting.",
+            "Fix spelling, grammar, punctuation, and awkward or unnatural phrasing.",
+            "Do not add new information or remove any.",
+        ]
+    )
+
     static func build(action: EditAction, text: String) -> String {
         switch action {
+        case .improve:
+            return improveTemplate.render(text: text)
         case .rewrite:
             return rewriteTemplate.render(text: text)
         case .summarize:
