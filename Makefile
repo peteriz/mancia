@@ -1,10 +1,12 @@
 .PHONY: build test app release run clean
 
+SWIFT := ./scripts/swift.sh
+
 build:
-	swift build
+	$(SWIFT) build
 
 test:
-	swift test
+	$(SWIFT) test
 
 app:
 	./scripts/make_app.sh
@@ -17,5 +19,5 @@ run: app
 	open build/Mancia.app
 
 clean:
-	swift package clean
+	$(SWIFT) package clean
 	rm -rf build

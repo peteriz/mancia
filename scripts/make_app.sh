@@ -6,11 +6,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Mancia"
 BUNDLE="$ROOT/build/$APP_NAME.app"
 BIN_NAME="Mancia"
+SWIFT="$ROOT/scripts/swift.sh"
 
 echo "==> swift build -c release"
-swift build -c release --package-path "$ROOT"
+"$SWIFT" build -c release --package-path "$ROOT"
 
-BIN_PATH="$(swift build -c release --package-path "$ROOT" --show-bin-path)/$BIN_NAME"
+BIN_PATH="$("$SWIFT" build -c release --package-path "$ROOT" --show-bin-path)/$BIN_NAME"
 if [[ ! -x "$BIN_PATH" ]]; then
     echo "error: built binary not found at $BIN_PATH" >&2
     exit 1
