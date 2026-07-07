@@ -32,26 +32,18 @@ final class EditPanel {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Dismiss the panel. While shown it stays visible permanently — synthetic
+    /// keystrokes are posted to the target app's pid, so the panel never needs
+    /// to get out of their way.
     func close() {
         panel?.orderOut(nil)
     }
 
-    /// Temporarily hide the panel while preserving its state and position, so
-    /// synthetic ⌘A/⌘C/⌘V keystrokes reach the target app instead of being
-    /// swallowed by this floating panel. Pair with `reveal()`.
-    func hide() {
-        panel?.orderOut(nil)
-    }
-
-    /// Re-show a previously hidden panel in place (no repositioning), using the
-    /// same key-and-order-front path as `show()` so focus behaves exactly as it
-    /// did before hiding. `orderOut` tears down the SwiftUI hosting view's
-    /// accessibility tree, so we install a fresh hosting view before ordering
-    /// front. All state lives in the external `PanelModel`, so recreating the
-    /// view preserves it.
-    func reveal() {
-        guard let panel else { return }
-        panel.contentView = makeContentView()
+    /// Retake key status after the target app was activated for a keystroke
+    /// burst, so Esc (and typing) reach the panel again. No reordering, no
+    /// flicker; no-op when the panel isn't on screen.
+    func focus() {
+        guard let panel, panel.isVisible else { return }
         panel.makeKeyAndOrderFront(nil)
     }
 

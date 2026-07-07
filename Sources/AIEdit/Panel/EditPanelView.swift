@@ -10,16 +10,22 @@ struct EditPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Describe your change…", text: $model.instruction)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { model.submitInstruction() }
-                .accessibilityLabel("Custom instruction")
-                .accessibilityIdentifier("CustomInstruction")
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(actions, id: \.title) { action in
-                    ActionRow(action: action) { model.onPerform?(action) }
+            // Everything except the status strip's Cancel is disabled and
+            // dimmed while a provider request is in flight.
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Describe your change…", text: $model.instruction)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.submitInstruction() }
+                    .accessibilityLabel("Custom instruction")
+                    .accessibilityIdentifier("CustomInstruction")
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(actions, id: \.title) { action in
+                        ActionRow(action: action) { model.onPerform?(action) }
+                    }
                 }
             }
+            .disabled(isRunning)
+            .opacity(isRunning ? 0.4 : 1)
             Divider()
             statusStrip
         }
@@ -28,6 +34,8 @@ struct EditPanelView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .onExitCommand { model.onCancel?() }
     }
+
+    private var isRunning: Bool { model.phase == .running }
 
     // MARK: - Status strip
 
@@ -91,17 +99,33 @@ struct EditPanelView: View {
         .padding(.vertical, 2)
     }
 
+    /// Iteration navigation: ← 2/3 → plus Done. versions[0] is the session
+    /// original; each applied result appends a version.
     private var appliedStrip: some View {
         HStack(spacing: 8) {
-            Picker("Version", selection: versionBinding) {
-                Text("Original").tag(PanelModel.Version.original)
-                Text("Rewritten").tag(PanelModel.Version.rewritten)
+            Button {
+                model.onNavigate?(model.currentIndex - 1)
+            } label: {
+                Image(systemName: "chevron.backward")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel("Version")
-            .accessibilityIdentifier("VersionToggle")
+            .disabled(model.currentIndex == 0)
+            .accessibilityLabel("Previous version")
+            .accessibilityIdentifier("IterBack")
+            Text("\(model.currentIndex + 1)/\(model.versionCount)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .accessibilityIdentifier("IterCounter")
+            Button {
+                model.onNavigate?(model.currentIndex + 1)
+            } label: {
+                Image(systemName: "chevron.forward")
+            }
+            .controlSize(.small)
+            .disabled(model.currentIndex >= model.versionCount - 1)
+            .accessibilityLabel("Next version")
+            .accessibilityIdentifier("IterForward")
             Spacer()
             Button("Done") { model.onCancel?() }
                 .controlSize(.small)
@@ -109,15 +133,6 @@ struct EditPanelView: View {
                 .accessibilityIdentifier("Done")
         }
         .padding(.vertical, 2)
-    }
-
-    /// Routes segment changes through the coordinator so it can drive the
-    /// target app's undo stack / re-apply path.
-    private var versionBinding: Binding<PanelModel.Version> {
-        Binding(
-            get: { model.appliedVersion },
-            set: { model.onSelectVersion?($0) }
-        )
     }
 
     private var errorStrip: some View {

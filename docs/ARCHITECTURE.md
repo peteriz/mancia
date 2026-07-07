@@ -16,9 +16,10 @@ Sources/AIEdit/
 ├── HotkeyManager.swift           Registers the global hotkey (KeyboardShortcuts pkg)
 ├── Permissions.swift             AXIsProcessTrusted() checks + System Settings deep link
 ├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
-│                                 ⌘Z/⇧⌘Z undo/redo helpers, AX caret-rect lookup
+│                                 ⌘Z undo helper, AX caret-rect lookup; keystrokes are
+│                                 posted to the target app's pid (CGEvent.postToPid)
 ├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → panel →
-│                                 provider → apply inline → toggle/repeat
+│                                 provider → apply inline → iteration history/navigation
 ├── DebugCLI.swift                --provider-check / --complete headless entry points
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
 ├── Panel/
@@ -74,36 +75,44 @@ wired to call `coordinator.start()`.
    - centered on the main screen for entire-document scope;
    - always clamped to the screen's visible frame.
    The panel is a cyclical **edit session**: the describe field and the
-   action rows (Proofread / Rewrite / Summarize) are always visible, while a
-   status strip cycles `PanelModel.phase` through
-   `.idle → .running → .applied/.error` and back until the user closes it.
+   action rows (Proofread / Rewrite / Summarize) are always visible — dimmed
+   and disabled while a request runs — while a status strip cycles
+   `PanelModel.phase` through `.idle → .running → .applied/.error` and back
+   until the user closes it. The panel **stays visible throughout**: all
+   synthetic keystrokes are posted directly to the target app's process
+   (`CGEvent.postToPid`), so they cannot be swallowed by the panel and no
+   hide/reveal dance is needed. After each keystroke burst (which activates
+   the target app) the coordinator calls `panel.focus()` to retake key
+   status so Esc and typing reach the panel again.
 4. **Perform** — the user picks a built-in `EditAction` or types a free-form
    instruction (`PanelModel.submitInstruction()` → `.custom(text)`).
    `EditCoordinator.perform(_:)` resolves this cycle's input and apply
    strategy (`resolveInput()`):
    - `.document` scope: re-captures via `⌘A`+`⌘C` every cycle
-     (`SelectionCapture.captureEntireDocument(from:)`), so manual edits made
-     between cycles and the toggle position are respected; applies with
-     `⌘A`+`⌘V`.
+     (`SelectionCapture.captureEntireDocument(from:)`); captured text that
+     differs from the currently shown version (a manual edit) becomes the new
+     session baseline (`versions = [captured]`). Applies with `⌘A`+`⌘V`.
    - `.selection` scope, first cycle: uses the already-captured text and
      pastes over the still-live selection.
    - `.selection` scope, later cycles: probes with a fresh `⌘C`
-     (`captureFreshSelection`) — a new user selection wins and resets the
-     session original; otherwise the input is the version currently shown per
-     the toggle, applied via **undo-then-paste** (`⌘Z` restores and re-selects
-     the previously replaced text in NSTextView-based apps, then `⌘V` pastes
-     over it), which keeps original↔latest a single undo step.
+     (`captureFreshSelection`) — a new user selection becomes the new session
+     baseline; otherwise the input is `versions[currentIndex]` (what the
+     document shows), applied via **undo-then-paste** (`⌘Z` restores and
+     re-selects the previously replaced text in NSTextView-based apps, then
+     `⌘V` pastes over it), keeping exactly one paste outstanding.
    It then builds the prompt with `PromptBuilder.build(action:text:)` and
-   calls `provider.complete(prompt)` inside a cancellable `Task`.
-5. **Apply & compare** — when the result arrives, the panel hides
-   (`panel.hide()` — load-bearing so the synthetic keystrokes reach the
-   target app), `SelectionCapture.apply(text:to:entireDocument:)` pastes the
-   result (pasteboard → activate target → `⌘V`, restoring the user's
-   pasteboard ~1 s later), and the panel reveals again with the applied
-   strip: an **Original | Rewritten** toggle plus **Done**.
-   - The toggle (`EditCoordinator.selectVersion(_:)`) rides the target app's
-     native undo stack for selections (`⌘Z` / `⇧⌘Z` via
-     `SelectionCapture.undo/redo`) and re-applies the tracked text via
+   calls `provider.complete(prompt)` inside a cancellable `Task`. While it
+   runs, only the strip's **Cancel** is enabled (spinner + action name).
+5. **Apply & iterate** — when the result arrives,
+   `SelectionCapture.apply(text:to:entireDocument:)` pastes it (pasteboard →
+   activate target → `⌘V`, restoring the user's pasteboard ~1 s later) with
+   the panel still on screen. The coordinator records the iteration
+   (`versions`: index 0 is the session original, one entry per applied
+   result; running a new action from an earlier version truncates the
+   forward history) and the applied strip shows `←` / `→` navigation with a
+   "2/3"-style counter plus **Done**.
+   - Navigation (`EditCoordinator.navigate(to:)`) rewrites the document with
+     `versions[index]`: undo-then-paste for selections (including index 0),
      `⌘A`+`⌘V` for document scope (robust against manual edits in between).
    - **Cancel** (running strip) stops the in-flight `Task` but keeps the
      session open; **Retry** (error strip) re-runs `perform(lastAction)`;

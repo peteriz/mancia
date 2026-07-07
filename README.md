@@ -4,10 +4,10 @@ AI-Edit is a small macOS menu bar utility that puts an AI text edit within a
 keystroke of anywhere you type. Press a global hotkey in any app, and a
 compact Writing Tools-style panel appears next to your text caret offering
 quick actions — Proofread, Rewrite, Summarize — or a free-form instruction
-you type yourself. The result is applied in place immediately; an
-"Original | Rewritten" toggle lets you compare and keep either version, and
-you can chain further edits in the same session. No copy-pasting into a chat
-window, no context switch.
+you type yourself. The result is applied in place immediately; iteration
+arrows (← 2/3 →) let you flip between the original and every result you've
+generated, and you can chain further edits in the same session. No
+copy-pasting into a chat window, no context switch.
 
 ```
   ⌃⌥⌘E in any app
@@ -32,10 +32,13 @@ window, no context switch.
 - **Two scopes** — edit just the current selection, or the entire document
   (select-all under the hood).
 - **Applied instantly, reversible** — the result lands in your document right
-  away; an **Original | Rewritten** toggle compares versions, and **Done**
-  (or Esc) keeps whichever is showing.
-- **Cyclical sessions** — the panel stays open after an apply, so you can
-  chain edits (proofread, then "make it sound excited", …) before closing.
+  away; iteration arrows with a **2/3-style counter** navigate between the
+  original and every generated version, and **Done** (or Esc) keeps whichever
+  is showing.
+- **Cyclical sessions** — the panel stays visible and on top the whole time
+  (no flicker during applies), so you can chain edits (proofread, then "make
+  it sound excited", …) before closing. While a request runs, the panel shows
+  a spinner and disables everything except Cancel.
 - **Menu bar only** — no Dock icon, no app windows to manage.
 - **Pluggable provider layer** — ships with GitHub Copilot CLI today; the
   `LLMProvider` protocol is designed so more backends can be added later.
@@ -112,12 +115,15 @@ development builds, not a bug.
    (a small menu on the caption switches to "Entire document").
 4. Click an action (Proofread, Rewrite, Summarize) or type an instruction
    into "Describe your change…" and press Return.
-5. The result replaces your selection immediately. The panel then shows an
-   **Original | Rewritten** toggle — flip it to compare (it drives the target
-   app's native undo/redo) — plus **Done**.
+5. While the request runs, the panel shows a spinner with the action name;
+   everything else is disabled except **Cancel**. The result then replaces
+   your selection immediately (the panel stays visible throughout), and the
+   status row shows iteration arrows with a counter (e.g. `← 2/2 →`) plus
+   **Done**. Version 1 is always your original text.
 6. The session stays open: run another action or type another instruction to
-   edit the current result again, or press **Done**/`Esc` to finish, keeping
-   whichever version is showing.
+   edit the current result again (each result appends an iteration; going
+   back and running a new action drops the versions after the current one),
+   or press **Done**/`Esc` to finish, keeping whichever version is showing.
 
 **Editing the entire document:**
 
@@ -125,8 +131,9 @@ development builds, not a bug.
    with an "Entire document" caption.
 2. For every action, AI-Edit selects all (`⌘A`) in the frontmost app,
    captures the whole text (picking up any manual edits you made between
-   actions), runs your chosen action, and pastes the result back over the
-   document. The Original | Rewritten toggle re-applies the tracked versions.
+   actions — a changed document starts a fresh iteration history), runs your
+   chosen action, and pastes the result back over the document. The iteration
+   arrows re-apply the tracked versions.
 
 Press `Esc` at any point to close the session — your original clipboard
 contents are always restored after each capture/apply.
@@ -173,7 +180,9 @@ Everything goes through the pasteboard:
 
 1. Snapshot your current clipboard contents (so nothing is lost).
 2. Post a synthetic `⌘C` (or `⌘A` then `⌘C` for "entire document") to copy
-   the target text, polling the clipboard for a change.
+   the target text, polling the clipboard for a change. Keystrokes are
+   posted directly to the target app's process (`CGEvent.postToPid`), so the
+   floating panel never has to hide out of their way.
 3. Restore your original clipboard immediately — your copy of the captured
    text lives only in memory.
 4. Send the captured text to the provider with a prompt built from the chosen
@@ -181,11 +190,11 @@ Everything goes through the pasteboard:
 5. Apply immediately: put the result on the clipboard, post `⌘V` (or `⌘A`
    then `⌘V`) into the original app, then restore your original clipboard
    again about a second later.
-6. The Original | Rewritten toggle rides the target app's native undo stack
-   (`⌘Z` / `⇧⌘Z`) for selections, and re-applies the tracked text for
-   whole-document edits. Repeat edits in the same session replace the
-   previous paste (undo, then paste) so the toggle always compares the
-   session's original against the latest result in a single step.
+6. Iteration navigation replaces the document text with the chosen version:
+   for selections, `⌘Z` (undo of the outstanding paste, which also restores
+   the selection) followed by `⌘V` with that version; for whole-document
+   edits, `⌘A` + `⌘V`. Repeat edits replace the previous paste the same way,
+   so exactly one paste stays outstanding over the session original.
 
 This is why Accessibility permission is required, and why the app briefly
 touches your clipboard on each edit (always restoring it afterward).

@@ -39,7 +39,11 @@ struct SelectionCaptureResult {
 }
 
 /// Pasteboard-based selection capture and replacement, driven by synthetic
-/// ⌘C / ⌘A / ⌘V keystrokes. Requires Accessibility permission.
+/// ⌘C / ⌘A / ⌘V / ⌘Z keystrokes. Requires Accessibility permission.
+///
+/// Keystrokes are posted directly to the target app's process with
+/// `CGEvent.postToPid(_:)`, so they are delivered to that app regardless of
+/// which window is key — the floating panel can stay visible throughout.
 @MainActor
 enum SelectionCapture {
     private enum KeyCode {
@@ -53,7 +57,7 @@ enum SelectionCapture {
     static func captureSelection() async -> SelectionCaptureResult {
         let targetApp = NSWorkspace.shared.frontmostApplication
         let snapshot = PasteboardSnapshot.capture()
-        let text = await copyCurrentSelection()
+        let text = await copyCurrentSelection(pid: targetApp?.processIdentifier)
         snapshot.restore()
         return SelectionCaptureResult(text: text, targetApp: targetApp, snapshot: snapshot)
     }
@@ -62,9 +66,9 @@ enum SelectionCapture {
     static func captureEntireDocument(from result: SelectionCaptureResult) async -> String? {
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(120))
-        postCommandKey(KeyCode.a)
+        postCommandKey(KeyCode.a, to: result)
         try? await Task.sleep(for: .milliseconds(60))
-        let text = await copyCurrentSelection()
+        let text = await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
         result.snapshot.restore()
         return text
     }
@@ -78,10 +82,10 @@ enum SelectionCapture {
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(150))
         if entireDocument {
-            postCommandKey(KeyCode.a)
+            postCommandKey(KeyCode.a, to: result)
             try? await Task.sleep(for: .milliseconds(40))
         }
-        postCommandKey(KeyCode.v)
+        postCommandKey(KeyCode.v, to: result)
         try? await Task.sleep(for: .seconds(1))
         result.snapshot.restore()
     }
@@ -93,24 +97,17 @@ enum SelectionCapture {
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(120))
         let snapshot = PasteboardSnapshot.capture()
-        let text = await copyCurrentSelection()
+        let text = await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
         snapshot.restore()
         return text
     }
 
     /// Undo the last applied edit in the target app via a synthetic ⌘Z.
+    /// In NSTextView-based apps this also restores the replaced selection.
     static func undo(in result: SelectionCaptureResult) async {
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(150))
-        postCommandKey(KeyCode.z)
-        try? await Task.sleep(for: .milliseconds(150))
-    }
-
-    /// Redo the last undone edit in the target app via a synthetic ⇧⌘Z.
-    static func redo(in result: SelectionCaptureResult) async {
-        result.targetApp?.activate()
-        try? await Task.sleep(for: .milliseconds(150))
-        postCommandKey(KeyCode.z, flags: [.maskCommand, .maskShift])
+        postCommandKey(KeyCode.z, to: result)
         try? await Task.sleep(for: .milliseconds(150))
     }
 
@@ -154,10 +151,10 @@ enum SelectionCapture {
     // MARK: - Internals
 
     /// Post ⌘C and poll the pasteboard for a change (up to 600 ms).
-    private static func copyCurrentSelection() async -> String? {
+    private static func copyCurrentSelection(pid: pid_t?) async -> String? {
         let pb = NSPasteboard.general
         let startCount = pb.changeCount
-        postCommandKey(KeyCode.c)
+        postCommandKey(KeyCode.c, toPid: pid)
         var elapsed = 0
         while elapsed < 600 {
             try? await Task.sleep(for: .milliseconds(30))
@@ -169,13 +166,26 @@ enum SelectionCapture {
         return (string?.isEmpty == false) ? string : nil
     }
 
-    private static func postCommandKey(_ keyCode: CGKeyCode, flags: CGEventFlags = .maskCommand) {
+    private static func postCommandKey(_ keyCode: CGKeyCode, to result: SelectionCaptureResult) {
+        postCommandKey(keyCode, toPid: result.targetApp?.processIdentifier)
+    }
+
+    /// Post a ⌘-keystroke directly to the target process's event queue
+    /// (`postToPid`), so delivery does not depend on which window is key and
+    /// the floating panel never swallows it. Falls back to the HID event tap
+    /// when no target pid is known.
+    private static func postCommandKey(_ keyCode: CGKeyCode, toPid pid: pid_t?, flags: CGEventFlags = .maskCommand) {
         let source = CGEventSource(stateID: .combinedSessionState)
         let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
         let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         down?.flags = flags
         up?.flags = flags
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        if let pid {
+            down?.postToPid(pid)
+            up?.postToPid(pid)
+        } else {
+            down?.post(tap: .cghidEventTap)
+            up?.post(tap: .cghidEventTap)
+        }
     }
 }

@@ -5,16 +5,14 @@ import Observation
 /// drives it. The coordinator wires the closures; the view calls them.
 ///
 /// The panel is a cyclical edit session: the describe field and action rows
-/// are always visible, while a status strip cycles idle → running → applied
-/// (Original | Rewritten toggle) → back, until the user closes the session.
+/// are always visible (disabled while a request runs), while a status strip
+/// cycles idle → running → applied (iteration navigation) → back, until the
+/// user closes the session.
 @MainActor
 @Observable
 final class PanelModel {
     enum Phase: Equatable { case idle, running, applied, error }
     enum Scope: Equatable { case selection, document }
-    /// Which version of the text is currently shown in the target document
-    /// while the applied strip is up (session original vs latest result).
-    enum Version: Equatable { case original, rewritten }
 
     var phase: Phase = .idle
     var scope: Scope = .selection
@@ -23,11 +21,15 @@ final class PanelModel {
     var instruction = ""
     var runningTitle = ""
     var errorText = ""
-    var appliedVersion: Version = .rewritten
+    /// Iteration history: number of versions (original + one per applied
+    /// result) and which version the document currently shows.
+    var versionCount = 0
+    var currentIndex = 0
 
     // Wired by EditCoordinator.
     var onPerform: ((EditAction) -> Void)?
-    var onSelectVersion: ((Version) -> Void)?
+    /// Navigate the document to versions[index].
+    var onNavigate: ((Int) -> Void)?
     var onRetry: (() -> Void)?
     /// Stop the in-flight action but keep the session open.
     var onCancelRun: (() -> Void)?
@@ -43,7 +45,8 @@ final class PanelModel {
         instruction = ""
         runningTitle = ""
         errorText = ""
-        appliedVersion = .rewritten
+        versionCount = 0
+        currentIndex = 0
     }
 
     func submitInstruction() {

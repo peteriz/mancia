@@ -1,8 +1,10 @@
 import AppKit
 
 /// Orchestrates a cyclical edit session: capture selection → show panel →
-/// run provider → apply inline → toggle/compare or run further actions, until
-/// the user closes the session. Owns the panel and the in-flight task.
+/// run provider → apply inline → navigate between iterations or run further
+/// actions, until the user closes the session. Owns the panel and the
+/// in-flight task. The panel stays visible throughout — synthetic keystrokes
+/// are posted to the target app's pid, so they can't be swallowed by it.
 @MainActor
 final class EditCoordinator {
     private let registry: ProviderRegistry
@@ -13,11 +15,14 @@ final class EditCoordinator {
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
     private var lastAction: EditAction?
-    /// The text the session started from (first action's input; reset when the
-    /// user makes a fresh selection mid-session). Compared by the toggle.
-    private var sessionOriginal: String?
-    /// The most recently applied provider output.
-    private var latestOutput: String?
+    /// Iteration history: versions[0] is the session original (reset when the
+    /// user makes a fresh selection or manual edit mid-session), followed by
+    /// one entry per applied result.
+    private var versions: [String] = []
+    /// Which version the document currently shows.
+    private var currentIndex = 0
+    /// Guards against overlapping navigation keystroke sequences.
+    private var navigating = false
 
     init(registry: ProviderRegistry, settings: AppSettings) {
         self.registry = registry
@@ -28,7 +33,7 @@ final class EditCoordinator {
 
     private func wire() {
         model.onPerform = { [weak self] in self?.perform($0) }
-        model.onSelectVersion = { [weak self] in self?.selectVersion($0) }
+        model.onNavigate = { [weak self] in self?.navigate(to: $0) }
         model.onRetry = { [weak self] in self?.retry() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
@@ -42,8 +47,9 @@ final class EditCoordinator {
         Task {
             let result = await SelectionCapture.captureSelection()
             self.capture = result
-            self.sessionOriginal = nil
-            self.latestOutput = nil
+            self.versions = []
+            self.currentIndex = 0
+            self.navigating = false
             let hasSelection = result.text != nil
             model.reset(hasSelection: hasSelection, charCount: result.text?.count ?? 0)
             panel.show(placement: placement(hasSelection: hasSelection))
@@ -64,8 +70,7 @@ final class EditCoordinator {
     private enum ApplyStrategy {
         /// ⌘A + ⌘V (entire-document scope; every cycle).
         case entireDocument
-        /// ⌘V over the live selection (first cycle, fresh user selection, or
-        /// the undo-restored selection when the toggle shows Original).
+        /// ⌘V over the live selection (first cycle or fresh user selection).
         case liveSelection
         /// ⌘Z first (undo the previous paste, which restores and re-selects
         /// the replaced text in NSTextView-based apps), then ⌘V over it.
@@ -80,9 +85,13 @@ final class EditCoordinator {
             model.runningTitle = action.title
             model.phase = .running
             guard let resolved = await resolveInput() else {
+                panel.focus()
                 if !Task.isCancelled, model.phase == .running { fail("There is no text to edit.") }
                 return
             }
+            // Input capture may have activated the target app; retake key
+            // status so Esc reaches the panel while the provider runs.
+            panel.focus()
             guard let provider = registry.current else {
                 fail("No AI provider is configured.")
                 return
@@ -92,10 +101,8 @@ final class EditCoordinator {
                 let output = try await provider.complete(prompt)
                 if Task.isCancelled { return }
                 guard let capture else { return }
-                // Apply immediately: hide the panel first so the synthetic
-                // keystrokes reach the target app, then reveal the panel with
-                // the applied strip (Original | Rewritten toggle).
-                panel.hide()
+                // Apply immediately. Keystrokes are posted to the target
+                // app's pid, so the panel stays visible throughout.
                 switch resolved.strategy {
                 case .entireDocument:
                     await SelectionCapture.apply(text: output, to: capture, entireDocument: true)
@@ -106,12 +113,15 @@ final class EditCoordinator {
                     await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
                 }
                 if Task.isCancelled { return }
-                if sessionOriginal == nil { sessionOriginal = resolved.text }
-                latestOutput = output
-                model.appliedVersion = .rewritten
+                // Record the iteration: drop any forward history, then append.
+                if versions.isEmpty { versions = [resolved.text] }
+                versions = Array(versions.prefix(currentIndex + 1))
+                versions.append(output)
+                currentIndex = versions.count - 1
+                syncIterationState()
                 model.instruction = ""
                 model.phase = .applied
-                panel.reveal()
+                panel.focus()
             } catch is CancellationError {
                 if model.phase == .running { model.phase = previousPhase }
                 return
@@ -125,79 +135,78 @@ final class EditCoordinator {
     /// Determine this cycle's input text and apply strategy.
     ///
     /// - Document scope: re-capture via ⌘A+⌘C every cycle, so manual edits the
-    ///   user made between cycles (and the toggle position) are respected.
+    ///   user made between cycles (and the navigation position) are respected;
+    ///   text that differs from the currently shown version becomes the new
+    ///   session baseline (versions = [captured]).
     /// - Selection scope, first cycle: the text captured when the session
     ///   started; the original selection is still live in the target app.
     /// - Selection scope, later cycles: probe with a fresh ⌘C — a new user
-    ///   selection wins and resets the session original. Otherwise the input
-    ///   is the version currently shown per the toggle: the latest output
-    ///   (replaced via undo-then-paste) or the session original (already
-    ///   restored and re-selected in the document by the toggle's ⌘Z).
+    ///   selection becomes the new session baseline. Otherwise the input is
+    ///   versions[currentIndex] (what the document shows), replaced via
+    ///   undo-then-paste.
     private func resolveInput() async -> (text: String, strategy: ApplyStrategy)? {
         guard let capture else { return nil }
         if model.scope == .document {
-            // Hide the panel so the synthetic ⌘A/⌘C reaches the target app,
-            // then bring it back so the user sees the running spinner.
-            panel.hide()
             let text = await SelectionCapture.captureEntireDocument(from: capture)
-            panel.reveal()
             guard let text, !text.isEmpty else { return nil }
+            if versions.isEmpty || text != versions[currentIndex] {
+                resetBaseline(to: text)
+            }
             return (text, .entireDocument)
         }
-        if latestOutput == nil {
+        if versions.isEmpty {
             guard let text = capture.text, !text.isEmpty else { return nil }
             return (text, .liveSelection)
         }
         // Later cycle: check for a fresh user selection first.
-        panel.hide()
-        let fresh = await SelectionCapture.captureFreshSelection(from: capture)
-        panel.reveal()
-        if let fresh, !fresh.isEmpty {
-            let isRestoredCurrent = fresh == currentVersionText
-            if !isRestoredCurrent {
-                // A genuinely new selection starts a new sub-edit.
-                sessionOriginal = fresh
+        if let fresh = await SelectionCapture.captureFreshSelection(from: capture), !fresh.isEmpty {
+            if fresh != versions[currentIndex] {
+                // A genuinely new selection starts a new session baseline.
+                resetBaseline(to: fresh)
             }
             return (fresh, .liveSelection)
         }
-        guard let text = currentVersionText, !text.isEmpty else { return nil }
-        return (text, model.appliedVersion == .rewritten ? .undoThenPaste : .liveSelection)
+        let text = versions[currentIndex]
+        guard !text.isEmpty else { return nil }
+        return (text, .undoThenPaste)
     }
 
-    /// The text currently shown in the document per the toggle.
-    private var currentVersionText: String? {
-        model.appliedVersion == .rewritten ? latestOutput : sessionOriginal
+    /// A fresh selection or manual edit becomes the new session baseline.
+    private func resetBaseline(to text: String) {
+        versions = [text]
+        currentIndex = 0
+        syncIterationState()
     }
 
-    /// Show the session original or the latest output in the document.
+    private func syncIterationState() {
+        model.versionCount = versions.count
+        model.currentIndex = currentIndex
+    }
+
+    /// Replace the document text with versions[index].
     ///
-    /// - Selection scope: ride the target app's native undo stack — ⌘Z shows
-    ///   the original (undo of a paste also re-selects the replaced text),
-    ///   ⇧⌘Z (redo) brings the latest back. The undo-then-paste apply strategy
-    ///   keeps this a single step even after repeated cycles.
-    /// - Document scope: re-apply the tracked text via ⌘A+⌘V, which stays
-    ///   correct even when the user manually edited between cycles (a single
-    ///   ⌘Z would only undo their typing).
-    private func selectVersion(_ version: PanelModel.Version) {
-        guard let capture, model.phase == .applied, version != model.appliedVersion else { return }
-        let text = version == .original ? sessionOriginal : latestOutput
-        guard let text else { return }
-        model.appliedVersion = version
-        currentTask?.cancel()
+    /// - Selection scope: ⌘Z (undo of the outstanding paste restores and
+    ///   re-selects the replaced region in NSTextView-based apps) followed by
+    ///   ⌘V with versions[index] — always undo-then-paste, including for
+    ///   index 0, so exactly one paste stays outstanding.
+    /// - Document scope: ⌘A + ⌘V with versions[index], which stays correct
+    ///   even when the user manually edited between cycles.
+    private func navigate(to index: Int) {
+        guard let capture, model.phase == .applied, !navigating,
+              index >= 0, index < versions.count, index != currentIndex else { return }
+        navigating = true
+        currentIndex = index
+        syncIterationState()
         currentTask = Task {
-            // Order the panel out first so the synthetic keystrokes are
-            // delivered to the target app rather than being consumed here,
-            // then bring it back so the user can keep toggling.
-            panel.hide()
+            defer { navigating = false }
+            let text = versions[index]
             if model.scope == .document {
                 await SelectionCapture.apply(text: text, to: capture, entireDocument: true)
             } else {
-                switch version {
-                case .original: await SelectionCapture.undo(in: capture)
-                case .rewritten: await SelectionCapture.redo(in: capture)
-                }
+                await SelectionCapture.undo(in: capture)
+                await SelectionCapture.apply(text: text, to: capture, entireDocument: false)
             }
-            panel.reveal()
+            panel.focus()
         }
     }
 
@@ -209,7 +218,8 @@ final class EditCoordinator {
     private func cancelRun() {
         currentTask?.cancel()
         currentTask = nil
-        model.phase = latestOutput == nil ? .idle : .applied
+        model.phase = versions.count > 1 ? .applied : .idle
+        panel.focus()
     }
 
     /// Close the session (Esc / Done), keeping the document as shown.
@@ -222,6 +232,7 @@ final class EditCoordinator {
     private func fail(_ message: String) {
         model.errorText = message
         model.phase = .error
+        panel.focus()
     }
 
     // MARK: - Accessibility
