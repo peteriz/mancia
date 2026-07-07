@@ -173,8 +173,8 @@ so it comes to front). Sections:
   executable `Mancia`, test target.
 - `scripts/make_app.sh`: `swift build -c release`, assemble
   `build/Mancia.app/Contents/{MacOS,Resources}`, copy binary + Info.plist,
-  write PkgInfo, then sign with `CODESIGN_ID`, local `Mancia Dev Signing`, or
-  ad-hoc fallback.
+  write PkgInfo, then sign with `CODESIGN_ID`, local `Mancia Dev Signing`, any
+  other local `… Dev Signing` identity, or ad-hoc fallback.
 - `Makefile` targets: `build` (debug swift build), `test` (swift test),
   `app` (release bundle), `release` (requires explicit `CODESIGN_ID`), `run`
   (app + `open`), `clean`.

@@ -194,8 +194,9 @@ presence — this is a menu-bar-only app) and bundle id
 - **scripts/make_app.sh** — `swift build -c release`, assembles
   `build/Mancia.app/Contents/{MacOS,Resources}`, copies the binary and
   `Support/Info.plist`, writes a `PkgInfo`, then signs the bundle. Signing
-  order is: explicit `CODESIGN_ID`, local `Mancia Dev Signing` certificate,
-  then ad-hoc fallback unless `REQUIRE_SIGNING=1`. Developer ID identities get
+  order is: explicit `CODESIGN_ID`, local `Mancia Dev Signing` certificate, any
+  other local `… Dev Signing` identity (e.g. a legacy cert from a previous app
+  name), then ad-hoc fallback unless `REQUIRE_SIGNING=1`. Developer ID identities get
   `--options runtime` by default for notarization readiness. Accessibility
   approval survives updates only when `CFBundleIdentifier`
   (`io.github.peteriz.mancia`) and the signing identity stay stable.
