@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/mancia-logo.png" alt="Mancia logo" width="240">
+</p>
+
 # AI-Edit
 
 AI-Edit is a small macOS menu bar utility that puts an AI text edit within a

@@ -22,6 +22,7 @@ mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 
 cp "$BIN_PATH" "$BUNDLE/Contents/MacOS/$BIN_NAME"
 cp "$ROOT/Support/Info.plist" "$BUNDLE/Contents/Info.plist"
+cp -R "$ROOT/Support/Resources/." "$BUNDLE/Contents/Resources/"
 printf 'APPL????' > "$BUNDLE/Contents/PkgInfo"
 
 # Sign with a stable identity when available so the Accessibility grant
