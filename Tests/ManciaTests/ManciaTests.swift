@@ -7,7 +7,7 @@ import Foundation
 @Test("Every action embeds the input text and the output-only clause")
 func promptContainsTextAndClause() {
     let sample = "The quick brown fox"
-    let actions: [EditAction] = [.rewrite, .summarize, .fixGrammar, .custom("make it formal")]
+    let actions: [EditAction] = [.improve, .rewrite, .summarize, .fixGrammar, .custom("make it formal")]
     for action in actions {
         let prompt = PromptBuilder.build(action: action, text: sample)
         #expect(prompt.contains(sample), "prompt for \(action.title) should contain the input text")
@@ -33,6 +33,14 @@ func presetPromptTemplatesAreSpecific() {
     #expect(proofread.contains("Change only what is needed for correctness."))
 }
 
+@Test("Improve prompt preserves meaning and improves wording")
+func improvePromptShape() {
+    let prompt = PromptBuilder.build(action: .improve, text: "helo wrld")
+    #expect(prompt.contains("helo wrld"))
+    #expect(prompt.lowercased().contains("meaning"))
+    #expect(prompt.lowercased().contains("improve"))
+}
+
 @Test("Custom prompt carries the instruction")
 func customPromptContainsInstruction() {
     let prompt = PromptBuilder.build(action: .custom("Make it a haiku"), text: "some text")
@@ -43,6 +51,7 @@ func customPromptContainsInstruction() {
 
 @Test("Action parsing round-trips CLI identifiers")
 func actionParsing() {
+    #expect(EditAction.parse("improve") == .improve)
     #expect(EditAction.parse("rewrite") == .rewrite)
     #expect(EditAction.parse("summarize") == .summarize)
     #expect(EditAction.parse("fix-grammar") == .fixGrammar)

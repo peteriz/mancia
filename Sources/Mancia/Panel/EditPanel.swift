@@ -7,6 +7,10 @@ import SwiftUI
 final class EditPanel {
     private let model: PanelModel
     private var panel: NSPanel?
+    /// Invoked on any key press routed to the panel. Returns whether the event
+    /// was consumed (used to cancel the post-apply auto-close and to drive
+    /// keyboard version navigation without the field swallowing the arrows).
+    var onKeyDown: ((NSEvent) -> Bool)?
 
     init(model: PanelModel) {
         self.model = model
@@ -74,6 +78,7 @@ final class EditPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
+        panel.onKeyDown = { [weak self] event in self?.onKeyDown?(event) ?? false }
         return panel
     }
 
@@ -112,10 +117,19 @@ final class EditPanel {
 /// NSPanel that can become key (needed for the text field) and routes Esc.
 private final class KeyablePanel: NSPanel {
     var onCancel: (() -> Void)?
+    var onKeyDown: ((NSEvent) -> Bool)?
 
     override var canBecomeKey: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
+    }
+
+    /// Observe key presses so the coordinator can cancel the post-apply beat and
+    /// drive version navigation. Events it doesn't consume still forward to the
+    /// content (typing, Esc), so the panel behaves normally otherwise.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, onKeyDown?(event) == true { return }
+        super.sendEvent(event)
     }
 }

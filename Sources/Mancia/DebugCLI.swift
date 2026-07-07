@@ -44,7 +44,7 @@ enum DebugCLI {
     @MainActor
     private static func complete(actionArg: String) async {
         guard let action = EditAction.parse(actionArg) else {
-            printErr("Unknown action: \(actionArg). Use rewrite|summarize|fix-grammar|custom:<instruction>.")
+            printErr("Unknown action: \(actionArg). Use improve|rewrite|summarize|fix-grammar|custom:<instruction>.")
             exit(2)
         }
         let data = FileHandle.standardInput.readDataToEndOfFile()

@@ -8,12 +8,20 @@ import AppKit
 @MainActor
 final class EditCoordinator {
     private let provider: LLMProvider
+    private let settings: AppSettings
     private let model = PanelModel()
     private let panel: EditPanel
 
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
     private var lastAction: EditAction?
+    /// True while the selection is being captured after an instant show; an
+    /// action fired during this window is queued in `pendingAction`.
+    private var capturing = false
+    private var pendingAction: EditAction?
+    /// The post-apply auto-close beat (hybrid behavior). Cancelled on any panel
+    /// key press so the user can keep iterating.
+    private var autoCloseTask: Task<Void, Never>?
     /// Iteration history: versions[0] is the session original (reset when the
     /// user makes a fresh selection or manual edit mid-session), followed by
     /// one entry per applied result.
@@ -26,8 +34,9 @@ final class EditCoordinator {
     /// so a repeated hotkey/menu trigger can't spawn an overlapping capture.
     private var sessionActive = false
 
-    init(provider: LLMProvider) {
+    init(provider: LLMProvider, settings: AppSettings) {
         self.provider = provider
+        self.settings = settings
         self.panel = EditPanel(model: model)
         wire()
     }
@@ -38,32 +47,55 @@ final class EditCoordinator {
         model.onRetry = { [weak self] in self?.retry() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
+        panel.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
     }
 
     /// Entry point from hotkey or menu. Starts a fresh session. Ignores
     /// re-triggers while a session is already active, so overlapping capture
     /// sequences can't clobber each other's pasteboard/keystroke state.
+    ///
+    /// The panel appears immediately (perceived latency ≈ 0); the selection is
+    /// captured in the background. If the user fires Improve/Enter before the
+    /// capture completes, the action is queued and runs the moment text is ready.
     func start() {
         guard !sessionActive else { panel.focus(); return }
         guard ensureAccessibility() else { return }
         sessionActive = true
         currentTask?.cancel()
-        Task {
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        pendingAction = nil
+        capture = nil
+        versions = []
+        currentIndex = 0
+        navigating = false
+        capturing = true
+        // Optimistically assume a selection until capture proves otherwise;
+        // the status line reads "Reading selection…" until it resolves.
+        model.reset(hasSelection: true, charCount: 0)
+        model.capturing = true
+        panel.show(placement: instantPlacement())
+        panel.focus()
+        currentTask = Task {
             let result = await SelectionCapture.captureSelection()
+            if Task.isCancelled { return }
             self.capture = result
-            self.versions = []
-            self.currentIndex = 0
-            self.navigating = false
+            self.capturing = false
             let hasSelection = result.text != nil
-            model.reset(hasSelection: hasSelection, charCount: result.text?.count ?? 0)
-            panel.show(placement: placement(hasSelection: hasSelection))
+            model.capturing = false
+            model.hasSelection = hasSelection
+            model.selectionCharCount = result.text?.count ?? 0
+            model.scope = hasSelection ? .selection : .document
+            if let pending = pendingAction {
+                pendingAction = nil
+                perform(pending)
+            }
         }
     }
 
-    /// Near the caret/selection when there is one (mouse as fallback);
-    /// centered on the main screen for entire-document scope.
-    private func placement(hasSelection: Bool) -> EditPanel.Placement {
-        guard hasSelection else { return .centered }
+    /// Placement decided instantly from the Accessibility caret rect (a fast,
+    /// non-polling query), so the panel never jumps after the capture completes.
+    private func instantPlacement() -> EditPanel.Placement {
         if let rect = SelectionCapture.selectionScreenRect() { return .near(rect) }
         return .nearMouse
     }
@@ -82,11 +114,22 @@ final class EditCoordinator {
     }
 
     private func perform(_ action: EditAction) {
+        // Fired before the background capture finished: queue it and show the
+        // spinner; it runs the moment the selection is ready.
+        if capturing {
+            lastAction = action
+            pendingAction = action
+            model.runningTitle = action.progressLabel
+            model.phase = .running
+            return
+        }
         lastAction = action
         currentTask?.cancel()
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         currentTask = Task {
             let previousPhase = model.phase
-            model.runningTitle = action.title
+            model.runningTitle = action.progressLabel
             model.phase = .running
             guard let resolved = await resolveInput() else {
                 panel.focus()
@@ -122,6 +165,7 @@ final class EditCoordinator {
                 model.instruction = ""
                 model.phase = .applied
                 panel.focus()
+                scheduleAutoCloseIfHybrid()
             } catch is CancellationError {
                 if model.phase == .running { model.phase = previousPhase }
                 return
@@ -194,6 +238,8 @@ final class EditCoordinator {
     private func navigate(to index: Int) {
         guard let capture, model.phase == .applied, !navigating,
               index >= 0, index < versions.count, index != currentIndex else { return }
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         navigating = true
         currentIndex = index
         syncIterationState()
@@ -210,14 +256,32 @@ final class EditCoordinator {
         }
     }
 
+    /// Retry after an error. If the field still shows a custom instruction, run
+    /// what the user currently sees; otherwise repeat the last action (Improve).
     private func retry() {
-        if let lastAction { perform(lastAction) }
+        let trimmed = model.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            perform(.custom(trimmed))
+        } else if let lastAction {
+            perform(lastAction)
+        }
     }
 
     /// Stop the in-flight action but keep the session open.
     private func cancelRun() {
+        // While still capturing, the "in-flight" work is only the queued
+        // action — dropping it must NOT cancel the capture task, or the session
+        // would wedge with `capturing` stuck true. Let the capture finish.
+        if capturing {
+            pendingAction = nil
+            model.phase = .idle
+            panel.focus()
+            return
+        }
         currentTask?.cancel()
         currentTask = nil
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         model.phase = versions.count > 1 ? .applied : .idle
         panel.focus()
     }
@@ -226,8 +290,48 @@ final class EditCoordinator {
     private func cancel() {
         currentTask?.cancel()
         currentTask = nil
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
         sessionActive = false
         panel.close()
+    }
+
+    // MARK: - Post-apply behavior
+
+    /// After an edit lands, hybrid behavior flashes "Improved" then auto-closes
+    /// the panel after a short beat. `stayOpen` leaves it up for version nav.
+    private func scheduleAutoCloseIfHybrid() {
+        autoCloseTask?.cancel()
+        guard settings.postApplyBehavior == .hybrid else {
+            autoCloseTask = nil
+            return
+        }
+        autoCloseTask = Task {
+            try? await Task.sleep(for: .milliseconds(1200))
+            if Task.isCancelled { return }
+            guard model.phase == .applied else { return }
+            cancel()
+        }
+    }
+
+    /// Handle a key press routed to the panel. Always cancels the post-apply
+    /// auto-close beat so the user can keep iterating. When an edit has been
+    /// applied and the field is empty, ← / → navigate between versions (the
+    /// keyboard cohort's counterpart to the on-screen chevrons); the event is
+    /// consumed so the focused field doesn't just move its caret. Returns
+    /// whether the event was consumed.
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        guard model.phase == .applied,
+              model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        switch event.keyCode {
+        case 123: navigate(to: currentIndex - 1); return true // ←
+        case 124: navigate(to: currentIndex + 1); return true // →
+        default: return false
+        }
     }
 
     private func fail(_ message: String) {
