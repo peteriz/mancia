@@ -31,8 +31,17 @@ printf 'APPL????' > "$BUNDLE/Contents/PkgInfo"
 # survives rebuilds (TCC keys the grant to the code signature; ad-hoc
 # signatures change every build). Override with CODESIGN_ID=<name>.
 IDENTITY="${CODESIGN_ID:-}"
-if [[ -z "$IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "Mancia Dev Signing"; then
-    IDENTITY="Mancia Dev Signing"
+if [[ -z "$IDENTITY" ]]; then
+    IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+    if grep -q "Mancia Dev Signing" <<< "$IDENTITIES"; then
+        IDENTITY="Mancia Dev Signing"
+    else
+        # Fall back to any local "… Dev Signing" identity (e.g. a legacy cert
+        # left over from a previous app name). Without this, renaming the app
+        # silently drops us back to ad-hoc signing, whose signature changes
+        # every build and voids the Accessibility grant.
+        IDENTITY="$(grep -Eo '"[^"]*Dev Signing[^"]*"' <<< "$IDENTITIES" | head -n1 | tr -d '"')"
+    fi
 fi
 if [[ -n "$IDENTITY" ]]; then
     CODESIGN_FLAGS_ARRAY=()
