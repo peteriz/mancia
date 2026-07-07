@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import KeyboardShortcuts
 
 /// The app's settings window content.
@@ -6,9 +7,14 @@ struct SettingsView: View {
     @Bindable var settings: AppSettings
     let provider: LLMProvider
 
+    /// The command that installs the Copilot CLI, shown when it isn't found.
+    private static let installCommand = "npm install -g @github/copilot"
+    private static let docsURL = URL(string: "https://docs.github.com/copilot/concepts/agents/about-copilot-cli")!
+
     @State private var providerStatus: ProviderStatus = .ready
     @State private var checking = false
-    @State private var models: [CopilotModel] = []
+    @State private var models: [CopilotModel] = [CopilotModel(id: "auto", name: "Auto")]
+    @State private var detectFeedback: String?
 
     var body: some View {
         Form {
@@ -31,18 +37,16 @@ struct SettingsView: View {
                 }
                 HStack {
                     TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
-                    Button("Detect") { settings.copilotPath = detectedPath() }
+                    Button("Detect") { detect() }
                 }
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(providerStatus == .ready ? Color.green : Color.red)
-                        .frame(width: 10, height: 10)
-                    Text(providerStatus.label)
+                if let detectFeedback {
+                    Text(detectFeedback)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .help(providerStatus.detail)
-                    if checking { ProgressView().controlSize(.small) }
-                    Spacer()
-                    Button("Check") { Task { await refreshStatus() } }
+                }
+                statusRow
+                if providerStatus != .ready {
+                    remediation
                 }
             }
 
@@ -56,9 +60,75 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 440, height: 540)
         .task {
-            models = CopilotModelCatalog.modelsForPicker(storedModel: settings.copilotModel)
+            let stored = settings.copilotModel
+            let loaded = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
+            models = loaded
             await refreshStatus()
         }
+    }
+
+    // MARK: - Status & guidance
+
+    private var statusRow: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 10, height: 10)
+            Text(providerStatus.label)
+                .foregroundStyle(.secondary)
+            if checking { ProgressView().controlSize(.small) }
+            Spacer()
+            Button("Check") { Task { await refreshStatus() } }
+                .disabled(checking)
+        }
+    }
+
+    /// Inline, always-visible guidance for a non-ready provider, plus a
+    /// context button so the user has a concrete next step rather than a
+    /// hover-only tooltip.
+    @ViewBuilder
+    private var remediation: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(providerStatus.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                switch providerStatus {
+                case .notFound:
+                    Button("Copy install command") {
+                        copyToPasteboard(Self.installCommand)
+                        detectFeedback = "Copied: \(Self.installCommand)"
+                    }
+                case .error where isNotSignedIn:
+                    Text("Run `copilot` once in Terminal to sign in, then Check again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                default:
+                    EmptyView()
+                }
+                Link("Copilot CLI docs", destination: Self.docsURL)
+                    .font(.caption)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(statusColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var statusColor: Color {
+        switch providerStatus {
+        case .ready: return .green
+        case .notFound: return .orange
+        case .error: return .red
+        }
+    }
+
+    private var isNotSignedIn: Bool {
+        if case .error(let message) = providerStatus {
+            return message.lowercased().contains("sign")
+        }
+        return false
     }
 
     /// Effort levels for the picker: the selected model's supported levels when
@@ -72,9 +142,22 @@ struct SettingsView: View {
         return options
     }
 
-    private func detectedPath() -> String {
+    private func detect() {
         let resolved = CopilotCLIProvider.resolveExecutable(override: nil)
-        return resolved == "/usr/bin/env" ? "" : resolved
+        if resolved == "/usr/bin/env" {
+            settings.copilotPath = ""
+            detectFeedback = "Not found in standard locations. Ensure the CLI is installed, or set the path manually."
+        } else {
+            settings.copilotPath = resolved
+            detectFeedback = "Found at \(resolved)"
+        }
+        Task { await refreshStatus() }
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(string, forType: .string)
     }
 
     private func refreshStatus() async {

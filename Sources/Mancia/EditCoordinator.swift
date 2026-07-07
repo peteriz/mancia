@@ -22,6 +22,9 @@ final class EditCoordinator {
     private var currentIndex = 0
     /// Guards against overlapping navigation keystroke sequences.
     private var navigating = false
+    /// True from the moment a session begins starting until the panel closes,
+    /// so a repeated hotkey/menu trigger can't spawn an overlapping capture.
+    private var sessionActive = false
 
     init(provider: LLMProvider) {
         self.provider = provider
@@ -37,9 +40,13 @@ final class EditCoordinator {
         model.onCancel = { [weak self] in self?.cancel() }
     }
 
-    /// Entry point from hotkey or menu. Starts a fresh session.
+    /// Entry point from hotkey or menu. Starts a fresh session. Ignores
+    /// re-triggers while a session is already active, so overlapping capture
+    /// sequences can't clobber each other's pasteboard/keystroke state.
     func start() {
+        guard !sessionActive else { panel.focus(); return }
         guard ensureAccessibility() else { return }
+        sessionActive = true
         currentTask?.cancel()
         Task {
             let result = await SelectionCapture.captureSelection()
@@ -219,6 +226,7 @@ final class EditCoordinator {
     private func cancel() {
         currentTask?.cancel()
         currentTask = nil
+        sessionActive = false
         panel.close()
     }
 

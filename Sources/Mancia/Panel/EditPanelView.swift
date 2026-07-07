@@ -159,6 +159,10 @@ struct EditPanelView: View {
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
+            Button("Close") { model.onCancel?() }
+                .controlSize(.small)
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("Close")
             Button("Retry") { model.onRetry?() }
                 .controlSize(.small)
                 .accessibilityLabel("Retry")
