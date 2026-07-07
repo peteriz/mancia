@@ -5,9 +5,12 @@ import SwiftUI
 /// surface with one decisive vermilion accent on the hero **Improve** action.
 ///
 /// Fixed size, never relayouts mid-use: the field and Improve button are always
-/// present (dimmed while a request runs); only the one-line status at the bottom
-/// swaps content between idle / running / applied / error. Enter routes to
-/// Improve when the field is empty, or the typed instruction when it isn't.
+/// present. While a request runs the field dims and locks, but the Improve
+/// button stays vibrant and *becomes* the progress — an indeterminate bar
+/// sweeps its base edge — so the panel reads as fast and working, not frozen.
+/// The one-line status at the bottom swaps between idle / running / applied /
+/// error. Enter routes to Improve when the field is empty, or the typed
+/// instruction when it isn't.
 struct EditPanelView: View {
     @Bindable var model: PanelModel
     @FocusState private var fieldFocused: Bool
@@ -21,10 +24,11 @@ struct EditPanelView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 field
+                    .disabled(isRunning)
+                    .opacity(isRunning ? 0.42 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: isRunning)
                 improveButton
             }
-            .disabled(isRunning)
-            .opacity(isRunning ? 0.38 : 1)
 
             statusLine
                 .padding(.top, 10)
@@ -151,30 +155,48 @@ struct EditPanelView: View {
     private var improveButton: some View {
         Button { model.onPerform?(.improve) } label: {
             HStack(spacing: 7) {
-                Text("Improve")
-                    .font(.system(size: 14, weight: .semibold))
-                    .tracking(-0.05)
-                if !hasCustomInstruction {
-                    Text("↵")
-                        .font(.system(size: 12, weight: .semibold))
-                        .opacity(0.7)
+                if isRunning {
+                    Text("\(runningLabel)…")
+                        .font(.system(size: 14, weight: .semibold))
+                        .tracking(-0.05)
+                } else {
+                    Text("Improve")
+                        .font(.system(size: 14, weight: .semibold))
+                        .tracking(-0.05)
+                    if !hasCustomInstruction {
+                        Text("↵")
+                            .font(.system(size: 12, weight: .semibold))
+                            .opacity(0.7)
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .foregroundStyle(Palette.onAccent)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Palette.accent)
-            )
+            .background(Palette.accent)
+            .overlay(alignment: .bottom) {
+                if isRunning {
+                    IndeterminateBar(tint: Palette.onAccent)
+                        .frame(height: 3)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(.white.opacity(0.14), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .allowsHitTesting(!isRunning)
         .accessibilityLabel("Improve")
         .accessibilityIdentifier("Improve")
+    }
+
+    /// The verb shown inside the button while it runs. Stays honest during the
+    /// brief background-capture window before the provider call begins.
+    private var runningLabel: String {
+        if model.capturing { return "Reading selection" }
+        return model.runningTitle.isEmpty ? "Improving" : model.runningTitle
     }
 
     // MARK: - Status line
@@ -210,22 +232,11 @@ struct EditPanelView: View {
 
     private var runningStatus: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small).scaleEffect(0.7)
-                .frame(width: 13, height: 13)
-            Text(runningText)
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(Palette.textSecondary)
-                .lineLimit(1)
             Spacer(minLength: 0)
             GhostButton("Cancel") { model.onCancelRun?() }
                 .accessibilityIdentifier("Cancel")
         }
         .padding(.horizontal, 1)
-    }
-
-    private var runningText: String {
-        let title = model.runningTitle.isEmpty ? "Working" : model.runningTitle
-        return model.capturing ? "Reading selection…" : "\(title)…"
     }
 
     private var appliedStatus: some View {
@@ -320,5 +331,33 @@ private struct GhostButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+}
+
+/// An indeterminate progress rail that sweeps along the base of the running
+/// Improve button — the panel's single, decisive "working" signal. A capsule
+/// segment glides left-to-right over a faint track, looping until the phase
+/// leaves `.running` and the overlay is removed.
+private struct IndeterminateBar: View {
+    var tint: Color
+    @State private var animate = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let segment = max(30, w * 0.4)
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.black.opacity(0.20))
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.9))
+                    .frame(width: segment)
+                    .offset(x: animate ? w : -segment)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: false)) {
+                animate = true
+            }
+        }
     }
 }
