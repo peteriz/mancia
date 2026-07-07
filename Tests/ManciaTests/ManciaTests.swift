@@ -1,5 +1,5 @@
 import Testing
-@testable import AIEdit
+@testable import Mancia
 
 // MARK: - Prompt templates
 

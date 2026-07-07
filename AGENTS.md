@@ -1,13 +1,13 @@
-# AI-Edit Agent Instructions
+# Mancia Agent Instructions
 
-AI-Edit is a small SwiftPM macOS menu bar utility. Keep changes focused,
+Mancia is a small SwiftPM macOS menu bar utility. Keep changes focused,
 pragmatic, and proportionate to the app's size.
 
 ## Project Shape
 
 - No Xcode project. Use `Package.swift`, `Makefile`, and `scripts/make_app.sh`.
-- Main app code lives in `Sources/AIEdit`.
-- Tests live in `Tests/AIEditTests`.
+- Main app code lives in `Sources/Mancia`.
+- Tests live in `Tests/ManciaTests`.
 - Architecture notes are in `docs/ARCHITECTURE.md`; product/spec notes are in
   `docs/SPEC.md`.
 - The app is `@MainActor`-heavy AppKit/SwiftUI. UI, hotkey, pasteboard, and
@@ -18,11 +18,11 @@ pragmatic, and proportionate to the app's size.
 
 - `make build` for a debug compile.
 - `make test` for unit tests.
-- `make app` to assemble `build/AI-Edit.app`.
+- `make app` to assemble `build/Mancia.app`.
 - `make run` for the manual app loop.
 - For provider-only checks, prefer:
-  - `swift run AIEdit --provider-check`
-  - `echo "text" | swift run AIEdit --complete rewrite`
+  - `swift run Mancia --provider-check`
+  - `echo "text" | swift run Mancia --complete rewrite`
 
 ## Coding Guidelines
 

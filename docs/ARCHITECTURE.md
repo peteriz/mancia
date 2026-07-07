@@ -1,6 +1,6 @@
 # Architecture
 
-AI-Edit is a small `@MainActor`-heavy AppKit/SwiftUI app built with Swift
+Mancia is a small `@MainActor`-heavy AppKit/SwiftUI app built with Swift
 Package Manager. There's no Xcode project — `Package.swift` defines a single
 executable target, `Makefile` and `scripts/make_app.sh` turn the built binary
 into a real `.app` bundle.
@@ -8,7 +8,7 @@ into a real `.app` bundle.
 ## Component map
 
 ```
-Sources/AIEdit/
+Sources/Mancia/
 ├── main.swift                    NSApplication bootstrap; routes to DebugCLI
 │                                 before any UI is created (LSUIElement, no Dock icon)
 ├── AppDelegate.swift             Wires status item, hotkey, coordinator, settings window
@@ -36,12 +36,12 @@ Sources/AIEdit/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
     └── SettingsView.swift        SwiftUI settings window content
 
-Tests/AIEditTests/AIEditTests.swift   Prompt templates, argv construction (incl. --reasoning-effort),
+Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv construction (incl. --reasoning-effort),
                                       post-processing, binary discovery order, model-catalog
                                       decoding/fallback (all pure, no process spawning)
 
-Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.ai-edit
-scripts/make_app.sh                  swift build -c release → build/AI-Edit.app, stable codesign when available
+Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.mancia
+scripts/make_app.sh                  swift build -c release → build/Mancia.app, stable codesign when available
 ```
 
 There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
@@ -124,7 +124,7 @@ Esc anywhere in the panel routes through `KeyablePanel.cancelOperation` →
 ## The `LLMProvider` protocol
 
 ```swift
-// Sources/AIEdit/Providers/LLMProvider.swift
+// Sources/Mancia/Providers/LLMProvider.swift
 protocol LLMProvider: Sendable {
     var displayName: String { get }
     func complete(_ prompt: String) async throws -> String
@@ -137,11 +137,11 @@ the places that need completion or availability checks.
 
 To add a new provider:
 
-1. Create `Sources/AIEdit/Providers/<Name>Provider.swift` conforming to
+1. Create `Sources/Mancia/Providers/<Name>Provider.swift` conforming to
    `LLMProvider`. Model it on `CopilotCLIProvider`: keep argv/parsing logic in
    `static` functions so it's unit-testable without spawning a process (see
    `CopilotCLIProvider.arguments`, `.resolveExecutable`, `.postProcess`).
-2. Surface configuration in `AppSettings` (`Sources/AIEdit/Settings/AppSettings.swift`)
+2. Surface configuration in `AppSettings` (`Sources/Mancia/Settings/AppSettings.swift`)
    if the provider needs its own path/model/API-key fields — follow the
    `copilotPath`/`copilotModel`/`reasoningEffort` pattern (`UserDefaults`-backed,
    `didSet` persists). The Copilot model picker is populated by
@@ -153,7 +153,7 @@ To add a new provider:
 3. Add a real provider-selection path in `AppSettings` and `SettingsView`
    before wiring multiple providers into `AppDelegate`.
 4. Add unit tests alongside the existing ones in
-   `Tests/AIEditTests/AIEditTests.swift` for prompt/argv construction and
+   `Tests/ManciaTests/ManciaTests.swift` for prompt/argv construction and
    output post-processing.
 
 `EditCoordinator`, `DebugCLI`, and `StatusBarController` should continue to use
@@ -179,26 +179,26 @@ Two permissions matter, both handled in `Permissions.swift`:
 
 `Info.plist` also sets `LSUIElement = true` (no Dock icon/app switcher
 presence — this is a menu-bar-only app) and bundle id
-`io.github.peteriz.ai-edit`.
+`io.github.peteriz.mancia`.
 
 ## Build system
 
 - **Package.swift** — swift-tools 6.0, `.macOS(.v14)`, one executable target
-  `AIEdit` (depends on `sindresorhus/KeyboardShortcuts`), one test target
-  `AIEditTests`.
+  `Mancia` (depends on `sindresorhus/KeyboardShortcuts`), one test target
+  `ManciaTests`.
 - **Makefile** — `build` (`swift build`), `test` (`swift test`), `app`
   (`scripts/make_app.sh`), `release` (requires explicit `CODESIGN_ID`, then
   `REQUIRE_SIGNING=1 scripts/make_app.sh`),
-  `run` (`app` + `open build/AI-Edit.app`), `clean`
+  `run` (`app` + `open build/Mancia.app`), `clean`
   (`swift package clean` + `rm -rf build`).
 - **scripts/make_app.sh** — `swift build -c release`, assembles
-  `build/AI-Edit.app/Contents/{MacOS,Resources}`, copies the binary and
+  `build/Mancia.app/Contents/{MacOS,Resources}`, copies the binary and
   `Support/Info.plist`, writes a `PkgInfo`, then signs the bundle. Signing
-  order is: explicit `CODESIGN_ID`, local `AI-Edit Dev Signing` certificate,
+  order is: explicit `CODESIGN_ID`, local `Mancia Dev Signing` certificate,
   then ad-hoc fallback unless `REQUIRE_SIGNING=1`. Developer ID identities get
   `--options runtime` by default for notarization readiness. Accessibility
   approval survives updates only when `CFBundleIdentifier`
-  (`io.github.peteriz.ai-edit`) and the signing identity stay stable.
+  (`io.github.peteriz.mancia`) and the signing identity stay stable.
 
 ## Debug/E2E hooks
 
@@ -206,10 +206,10 @@ presence — this is a menu-bar-only app) and bundle id
 `NSApplication` at all, so these run headless (no UI, no Accessibility
 prompt):
 
-- `AIEdit --provider-check` — builds the Copilot provider, calls
+- `Mancia --provider-check` — builds the Copilot provider, calls
   `provider.checkAvailability()`, prints `"<displayName>: ready"` (exit 0),
   `"...: not found"` (exit 1), or `"...: error — <message>"` (exit 1).
-- `AIEdit --complete <action> <<< "text"` — reads stdin as the input text,
+- `Mancia --complete <action> <<< "text"` — reads stdin as the input text,
   parses `<action>` via `EditAction.parse` (`rewrite | summarize |
   fix-grammar | custom:<instruction>`; unknown values exit 2), builds the
   prompt with `PromptBuilder.build`, calls `provider.complete(prompt)`,

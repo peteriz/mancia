@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "AI-Edit Settings"
+        window.title = "Mancia Settings"
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.center()
@@ -51,9 +51,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "AI-Edit",
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: "Mancia",
             .applicationVersion: "0.1.0",
-        ])
+        ]
+        if let iconURL = Bundle.main.url(forResource: "mancia-logo", withExtension: "png"),
+           let icon = NSImage(contentsOf: iconURL) {
+            icon.size = NSSize(width: 128, height: 128)
+            options[.applicationIcon] = icon
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 }

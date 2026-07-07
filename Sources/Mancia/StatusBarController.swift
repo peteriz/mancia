@@ -20,11 +20,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         super.init()
 
         if let button = statusItem.button {
-            button.image = NSImage(named: "MenuBarIcon")
-                ?? NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "AI-Edit")
+            button.image =
+                NSImage(named: "MenuBarIcon")
+                ?? NSImage(systemSymbolName: "wand.and.stars", accessibilityDescription: "Mancia")
             button.image?.isTemplate = true
             button.image?.size = NSSize(width: 18, height: 18)
-            button.toolTip = "AI-Edit"
+            button.toolTip = "Mancia"
         }
         buildMenu()
         menu.delegate = self
@@ -32,7 +33,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func buildMenu() {
-        let edit = NSMenuItem(title: "Edit Selection…", action: #selector(triggerEdit), keyEquivalent: "e")
+        let edit = NSMenuItem(
+            title: "Edit Selection…", action: #selector(triggerEdit), keyEquivalent: "e")
         edit.keyEquivalentModifierMask = [.control, .option, .command]
         edit.target = self
         menu.addItem(edit)
@@ -43,21 +45,25 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        accessibilityItem = NSMenuItem(title: "Accessibility permission…", action: #selector(openAccessibility), keyEquivalent: "")
+        accessibilityItem = NSMenuItem(
+            title: "Accessibility permission…", action: #selector(openAccessibility),
+            keyEquivalent: "")
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
 
-        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settings = NSMenuItem(
+            title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
 
-        let about = NSMenuItem(title: "About AI-Edit", action: #selector(openAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: "About", action: #selector(openAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit AI-Edit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(
+            title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }
 

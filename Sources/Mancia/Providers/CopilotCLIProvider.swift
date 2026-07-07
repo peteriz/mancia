@@ -158,7 +158,7 @@ final class CopilotCLIProvider: LLMProvider {
 
     private static func runProcess(executable: String, arguments: [String], timeout: Double) async throws -> ProcessResult {
         let workDir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("ai-edit-" + UUID().uuidString)
+            .appendingPathComponent("mancia-" + UUID().uuidString)
         try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
 

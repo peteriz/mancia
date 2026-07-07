@@ -2,9 +2,9 @@
   <img src="docs/assets/mancia-logo.png" alt="Mancia logo" width="240">
 </p>
 
-# AI-Edit
+# Mancia
 
-AI-Edit is a small macOS menu bar utility that puts an AI text edit within a
+Mancia is a small macOS menu bar utility that puts an AI text edit within a
 keystroke of anywhere you type. Press a global hotkey in any app, and a
 compact Writing Tools-style panel appears next to your text caret offering
 quick actions — Proofread, Rewrite, Summarize — or a free-form instruction
@@ -58,20 +58,20 @@ copy-pasting into a chat window, no context switch.
   copilot   # run once, follow the prompts to sign in
   ```
 
-  AI-Edit shells out to this `copilot` binary in non-interactive mode; it
+  Mancia shells out to this `copilot` binary in non-interactive mode; it
   does not talk to any AI API directly.
 
 ## Install / build
 
-AI-Edit is built with Swift Package Manager — there is no Xcode project.
+Mancia is built with Swift Package Manager — there is no Xcode project.
 
 ```sh
-git clone https://github.com/peteriz/ai-edit.git
-cd ai-edit
-make app          # swift build -c release, then assembles build/AI-Edit.app
+git clone https://github.com/peteriz/mancia.git
+cd mancia
+make app          # swift build -c release, then assembles build/Mancia.app
 ```
 
-Then drag (or copy) `build/AI-Edit.app` into `/Applications`.
+Then drag (or copy) `build/Mancia.app` into `/Applications`.
 
 Other Makefile targets:
 
@@ -79,9 +79,9 @@ Other Makefile targets:
 |-------------|------------------------------------------------------------|
 | `make build`| Debug build (`swift build`) — compiles, no app bundle.     |
 | `make test` | Runs the unit tests (`swift test`).                         |
-| `make app`  | Release build + assembles `build/AI-Edit.app` (stable-signed when `CODESIGN_ID` or `AI-Edit Dev Signing` exists; ad-hoc fallback). |
+| `make app`  | Release build + assembles `build/Mancia.app` (stable-signed when `CODESIGN_ID` or `Mancia Dev Signing` exists; ad-hoc fallback). |
 | `make release` | Same as `make app`, but requires explicit `CODESIGN_ID` for release signing. |
-| `make run`  | `make app`, then `open build/AI-Edit.app` — quick dev loop. |
+| `make run`  | `make app`, then `open build/Mancia.app` — quick dev loop. |
 | `make clean`| `swift package clean` + removes `build/`.                   |
 
 For day-to-day development, `make run` is the fastest way to try changes: it
@@ -89,17 +89,17 @@ rebuilds the release bundle and launches it.
 
 ## First run: grant Accessibility permission
 
-AI-Edit reads your selection and pastes results back by posting synthetic
+Mancia reads your selection and pastes results back by posting synthetic
 `⌘C` / `⌘A` / `⌘V` keystrokes to whatever app is in front — this is how it
 works in *any* app without per-app integrations. macOS requires
 **Accessibility** access for a process to post synthetic keystrokes.
 
-The first time you trigger the hotkey, AI-Edit will prompt you (or you can
+The first time you trigger the hotkey, Mancia will prompt you (or you can
 grant it ahead of time):
 
 1. Open **System Settings ▸ Privacy & Security ▸ Accessibility**.
-2. Enable the toggle for **AI-Edit**.
-3. If AI-Edit doesn't appear in the list yet, trigger the hotkey once — macOS
+2. Enable the toggle for **Mancia**.
+3. If Mancia doesn't appear in the list yet, trigger the hotkey once — macOS
    adds the entry automatically (initially unchecked), then enable it there,
    or use the menu bar item **"Accessibility permission…"** which deep-links
    straight to this pane.
@@ -109,14 +109,14 @@ development builds usually need re-approval after each rebuild. Stable-signed
 builds keep the same Accessibility approval across updates as long as the
 bundle id and signing identity stay the same.
 
-For local development, create a persistent "AI-Edit Dev Signing" code-signing
+For local development, create a persistent "Mancia Dev Signing" code-signing
 certificate in Keychain Access, or pass one explicitly:
 
 ```sh
-CODESIGN_ID="AI-Edit Dev Signing" make app
+CODESIGN_ID="Mancia Dev Signing" make app
 ```
 
-`scripts/make_app.sh` automatically uses `AI-Edit Dev Signing` when it exists.
+`scripts/make_app.sh` automatically uses `Mancia Dev Signing` when it exists.
 For public GitHub releases, sign every version with the same Developer ID
 Application certificate:
 
@@ -152,7 +152,7 @@ ready for notarization.
 
 1. Press `⌃⌥⌘E` with nothing selected — the panel opens centered on screen
    with an "Entire document" caption.
-2. For every action, AI-Edit selects all (`⌘A`) in the frontmost app,
+2. For every action, Mancia selects all (`⌘A`) in the frontmost app,
    captures the whole text (picking up any manual edits you made between
    actions — a changed document starts a fresh iteration history), runs your
    chosen action, and pastes the result back over the document. The iteration
@@ -180,7 +180,7 @@ Open via the menu bar icon ▸ **Settings…** (`⌘,`):
 - **"GitHub Copilot CLI was not found"** — install it with
   `npm install -g @github/copilot`, or set the exact binary path in
   Settings ▸ GitHub Copilot CLI ▸ Copilot path, then click **Detect**/**Check**.
-  AI-Edit looks for `copilot` at `/opt/homebrew/bin`, `/usr/local/bin`,
+  Mancia looks for `copilot` at `/opt/homebrew/bin`, `/usr/local/bin`,
   `~/.local/bin`, and finally falls back to whatever `copilot` resolves to on
   your `PATH`.
 - **"GitHub Copilot is not signed in"** — run `copilot` once in a terminal
@@ -188,10 +188,10 @@ Open via the menu bar icon ▸ **Settings…** (`⌘,`):
 - **Hotkey doesn't fire / conflicts with another app** — open Settings ▸
   Shortcut and record a different combination.
 - **Nothing happens / permission dialog keeps appearing** — check
-  System Settings ▸ Privacy & Security ▸ Accessibility and make sure AI-Edit
+  System Settings ▸ Privacy & Security ▸ Accessibility and make sure Mancia
   is toggled on. If this happens after every rebuild, use a stable signing
   identity for local builds (see above).
-- **The result looks wrong / got pasted into the wrong place** — AI-Edit
+- **The result looks wrong / got pasted into the wrong place** — Mancia
   restores your original clipboard about a second after pasting; if you
   interrupt that window (e.g. switch apps very fast) the paste target may be
   off. Retry the action.

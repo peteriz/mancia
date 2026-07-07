@@ -3,9 +3,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="AI-Edit"
+APP_NAME="Mancia"
 BUNDLE="$ROOT/build/$APP_NAME.app"
-BIN_NAME="AIEdit"
+BIN_NAME="Mancia"
 
 echo "==> swift build -c release"
 swift build -c release --package-path "$ROOT"
@@ -23,14 +23,15 @@ mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN_PATH" "$BUNDLE/Contents/MacOS/$BIN_NAME"
 cp "$ROOT/Support/Info.plist" "$BUNDLE/Contents/Info.plist"
 cp -R "$ROOT/Support/Resources/." "$BUNDLE/Contents/Resources/"
+cp "$ROOT/docs/assets/mancia-logo.png" "$BUNDLE/Contents/Resources/mancia-logo.png"
 printf 'APPL????' > "$BUNDLE/Contents/PkgInfo"
 
 # Sign with a stable identity when available so the Accessibility grant
 # survives rebuilds (TCC keys the grant to the code signature; ad-hoc
 # signatures change every build). Override with CODESIGN_ID=<name>.
 IDENTITY="${CODESIGN_ID:-}"
-if [[ -z "$IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "AI-Edit Dev Signing"; then
-    IDENTITY="AI-Edit Dev Signing"
+if [[ -z "$IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null | grep -q "Mancia Dev Signing"; then
+    IDENTITY="Mancia Dev Signing"
 fi
 if [[ -n "$IDENTITY" ]]; then
     CODESIGN_FLAGS_ARRAY=()

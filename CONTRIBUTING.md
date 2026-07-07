@@ -1,6 +1,6 @@
-# Contributing to AI-Edit
+# Contributing to Mancia
 
-Thanks for taking a look. AI-Edit is intentionally small — please keep
+Thanks for taking a look. Mancia is intentionally small — please keep
 changes proportionate to that (see the "Quality bar" note in
 `docs/SPEC.md`: this is a lightweight utility, not a framework).
 
@@ -20,19 +20,19 @@ changes proportionate to that (see the "Quality bar" note in
 ```sh
 make build   # swift build            — debug compile
 make test    # swift test             — unit tests
-make app     # scripts/make_app.sh    — release build + build/AI-Edit.app
+make app     # scripts/make_app.sh    — release build + build/Mancia.app
 make release # scripts/make_app.sh    — same, but requires explicit CODESIGN_ID
-make run     # make app && open build/AI-Edit.app — fastest way to try changes
+make run     # make app && open build/Mancia.app — fastest way to try changes
 make clean   # swift package clean && rm -rf build
 ```
 
 `make run` is the tightest loop for manual testing since it produces a real
 signed `.app` you can trigger the hotkey against. To avoid re-granting
-Accessibility after every rebuild, create a persistent "AI-Edit Dev Signing"
+Accessibility after every rebuild, create a persistent "Mancia Dev Signing"
 code-signing certificate in Keychain Access or pass one explicitly:
 
 ```sh
-CODESIGN_ID="AI-Edit Dev Signing" make run
+CODESIGN_ID="Mancia Dev Signing" make run
 ```
 
 The app falls back to ad-hoc signing when no identity is available; those
@@ -45,7 +45,7 @@ ID Application certificate every time:
 CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" make release
 ```
 
-Do not change `CFBundleIdentifier` (`io.github.peteriz.ai-edit`) between
+Do not change `CFBundleIdentifier` (`io.github.peteriz.mancia`) between
 releases unless you are intentionally forcing users to approve permissions
 again.
 
@@ -53,8 +53,8 @@ For pipeline changes that don't need the UI, use the debug hooks instead of
 clicking through the panel:
 
 ```sh
-swift run AIEdit --provider-check
-echo "some text" | swift run AIEdit --complete rewrite
+swift run Mancia --provider-check
+echo "some text" | swift run Mancia --complete rewrite
 ```
 
 ## Code style
@@ -74,7 +74,7 @@ echo "some text" | swift run AIEdit --complete rewrite
   `CopilotCLIProvider.arguments(executable:prompt:model:)`,
   `.resolveExecutable(override:fileExists:)`, and `.postProcess(_:)` — pure,
   synchronous, injectable, and covered by
-  `Tests/AIEditTests/AIEditTests.swift` without spawning a real process.
+  `Tests/ManciaTests/ManciaTests.swift` without spawning a real process.
   New providers should follow the same shape.
 - **No force-unwraps in flow code.** Errors should surface in the panel
   (`PanelModel.errorText` / `.error` phase) or as a `ProviderError` case with
@@ -84,7 +84,7 @@ echo "some text" | swift run AIEdit --complete rewrite
 
 ## Adding a new edit action
 
-Everything about an action lives in `Sources/AIEdit/Actions.swift`:
+Everything about an action lives in `Sources/Mancia/Actions.swift`:
 
 1. Add a case to `EditAction` (or reuse `.custom(String)` if it's really a
    user-supplied instruction, not a fixed action).
@@ -96,8 +96,8 @@ Everything about an action lives in `Sources/AIEdit/Actions.swift`:
    (enforced implicitly by the shared template — don't build a separate
    return path that skips it).
 5. Add the button to the `actions` array in
-   `Sources/AIEdit/Panel/EditPanelView.swift`.
-6. Add a test in `Tests/AIEditTests/AIEditTests.swift` asserting the prompt
+   `Sources/Mancia/Panel/EditPanelView.swift`.
+6. Add a test in `Tests/ManciaTests/ManciaTests.swift` asserting the prompt
    contains the input text and the output-only clause (extend the existing
    `actions` array in `promptContainsTextAndClause`).
 

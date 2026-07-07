@@ -235,7 +235,7 @@ final class EditCoordinator {
         Permissions.requestAccessibility()
         let alert = NSAlert()
         alert.messageText = "Accessibility permission needed"
-        alert.informativeText = "AI-Edit needs Accessibility access to read your selection and paste results.\n\nEnable it in System Settings ▸ Privacy & Security ▸ Accessibility, then try again."
+        alert.informativeText = "Mancia needs Accessibility access to read your selection and paste results.\n\nEnable it in System Settings ▸ Privacy & Security ▸ Accessibility, then try again."
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)

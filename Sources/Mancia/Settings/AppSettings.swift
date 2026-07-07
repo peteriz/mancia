@@ -48,7 +48,7 @@ final class AppSettings {
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
-                NSLog("AI-Edit: launch-at-login toggle failed: \(error.localizedDescription)")
+                NSLog("Mancia: launch-at-login toggle failed: \(error.localizedDescription)")
             }
         }
     }

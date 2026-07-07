@@ -1,4 +1,4 @@
-# AI-Edit — Implementation Specification
+# Mancia — Implementation Specification
 
 A macOS menu bar app providing system-wide, selection-based AI text editing.
 Press a global hotkey in **any** app, and a small floating panel appears near the
@@ -18,10 +18,10 @@ whole document when "Entire document" scope is chosen.
 ## Repository layout
 
 ```
-AI-Edit/
+Mancia/
 ├── Package.swift
 ├── Makefile
-├── Sources/AIEdit/
+├── Sources/Mancia/
 │   ├── main.swift                 # NSApplication bootstrap (LSUIElement)
 │   ├── AppDelegate.swift          # wiring: status item, hotkey, coordinator
 │   ├── StatusBarController.swift  # NSStatusItem + menu
@@ -40,10 +40,10 @@ AI-Edit/
 │   │   ├── AppSettings.swift      # UserDefaults-backed observable settings
 │   │   └── SettingsView.swift     # SwiftUI settings window
 │   └── Resources/                 # menu bar icon (SF Symbol ok — no asset needed)
-├── Tests/AIEditTests/             # unit tests (prompt templates, provider args, trimming)
-├── Support/Info.plist             # LSUIElement=true, bundle id io.github.peteriz.ai-edit
+├── Tests/ManciaTests/             # unit tests (prompt templates, provider args, trimming)
+├── Support/Info.plist             # LSUIElement=true, bundle id io.github.peteriz.mancia
 ├── docs/SPEC.md                   # this file
-└── scripts/make_app.sh            # SPM binary → AI-Edit.app, stable codesign when available
+└── scripts/make_app.sh            # SPM binary → Mancia.app, stable codesign when available
 ```
 
 ## Dependencies (SPM)
@@ -130,7 +130,7 @@ the coordinator, status menu, settings view, and debug CLI.
 - "Provider: GitHub Copilot ✓/⚠︎" (disabled info row reflecting availability check)
 - Separator
 - "Accessibility permission…" — shown only when not granted; opens System Settings pane
-- "Settings…" (⌘,), "About AI-Edit", Separator, "Quit AI-Edit" (⌘Q)
+- "Settings…" (⌘,), "About Mancia", Separator, "Quit Mancia" (⌘Q)
 
 ## Settings window
 
@@ -149,16 +149,16 @@ so it comes to front). Sections:
   prompt=true and show an explanatory alert; menu item deep-links to
   `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`.
 - Info.plist: `LSUIElement = true`, `NSHumanReadableCopyright`, bundle id
-  `io.github.peteriz.ai-edit`, version 0.1.0. No sandbox (needed for CGEvent +
+  `io.github.peteriz.mancia`, version 0.1.0. No sandbox (needed for CGEvent +
   spawning copilot).
 
 ## Build
 
 - `Package.swift`: swift-tools 6.0+, platform `.macOS(.v14)` or higher,
-  executable `AIEdit`, test target.
+  executable `Mancia`, test target.
 - `scripts/make_app.sh`: `swift build -c release`, assemble
-  `build/AI-Edit.app/Contents/{MacOS,Resources}`, copy binary + Info.plist,
-  write PkgInfo, then sign with `CODESIGN_ID`, local `AI-Edit Dev Signing`, or
+  `build/Mancia.app/Contents/{MacOS,Resources}`, copy binary + Info.plist,
+  write PkgInfo, then sign with `CODESIGN_ID`, local `Mancia Dev Signing`, or
   ad-hoc fallback.
 - `Makefile` targets: `build` (debug swift build), `test` (swift test),
   `app` (release bundle), `release` (requires explicit `CODESIGN_ID`), `run`
@@ -167,8 +167,8 @@ so it comes to front). Sections:
 ## Debug/E2E hooks (important for automated verification)
 
 The binary accepts CLI flags when run directly (before NSApplication setup):
-- `AIEdit --provider-check` → prints provider status, exits.
-- `AIEdit --complete <action> <<< "text"` → reads stdin, runs the prompt
+- `Mancia --provider-check` → prints provider status, exits.
+- `Mancia --complete <action> <<< "text"` → reads stdin, runs the prompt
   through the real provider, prints result, exits. (action: rewrite|summarize|
   fix-grammar, or `custom:<instruction>`)
 These let CI/tests exercise the pipeline without UI.

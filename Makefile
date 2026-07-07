@@ -14,7 +14,7 @@ release:
 	REQUIRE_SIGNING=1 ./scripts/make_app.sh
 
 run: app
-	open build/AI-Edit.app
+	open build/Mancia.app
 
 clean:
 	swift package clean
