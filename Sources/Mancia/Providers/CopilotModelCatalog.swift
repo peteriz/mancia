@@ -26,6 +26,10 @@ enum CopilotModelCatalog {
         }
         defer { sqlite3_close(db) }
 
+        // The copilot CLI may be writing this DB concurrently; wait briefly for
+        // any lock rather than failing (or blocking) indefinitely.
+        sqlite3_busy_timeout(db, 500)
+
         var statement: OpaquePointer?
         let sql = "SELECT value FROM app_state WHERE key = 'copilot-available-models' LIMIT 1"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
@@ -38,8 +42,17 @@ enum CopilotModelCatalog {
 
     /// Decode the cached JSON array (unit-tested without touching SQLite).
     static func decode(_ json: String) -> [CopilotModel]? {
-        let models = try? JSONDecoder().decode([CopilotModel].self, from: Data(json.utf8))
-        return (models?.isEmpty == false) ? models : nil
+        guard let models = try? JSONDecoder().decode([CopilotModel].self, from: Data(json.utf8)) else {
+            return nil
+        }
+        // Drop malformed and duplicate entries so the settings picker can't bind
+        // to an empty name or render two rows with the same tag.
+        var seen = Set<String>()
+        let cleaned = models.filter { model in
+            guard !model.id.isEmpty, !model.name.isEmpty else { return false }
+            return seen.insert(model.id).inserted
+        }
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     /// Models for the settings picker: the cache when readable, else a minimal

@@ -45,24 +45,65 @@ final class CopilotCLIProvider: LLMProvider {
 
     // MARK: - Command construction (unit-tested)
 
-    /// Standard search locations, in priority order.
-    static func searchPaths() -> [String] {
-        [
-            "/opt/homebrew/bin/copilot",
-            "/usr/local/bin/copilot",
-            NSHomeDirectory() + "/.local/bin/copilot",
+    /// Directories that commonly hold a `copilot` binary, in priority order.
+    /// These cover Homebrew (Apple Silicon + Intel), a manual `~/.local/bin`
+    /// install, and the default npm global prefixes used by npm/nvm/Volta —
+    /// none of which are reliably on a `.app` bundle's inherited `PATH` when
+    /// launched from Finder or as a login item.
+    static func searchDirectories() -> [String] {
+        let home = NSHomeDirectory()
+        var dirs = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            home + "/.local/bin",
+            home + "/.npm-global/bin",
+            home + "/.volta/bin",
+            "/usr/bin",
         ]
+        // Every Node version installed via nvm keeps its own bin directory.
+        let nvmVersions = home + "/.nvm/versions/node"
+        if let entries = try? FileManager.default.contentsOfDirectory(atPath: nvmVersions) {
+            dirs += entries.sorted().reversed().map { "\(nvmVersions)/\($0)/bin" }
+        }
+        return dirs
+    }
+
+    /// Standard search locations for the `copilot` binary, in priority order.
+    static func searchPaths() -> [String] {
+        searchDirectories().map { $0 + "/copilot" }
+    }
+
+    /// True when `path` points at a runnable regular file (not a directory or a
+    /// broken symlink), so a misconfigured override can't be selected and then
+    /// fail at launch.
+    static func isRunnableFile(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return false }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 
     /// Resolve the executable to run. Returns the binary path when found, or the
     /// `/usr/bin/env` fallback (which then runs `copilot` off `PATH`).
     static func resolveExecutable(
         override: String?,
-        fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        fileExists: (String) -> Bool = { isRunnableFile($0) }
     ) -> String {
         if let override, !override.isEmpty, fileExists(override) { return override }
         for candidate in searchPaths() where fileExists(candidate) { return candidate }
         return "/usr/bin/env"
+    }
+
+    /// A `PATH` value augmented with the standard install directories, so the
+    /// `/usr/bin/env` fallback (and any child copilot spawns) can find the
+    /// binary even under the minimal `PATH` a `.app` inherits from Finder.
+    static func augmentedPath(base: String?) -> String {
+        var seen = Set<String>()
+        var dirs: [String] = []
+        for dir in searchDirectories() + (base?.split(separator: ":").map(String.init) ?? []) {
+            if !dir.isEmpty, seen.insert(dir).inserted { dirs.append(dir) }
+        }
+        return dirs.joined(separator: ":")
     }
 
     /// Build the full argv for a prompt. When the executable is the `env`
@@ -113,6 +154,9 @@ final class CopilotCLIProvider: LLMProvider {
         }
 
         let combined = result.stdout + "\n" + result.stderr
+        if Self.looksMissingBinary(exitCode: result.exitCode, text: combined) {
+            throw ProviderError.notFound
+        }
         if Self.looksUnauthenticated(combined) { throw ProviderError.notAuthenticated }
 
         guard result.exitCode == 0 else {
@@ -133,8 +177,10 @@ final class CopilotCLIProvider: LLMProvider {
         do {
             let result = try await Self.runProcess(executable: executable, arguments: args, timeout: 10)
             if result.exitCode == 0 { return .ready }
-            if Self.looksUnauthenticated(result.stdout + result.stderr) { return .error("Not signed in") }
-            return .error(Self.tail(of: result.stdout + result.stderr))
+            let combined = result.stdout + result.stderr
+            if Self.looksMissingBinary(exitCode: result.exitCode, text: combined) { return .notFound }
+            if Self.looksUnauthenticated(combined) { return .error("Not signed in") }
+            return .error(Self.tail(of: combined))
         } catch ProviderError.launchFailed {
             return .notFound
         } catch {
@@ -146,8 +192,26 @@ final class CopilotCLIProvider: LLMProvider {
 
     private static func looksUnauthenticated(_ text: String) -> Bool {
         let lowered = text.lowercased()
-        return lowered.contains("not logged in") || lowered.contains("not authenticated")
-            || lowered.contains("please sign in") || lowered.contains("run `copilot`")
+        let needles = [
+            "not logged in", "not authenticated", "not signed in",
+            "please sign in", "please log in", "run `copilot`",
+            "unauthorized", "authentication failed", "authentication required",
+            "authentication expired", "no valid credentials", "sign in to",
+            "/login", "copilot auth",
+        ]
+        return needles.contains { lowered.contains($0) }
+    }
+
+    /// Detects the shell/`env` "command not found" signal — exit code 127 with a
+    /// no-such-file / command-not-found message. This is how the `/usr/bin/env`
+    /// fallback reports that the `copilot` binary is not installed or not on
+    /// `PATH`, as distinct from a genuine error returned by copilot itself.
+    static func looksMissingBinary(exitCode: Int32, text: String) -> Bool {
+        guard exitCode == 127 else { return false }
+        let lowered = text.lowercased()
+        return lowered.contains("no such file or directory")
+            || lowered.contains("command not found")
+            || lowered.contains("not found")
     }
 
     private static func tail(of text: String, lines: Int = 8) -> String {
@@ -162,8 +226,14 @@ final class CopilotCLIProvider: LLMProvider {
         try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: workDir) }
 
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = augmentedPath(base: environment["PATH"])
+
         let runner = ProcessRunner()
-        return try await runner.run(executable: executable, arguments: arguments, workingDir: workDir, timeout: timeout)
+        return try await runner.run(
+            executable: executable, arguments: arguments,
+            environment: environment, workingDir: workDir, timeout: timeout
+        )
     }
 }
 
@@ -174,9 +244,10 @@ private final class ProcessRunner: @unchecked Sendable {
     private let outPipe = Pipe()
     private let errPipe = Pipe()
 
-    func run(executable: String, arguments: [String], workingDir: URL, timeout: Double) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], environment: [String: String], workingDir: URL, timeout: Double) async throws -> ProcessResult {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        process.environment = environment
         process.currentDirectoryURL = workingDir
         process.standardOutput = outPipe
         process.standardError = errPipe
@@ -210,17 +281,62 @@ private final class ProcessRunner: @unchecked Sendable {
         } catch {
             throw ProviderError.launchFailed(error.localizedDescription)
         }
+        // Drain stdout and stderr concurrently. Reading one to completion before
+        // the other risks a deadlock: if the unread pipe fills its buffer the
+        // child blocks on write, and we block forever on the first read.
+        let errData = readInBackground(errHandle)
         let outData = outHandle.readDataToEndOfFile()
-        let errData = errHandle.readDataToEndOfFile()
+        let collectedErr = errData.take()
         process.waitUntilExit()
         return ProcessResult(
             exitCode: process.terminationStatus,
-            stdout: String(data: outData, encoding: .utf8) ?? "",
-            stderr: String(data: errData, encoding: .utf8) ?? ""
+            stdout: decode(outData),
+            stderr: decode(collectedErr)
         )
     }
 
+    /// Lossily decode process output as UTF-8; never drop bytes to nil so that
+    /// error tails and diagnostics survive non-UTF-8 sequences.
+    private func decode(_ data: Data) -> String {
+        String(decoding: data, as: UTF8.self)
+    }
+
+    /// Read a file handle to EOF on a background thread, returning a box the
+    /// caller blocks on once its own read has completed.
+    private func readInBackground(_ handle: FileHandle) -> DataBox {
+        let box = DataBox()
+        Thread.detachNewThread {
+            let data = handle.readDataToEndOfFile()
+            box.set(data)
+        }
+        return box
+    }
+
+    /// Send SIGTERM, then escalate to SIGKILL shortly after so a child that
+    /// ignores SIGTERM (or a stuck grandchild holding the pipes) can't wedge us.
     private func terminate() {
-        if process.isRunning { process.terminate() }
+        guard process.isRunning else { return }
+        process.terminate()
+        let pid = process.processIdentifier
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            if self.process.isRunning { kill(pid, SIGKILL) }
+        }
+    }
+}
+
+/// A thread-safe one-shot box used to hand background-read data back to the
+/// reader thread.
+private final class DataBox: @unchecked Sendable {
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var data = Data()
+
+    func set(_ value: Data) {
+        data = value
+        semaphore.signal()
+    }
+
+    func take() -> Data {
+        semaphore.wait()
+        return data
     }
 }

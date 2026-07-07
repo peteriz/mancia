@@ -31,9 +31,12 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.copilotPath = defaults.string(forKey: Key.copilotPath) ?? ""
-        self.copilotModel = defaults.string(forKey: Key.copilotModel) ?? ""
-        self.reasoningEffort = defaults.string(forKey: Key.reasoningEffort) ?? ""
+        self.copilotPath = (defaults.string(forKey: Key.copilotPath) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.copilotModel = (defaults.string(forKey: Key.copilotModel) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Launch at login

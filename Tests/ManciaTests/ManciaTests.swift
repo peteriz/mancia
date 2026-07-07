@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Mancia
 
 // MARK: - Prompt templates
@@ -97,6 +98,25 @@ func modelCatalogFallback() {
     #expect(noStored.map(\.id) == ["auto"])
 }
 
+@Test("Model catalog drops duplicate ids and entries missing id/name")
+func modelCatalogDedupesAndFilters() {
+    let json = """
+    [{"id":"auto","name":"Auto"},
+     {"id":"auto","name":"Auto Duplicate"},
+     {"id":"","name":"No Id"},
+     {"id":"gpt-5","name":""},
+     {"id":"claude","name":"Claude"}]
+    """
+    let models = CopilotModelCatalog.decode(json)
+    #expect(models?.map(\.id) == ["auto", "claude"])
+}
+
+@Test("Model catalog returns nil for entirely malformed JSON")
+func modelCatalogRejectsGarbage() {
+    #expect(CopilotModelCatalog.decode("not json at all") == nil)
+    #expect(CopilotModelCatalog.decode("[]") == nil)
+}
+
 @Test("env fallback prepends the copilot argument")
 func argvEnvFallback() {
     let args = CopilotCLIProvider.arguments(executable: "/usr/bin/env", prompt: "hi", model: "")
@@ -150,4 +170,61 @@ func discoveryEnvFallback() {
 func discoveryIgnoresMissingOverride() {
     let path = CopilotCLIProvider.resolveExecutable(override: "/nope/copilot") { $0 == "/usr/local/bin/copilot" }
     #expect(path == "/usr/local/bin/copilot")
+}
+
+// MARK: - Missing-binary detection
+
+@Test("env command-not-found (exit 127) is detected as a missing binary")
+func missingBinaryDetectedFromEnv() {
+    #expect(CopilotCLIProvider.looksMissingBinary(
+        exitCode: 127, text: "env: copilot: No such file or directory"))
+    #expect(CopilotCLIProvider.looksMissingBinary(
+        exitCode: 127, text: "copilot: command not found"))
+}
+
+@Test("A real copilot error (non-127 exit) is not treated as missing")
+func realErrorNotMissingBinary() {
+    // Copilot ran but failed for another reason: keep it as a real error.
+    #expect(!CopilotCLIProvider.looksMissingBinary(
+        exitCode: 1, text: "some copilot failure"))
+    // Exit 127 without a not-found message stays a normal error.
+    #expect(!CopilotCLIProvider.looksMissingBinary(
+        exitCode: 127, text: "unexpected internal state"))
+    #expect(!CopilotCLIProvider.looksMissingBinary(
+        exitCode: 0, text: "all good"))
+}
+
+// MARK: - Binary discovery locations
+
+@Test("Search paths cover Homebrew, local, and npm-global prefixes")
+func searchPathsCoverCommonPrefixes() {
+    let paths = CopilotCLIProvider.searchPaths()
+    #expect(paths.contains("/opt/homebrew/bin/copilot"))
+    #expect(paths.contains("/usr/local/bin/copilot"))
+    #expect(paths.contains(NSHomeDirectory() + "/.local/bin/copilot"))
+    #expect(paths.contains(NSHomeDirectory() + "/.npm-global/bin/copilot"))
+    // Every entry targets the copilot binary.
+    #expect(paths.allSatisfy { $0.hasSuffix("/copilot") })
+}
+
+@Test("isRunnableFile rejects directories and accepts executables")
+func isRunnableFileChecksType() {
+    // A directory that exists but is not a runnable file.
+    #expect(!CopilotCLIProvider.isRunnableFile(NSHomeDirectory()))
+    // A well-known executable regular file.
+    #expect(CopilotCLIProvider.isRunnableFile("/bin/ls"))
+    #expect(!CopilotCLIProvider.isRunnableFile("/nonexistent/copilot"))
+}
+
+@Test("augmentedPath prepends install dirs and dedupes against the base PATH")
+func augmentedPathPrependsAndDedupes() {
+    let augmented = CopilotCLIProvider.augmentedPath(base: "/usr/bin:/opt/homebrew/bin")
+    let parts = augmented.split(separator: ":").map(String.init)
+    // Install dirs are present.
+    #expect(parts.contains("/opt/homebrew/bin"))
+    #expect(parts.contains("/usr/local/bin"))
+    // No duplicates even though the base repeats an install dir.
+    #expect(parts.count == Set(parts).count)
+    // Works with no base PATH.
+    #expect(!CopilotCLIProvider.augmentedPath(base: nil).isEmpty)
 }

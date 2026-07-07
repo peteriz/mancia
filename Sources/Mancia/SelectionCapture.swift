@@ -57,25 +57,27 @@ enum SelectionCapture {
     static func captureSelection() async -> SelectionCaptureResult {
         let targetApp = NSWorkspace.shared.frontmostApplication
         let snapshot = PasteboardSnapshot.capture()
+        defer { snapshot.restore() }
         let text = await copyCurrentSelection(pid: targetApp?.processIdentifier)
-        snapshot.restore()
         return SelectionCaptureResult(text: text, targetApp: targetApp, snapshot: snapshot)
     }
 
     /// Select all in the target app, then capture the whole document via ⌘C.
     static func captureEntireDocument(from result: SelectionCaptureResult) async -> String? {
+        guard isTargetAlive(result) else { return nil }
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(120))
         postCommandKey(KeyCode.a, to: result)
         try? await Task.sleep(for: .milliseconds(60))
-        let text = await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
-        result.snapshot.restore()
-        return text
+        defer { result.snapshot.restore() }
+        return await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
     }
 
     /// Replace the target's selection (or whole document) with `text`, then
-    /// restore the user's original pasteboard.
+    /// restore the user's original pasteboard. Refuses to act on empty text so
+    /// an entire-document ⌘A + ⌘V can never blank the user's document.
     static func apply(text: String, to result: SelectionCaptureResult, entireDocument: Bool) async {
+        guard !text.isEmpty, isTargetAlive(result) else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
@@ -94,21 +96,29 @@ enum SelectionCapture {
     /// disturbing the session's pasteboard snapshot. Returns nil when nothing
     /// is selected (the pasteboard doesn't change on an empty ⌘C).
     static func captureFreshSelection(from result: SelectionCaptureResult) async -> String? {
+        guard isTargetAlive(result) else { return nil }
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(120))
         let snapshot = PasteboardSnapshot.capture()
-        let text = await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
-        snapshot.restore()
-        return text
+        defer { snapshot.restore() }
+        return await copyCurrentSelection(pid: result.targetApp?.processIdentifier)
     }
 
     /// Undo the last applied edit in the target app via a synthetic ⌘Z.
     /// In NSTextView-based apps this also restores the replaced selection.
     static func undo(in result: SelectionCaptureResult) async {
+        guard isTargetAlive(result) else { return }
         result.targetApp?.activate()
         try? await Task.sleep(for: .milliseconds(150))
         postCommandKey(KeyCode.z, to: result)
         try? await Task.sleep(for: .milliseconds(150))
+    }
+
+    /// The target app is gone (quit/crashed) — posting keystrokes to a dead or
+    /// recycled pid could hit the wrong app, so callers should abort.
+    private static func isTargetAlive(_ result: SelectionCaptureResult) -> Bool {
+        guard let app = result.targetApp else { return true }
+        return !app.isTerminated
     }
 
     /// Screen rectangle (AppKit bottom-left-origin coordinates) of the focused

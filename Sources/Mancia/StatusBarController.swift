@@ -9,6 +9,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private var providerItem: NSMenuItem!
     private var accessibilityItem: NSMenuItem!
+    private var setupHelpItem: NSMenuItem!
 
     var onEdit: (() -> Void)?
     var onSettings: (() -> Void)?
@@ -43,6 +44,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         providerItem.isEnabled = false
         menu.addItem(providerItem)
 
+        setupHelpItem = NSMenuItem(
+            title: "Set up Copilot…", action: #selector(openSettings), keyEquivalent: "")
+        setupHelpItem.target = self
+        setupHelpItem.isHidden = true
+        menu.addItem(setupHelpItem)
+
         menu.addItem(.separator())
 
         accessibilityItem = NSMenuItem(
@@ -74,7 +81,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         providerItem.title = "Provider: GitHub Copilot"
         Task {
             let status = await provider.checkAvailability()
-            providerItem.title = "Provider: GitHub Copilot \(status.menuMark)"
+            providerItem.title = "Provider: GitHub Copilot — \(status.label) \(status.menuMark)"
+            switch status {
+            case .ready:
+                setupHelpItem.isHidden = true
+            case .notFound:
+                setupHelpItem.title = "Install Copilot CLI…"
+                setupHelpItem.isHidden = false
+            case .error:
+                setupHelpItem.title = "Fix Copilot setup…"
+                setupHelpItem.isHidden = false
+            }
         }
     }
 
