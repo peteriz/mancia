@@ -1,8 +1,9 @@
+import Foundation
 import SwiftUI
 
 /// Compact, Writing Tools-style SwiftUI content for the floating edit panel.
-/// The describe field and action rows are always visible; a status strip at
-/// the bottom cycles through idle / running / applied / error.
+/// The describe field and preset action buttons are always visible; a status
+/// strip at the bottom cycles through idle / running / applied / error.
 struct EditPanelView: View {
     @Bindable var model: PanelModel
 
@@ -13,14 +14,26 @@ struct EditPanelView: View {
             // Everything except the status strip's Cancel is disabled and
             // dimmed while a provider request is in flight.
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Describe your change…", text: $model.instruction)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { model.submitInstruction() }
-                    .accessibilityLabel("Custom instruction")
-                    .accessibilityIdentifier("CustomInstruction")
-                VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    TextField("Describe your change…", text: $model.instruction)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.submitInstruction() }
+                        .accessibilityLabel("Custom instruction")
+                        .accessibilityIdentifier("CustomInstruction")
+                    Button { model.submitInstruction() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!hasCustomInstruction)
+                    .help("Run custom instruction")
+                    .accessibilityLabel("Run custom instruction")
+                    .accessibilityIdentifier("CustomSubmit")
+                }
+                HStack(spacing: 8) {
                     ForEach(actions, id: \.title) { action in
-                        ActionRow(action: action) { model.onPerform?(action) }
+                        ActionButton(action: action) { model.onPerform?(action) }
                     }
                 }
             }
@@ -36,6 +49,9 @@ struct EditPanelView: View {
     }
 
     private var isRunning: Bool { model.phase == .running }
+    private var hasCustomInstruction: Bool {
+        !model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     // MARK: - Status strip
 
@@ -152,8 +168,8 @@ struct EditPanelView: View {
     }
 }
 
-/// A Writing Tools-style action row: icon + label with a hover highlight.
-private struct ActionRow: View {
+/// Equal-width preset action button for the compact popout.
+private struct ActionButton: View {
     let action: EditAction
     let perform: () -> Void
 
@@ -161,19 +177,25 @@ private struct ActionRow: View {
 
     var body: some View {
         Button(action: perform) {
-            HStack(spacing: 8) {
+            VStack(spacing: 5) {
                 Image(systemName: action.symbol)
-                    .frame(width: 18)
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.tint)
                 Text(action.title)
-                Spacer()
+                    .font(.callout)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
-            .padding(.vertical, 5)
-            .padding(.horizontal, 6)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
             .background(
-                hovering ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(.clear),
-                in: RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(hovering ? Color.primary.opacity(0.10) : Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(hovering ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

@@ -66,15 +66,15 @@ AI-Edit/
    `NSPanel` with `.nonactivatingPanel` style, floating level,
    `becomesKeyOnlyIfNeeded`, so the target app keeps focus until the user
    interacts. Esc closes it.
-4. Panel UI (SwiftUI, compact, ~380 pt wide):
-   - Scope indicator: "Selection (N chars)" or "Entire document" — a segmented
-     control. If nothing was selected, default to Entire document and disable
-     Selection.
-   - Action buttons: Rewrite, Summarize, Fix Grammar, Translate, Reply.
-   - Free-form instruction `TextField` ("Or tell the AI what to do…", ⏎ submits).
-   - While running: spinner + "Asking Copilot…" + Cancel.
-   - Result state: scrollable preview of the response, buttons
-     **Apply** (⏎), **Copy**, **Retry**, **Cancel** (Esc).
+4. Panel UI (SwiftUI, compact, ~310 pt wide):
+   - Free-form instruction `TextField` ("Describe your change…", ⏎ submits)
+     with a trailing submit button.
+   - Equal-width preset buttons: Proofread, Rewrite, Summarize.
+   - Scope menu: "Selection · N chars" or "Entire document". If nothing was
+     selected, default to Entire document.
+   - While running: spinner + action name + Cancel.
+   - Applied state: inline replacement is already pasted; show version
+     navigation plus Done.
 5. **Execution** (`EditCoordinator`):
    - If scope is Entire document: activate target app, post ⌘A, then capture
      via ⌘C as above (this yields the document text).

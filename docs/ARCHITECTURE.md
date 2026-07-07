@@ -75,8 +75,8 @@ wired to call `coordinator.start()`.
    - centered on the main screen for entire-document scope;
    - always clamped to the screen's visible frame.
    The panel is a cyclical **edit session**: the describe field and the
-   action rows (Proofread / Rewrite / Summarize) are always visible — dimmed
-   and disabled while a request runs — while a status strip cycles
+   horizontal preset buttons (Proofread / Rewrite / Summarize) are always
+   visible, dimmed and disabled while a request runs; a status strip cycles
    `PanelModel.phase` through `.idle → .running → .applied/.error` and back
    until the user closes it. The panel **stays visible throughout**: all
    synthetic keystrokes are posted directly to the target app's process
