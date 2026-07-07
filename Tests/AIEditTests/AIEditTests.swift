@@ -6,18 +6,12 @@ import Testing
 @Test("Every action embeds the input text and the output-only clause")
 func promptContainsTextAndClause() {
     let sample = "The quick brown fox"
-    let actions: [EditAction] = [.rewrite, .summarize, .fixGrammar, .translate, .reply, .custom("make it formal")]
+    let actions: [EditAction] = [.rewrite, .summarize, .fixGrammar, .custom("make it formal")]
     for action in actions {
         let prompt = PromptBuilder.build(action: action, text: sample)
         #expect(prompt.contains(sample), "prompt for \(action.title) should contain the input text")
         #expect(prompt.contains(PromptBuilder.outputOnlyClause), "prompt for \(action.title) should contain the output-only clause")
     }
-}
-
-@Test("Translate prompt names the target language")
-func translatePromptContainsLanguage() {
-    let prompt = PromptBuilder.build(action: .translate, text: "hola", targetLanguage: "French")
-    #expect(prompt.contains("French"))
 }
 
 @Test("Custom prompt carries the instruction")
@@ -29,9 +23,11 @@ func customPromptContainsInstruction() {
 @Test("Action parsing round-trips CLI identifiers")
 func actionParsing() {
     #expect(EditAction.parse("rewrite") == .rewrite)
+    #expect(EditAction.parse("summarize") == .summarize)
     #expect(EditAction.parse("fix-grammar") == .fixGrammar)
-    #expect(EditAction.parse("translate") == .translate)
     #expect(EditAction.parse("custom:be terse") == .custom("be terse"))
+    #expect(EditAction.parse("translate") == nil)
+    #expect(EditAction.parse("reply") == nil)
     #expect(EditAction.parse("nonsense") == nil)
 }
 
@@ -57,6 +53,48 @@ func argvIncludesModel() {
     let modelIndex = args.firstIndex(of: "--model")
     #expect(modelIndex != nil)
     #expect(args[modelIndex! + 1] == "gpt-5")
+}
+
+@Test("Argv appends --reasoning-effort when an effort level is set")
+func argvIncludesReasoningEffort() {
+    let args = CopilotCLIProvider.arguments(
+        executable: "/opt/homebrew/bin/copilot", prompt: "hi", model: "claude-sonnet-4.6", reasoningEffort: "high"
+    )
+    let effortIndex = args.firstIndex(of: "--reasoning-effort")
+    #expect(effortIndex != nil)
+    #expect(args[effortIndex! + 1] == "high")
+}
+
+@Test("Argv omits --reasoning-effort when unset (Default)")
+func argvOmitsReasoningEffort() {
+    let args = CopilotCLIProvider.arguments(executable: "/opt/homebrew/bin/copilot", prompt: "hi", model: "")
+    #expect(!args.contains("--reasoning-effort"))
+    let blank = CopilotCLIProvider.arguments(executable: "/opt/homebrew/bin/copilot", prompt: "hi", model: "", reasoningEffort: "  ")
+    #expect(!blank.contains("--reasoning-effort"))
+}
+
+// MARK: - Copilot model catalog
+
+@Test("Model catalog decodes id, name, and reasoning efforts from cached JSON")
+func modelCatalogDecodes() {
+    let json = """
+    [{"id":"auto","name":"Auto","capabilities":{}},
+     {"id":"claude-sonnet-4.6","name":"Claude Sonnet 4.6","defaultReasoningEffort":"medium",
+      "supportedReasoningEfforts":["low","medium","high","max"],"capabilities":{"supports":{"reasoningEffort":true}}}]
+    """
+    let models = CopilotModelCatalog.decode(json)
+    #expect(models?.count == 2)
+    #expect(models?[0] == CopilotModel(id: "auto", name: "Auto", supportedReasoningEfforts: nil))
+    #expect(models?[1].id == "claude-sonnet-4.6")
+    #expect(models?[1].supportedReasoningEfforts == ["low", "medium", "high", "max"])
+}
+
+@Test("Model catalog falls back to auto plus the stored model when unreadable")
+func modelCatalogFallback() {
+    let models = CopilotModelCatalog.modelsForPicker(storedModel: "my-model", dbPath: "/nonexistent/data.db")
+    #expect(models.map(\.id) == ["auto", "my-model"])
+    let noStored = CopilotModelCatalog.modelsForPicker(storedModel: "", dbPath: "/nonexistent/data.db")
+    #expect(noStored.map(\.id) == ["auto"])
 }
 
 @Test("env fallback prepends the copilot argument")

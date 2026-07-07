@@ -48,7 +48,7 @@ enum DebugCLI {
     @MainActor
     private static func complete(actionArg: String) async {
         guard let action = EditAction.parse(actionArg) else {
-            printErr("Unknown action: \(actionArg). Use rewrite|summarize|fix-grammar|translate|reply|custom:<instruction>.")
+            printErr("Unknown action: \(actionArg). Use rewrite|summarize|fix-grammar|custom:<instruction>.")
             exit(2)
         }
         let data = FileHandle.standardInput.readDataToEndOfFile()
@@ -59,7 +59,7 @@ enum DebugCLI {
             printErr("No provider configured.")
             exit(1)
         }
-        let prompt = PromptBuilder.build(action: action, text: input, targetLanguage: settings.targetLanguage)
+        let prompt = PromptBuilder.build(action: action, text: input)
         do {
             let output = try await provider.complete(prompt)
             print(output)

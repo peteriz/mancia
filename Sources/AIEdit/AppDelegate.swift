@@ -32,9 +32,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let hosting = NSHostingController(rootView: SettingsView(settings: settings, registry: registry))
-        let window = NSWindow(contentViewController: hosting)
+        // Create the window with its final style mask up front: reassigning
+        // styleMask after NSWindow(contentViewController:) collapses the
+        // content area to zero height (the "empty settings window" bug).
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
         window.title = "AI-Edit Settings"
-        window.styleMask = [.titled, .closable]
+        window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.center()
         settingsWindow = window

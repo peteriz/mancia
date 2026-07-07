@@ -15,23 +15,29 @@ Sources/AIEdit/
 ├── StatusBarController.swift     NSStatusItem + menu (Edit / Provider status / Settings / Quit)
 ├── HotkeyManager.swift           Registers the global hotkey (KeyboardShortcuts pkg)
 ├── Permissions.swift             AXIsProcessTrusted() checks + System Settings deep link
-├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V
-├── EditCoordinator.swift         Orchestrates capture → panel → provider → apply
+├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
+│                                 ⌘Z/⇧⌘Z undo/redo helpers, AX caret-rect lookup
+├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → panel →
+│                                 provider → apply inline → toggle/repeat
 ├── DebugCLI.swift                --provider-check / --complete headless entry points
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
 ├── Panel/
 │   ├── PanelModel.swift          @Observable state shared between coordinator and view
-│   ├── EditPanel.swift           NSPanel host (floating, non-activating, positions near cursor)
-│   └── EditPanelView.swift       SwiftUI content (scope picker, actions, result/error states)
+│   ├── EditPanel.swift           NSPanel host (floating, non-activating; placed at the
+│   │                             caret, at the mouse, or centered)
+│   └── EditPanelView.swift       SwiftUI content (describe field + action rows + status strip)
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider protocol, ProviderStatus, ProviderRegistry
-│   └── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, Process)
+│   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, Process)
+│   └── CopilotModelCatalog.swift Reads the CLI's cached model list from ~/.copilot/data.db
+│                                 (SQLite, read-only) for the settings pickers
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
     └── SettingsView.swift        SwiftUI settings window content
 
-Tests/AIEditTests/AIEditTests.swift   Prompt templates, argv construction, post-processing,
-                                      binary discovery order (all pure, no process spawning)
+Tests/AIEditTests/AIEditTests.swift   Prompt templates, argv construction (incl. --reasoning-effort),
+                                      post-processing, binary discovery order, model-catalog
+                                      decoding/fallback (all pure, no process spawning)
 
 Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.ai-edit
 scripts/make_app.sh                  swift build -c release → build/AI-Edit.app, ad-hoc codesign
@@ -59,31 +65,52 @@ wired to call `coordinator.start()`.
    - Restores the snapshot immediately, returning the captured string (or
      `nil` if nothing changed, i.e. no selection).
 3. **Panel** — the result seeds `PanelModel` (`hasSelection`, `charCount`),
-   and `EditPanel.show()` positions an `NSPanel` near the mouse (clamped to
-   the containing screen), `.nonactivatingPanel` + `.floating` so the target
-   app keeps focus.
+   and `EditPanel.show(placement:)` positions an `NSPanel`
+   (`.nonactivatingPanel` + `.floating`, so the target app keeps focus):
+   - next to the caret/selection when there is one, via the Accessibility API
+     (`SelectionCapture.selectionScreenRect()`: focused UI element →
+     `kAXSelectedTextRange` → `kAXBoundsForRange`, converted from AX top-left
+     to AppKit coordinates), falling back to the mouse location;
+   - centered on the main screen for entire-document scope;
+   - always clamped to the screen's visible frame.
+   The panel is a cyclical **edit session**: the describe field and the
+   action rows (Proofread / Rewrite / Summarize) are always visible, while a
+   status strip cycles `PanelModel.phase` through
+   `.idle → .running → .applied/.error` and back until the user closes it.
 4. **Perform** — the user picks a built-in `EditAction` or types a free-form
    instruction (`PanelModel.submitInstruction()` → `.custom(text)`).
-   `EditCoordinator.perform(_:)`:
-   - Resolves input text: for `.document` scope it calls
-     `SelectionCapture.captureEntireDocument(from:)` (activates the target
-     app, posts `⌘A`, then captures via `⌘C` again); for `.selection` scope
-     it reuses the already-captured text.
-   - Builds the prompt with `PromptBuilder.build(action:text:targetLanguage:)`.
-   - Calls `provider.complete(prompt)` inside a cancellable `Task`, updating
-     `PanelModel.phase` (`.running` → `.result` or `.error`).
-5. **Apply/Copy/Retry/Cancel** — all wired from `PanelModel` closures back
-   into `EditCoordinator`:
-   - **Apply** → `SelectionCapture.apply(text:to:entireDocument:)`: puts the
-     result on the pasteboard, activates the target app, waits ~150 ms, posts
-     `⌘A`+`⌘V` (document scope) or just `⌘V` (selection scope), waits ~1 s,
-     then restores the user's original pasteboard snapshot.
-   - **Copy** → puts the result directly on the pasteboard and closes.
-   - **Retry** → re-runs `perform(lastAction)`.
-   - **Cancel** → cancels the in-flight `Task` and closes the panel.
+   `EditCoordinator.perform(_:)` resolves this cycle's input and apply
+   strategy (`resolveInput()`):
+   - `.document` scope: re-captures via `⌘A`+`⌘C` every cycle
+     (`SelectionCapture.captureEntireDocument(from:)`), so manual edits made
+     between cycles and the toggle position are respected; applies with
+     `⌘A`+`⌘V`.
+   - `.selection` scope, first cycle: uses the already-captured text and
+     pastes over the still-live selection.
+   - `.selection` scope, later cycles: probes with a fresh `⌘C`
+     (`captureFreshSelection`) — a new user selection wins and resets the
+     session original; otherwise the input is the version currently shown per
+     the toggle, applied via **undo-then-paste** (`⌘Z` restores and re-selects
+     the previously replaced text in NSTextView-based apps, then `⌘V` pastes
+     over it), which keeps original↔latest a single undo step.
+   It then builds the prompt with `PromptBuilder.build(action:text:)` and
+   calls `provider.complete(prompt)` inside a cancellable `Task`.
+5. **Apply & compare** — when the result arrives, the panel hides
+   (`panel.hide()` — load-bearing so the synthetic keystrokes reach the
+   target app), `SelectionCapture.apply(text:to:entireDocument:)` pastes the
+   result (pasteboard → activate target → `⌘V`, restoring the user's
+   pasteboard ~1 s later), and the panel reveals again with the applied
+   strip: an **Original | Rewritten** toggle plus **Done**.
+   - The toggle (`EditCoordinator.selectVersion(_:)`) rides the target app's
+     native undo stack for selections (`⌘Z` / `⇧⌘Z` via
+     `SelectionCapture.undo/redo`) and re-applies the tracked text via
+     `⌘A`+`⌘V` for document scope (robust against manual edits in between).
+   - **Cancel** (running strip) stops the in-flight `Task` but keeps the
+     session open; **Retry** (error strip) re-runs `perform(lastAction)`;
+   - **Done**/Esc closes the session, keeping whichever version is showing.
 
 Esc anywhere in the panel routes through `KeyablePanel.cancelOperation` →
-`model.onCancel`.
+`model.onCancel` and closes the session in every phase.
 
 ## The `LLMProvider` protocol and adding a provider
 
@@ -109,8 +136,13 @@ To add a new provider:
    `CopilotCLIProvider.arguments`, `.resolveExecutable`, `.postProcess`).
 2. Surface configuration in `AppSettings` (`Sources/AIEdit/Settings/AppSettings.swift`)
    if the provider needs its own path/model/API-key fields — follow the
-   `copilotPath`/`copilotModel` pattern (`UserDefaults`-backed, `didSet`
-   persists).
+   `copilotPath`/`copilotModel`/`reasoningEffort` pattern (`UserDefaults`-backed,
+   `didSet` persists). The Copilot model picker is populated by
+   `CopilotModelCatalog` from the CLI's SQLite cache (`~/.copilot/data.db`,
+   `app_state` key `copilot-available-models`), falling back to "auto" plus
+   the stored model string when unreadable; the reasoning-effort picker
+   narrows to the selected model's `supportedReasoningEfforts` and is passed
+   to the CLI as `--reasoning-effort`.
 3. Add it to the array in `ProviderRegistry.makeDefault(settings:)`. Since
    `current` is `providers.first`, decide the selection strategy at that
    point (a real picker would need to replace `.first` with a stored
@@ -174,10 +206,10 @@ prompt):
   `"...: not found"` (exit 1), or `"...: error — <message>"` (exit 1).
 - `AIEdit --complete <action> <<< "text"` — reads stdin as the input text,
   parses `<action>` via `EditAction.parse` (`rewrite | summarize |
-  fix-grammar | translate | reply | custom:<instruction>`; unknown values
-  exit 2), builds the prompt with `PromptBuilder.build`, calls
-  `provider.complete(prompt)`, prints the result (exit 0) or an error to
-  stderr (exit 1).
+  fix-grammar | custom:<instruction>`; unknown values exit 2), builds the
+  prompt with `PromptBuilder.build`, calls `provider.complete(prompt)`,
+  prints the result (exit 0) or an error to stderr (exit 1). (`fix-grammar`
+  is the CLI id for the action labeled **Proofread** in the panel.)
 
 Both run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no

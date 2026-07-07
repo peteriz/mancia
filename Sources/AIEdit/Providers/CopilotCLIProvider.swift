@@ -68,7 +68,7 @@ final class CopilotCLIProvider: LLMProvider {
 
     /// Build the full argv for a prompt. When the executable is the `env`
     /// fallback, `copilot` is prepended as the first argument.
-    static func arguments(executable: String, prompt: String, model: String) -> [String] {
+    static func arguments(executable: String, prompt: String, model: String, reasoningEffort: String = "") -> [String] {
         var args: [String] = []
         if executable == "/usr/bin/env" { args.append("copilot") }
         args += [
@@ -80,6 +80,8 @@ final class CopilotCLIProvider: LLMProvider {
         ]
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
         if !trimmedModel.isEmpty { args += ["--model", trimmedModel] }
+        let trimmedEffort = reasoningEffort.trimmingCharacters(in: .whitespaces)
+        if !trimmedEffort.isEmpty { args += ["--reasoning-effort", trimmedEffort] }
         return args
     }
 
@@ -95,14 +97,14 @@ final class CopilotCLIProvider: LLMProvider {
 
     // MARK: - LLMProvider
 
-    private func config() async -> (path: String, model: String) {
-        await MainActor.run { (self.settings.copilotPath, self.settings.copilotModel) }
+    private func config() async -> (path: String, model: String, reasoningEffort: String) {
+        await MainActor.run { (self.settings.copilotPath, self.settings.copilotModel, self.settings.reasoningEffort) }
     }
 
     func complete(_ prompt: String) async throws -> String {
-        let (path, model) = await config()
+        let (path, model, reasoningEffort) = await config()
         let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
-        let args = Self.arguments(executable: executable, prompt: prompt, model: model)
+        let args = Self.arguments(executable: executable, prompt: prompt, model: model, reasoningEffort: reasoningEffort)
 
         let result: ProcessResult
         do {
@@ -124,7 +126,7 @@ final class CopilotCLIProvider: LLMProvider {
     }
 
     func checkAvailability() async -> ProviderStatus {
-        let (path, _) = await config()
+        let (path, _, _) = await config()
         let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
         var args: [String] = []
         if executable == "/usr/bin/env" { args.append("copilot") }

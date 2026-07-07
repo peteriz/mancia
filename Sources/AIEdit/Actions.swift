@@ -5,8 +5,6 @@ enum EditAction: Equatable, Sendable {
     case rewrite
     case summarize
     case fixGrammar
-    case translate
-    case reply
     case custom(String)
 
     /// Short user-facing label for buttons/menus.
@@ -14,9 +12,7 @@ enum EditAction: Equatable, Sendable {
         switch self {
         case .rewrite: return "Rewrite"
         case .summarize: return "Summarize"
-        case .fixGrammar: return "Fix Grammar"
-        case .translate: return "Translate"
-        case .reply: return "Reply"
+        case .fixGrammar: return "Proofread"
         case .custom: return "Custom"
         }
     }
@@ -26,9 +22,7 @@ enum EditAction: Equatable, Sendable {
         switch self {
         case .rewrite: return "pencil.and.outline"
         case .summarize: return "text.line.first.and.arrowtriangle.forward"
-        case .fixGrammar: return "checkmark.seal"
-        case .translate: return "globe"
-        case .reply: return "arrowshape.turn.up.left"
+        case .fixGrammar: return "text.badge.checkmark"
         case .custom: return "sparkles"
         }
     }
@@ -42,8 +36,6 @@ enum EditAction: Equatable, Sendable {
         case "rewrite": return .rewrite
         case "summarize": return .summarize
         case "fix-grammar", "fixGrammar": return .fixGrammar
-        case "translate": return .translate
-        case "reply": return .reply
         default: return nil
         }
     }
@@ -55,7 +47,7 @@ enum PromptBuilder {
     static let outputOnlyClause =
         "Output ONLY the resulting text. No preamble, no explanations, no quotes, no markdown fences."
 
-    static func build(action: EditAction, text: String, targetLanguage: String = "English") -> String {
+    static func build(action: EditAction, text: String) -> String {
         let instruction: String
         switch action {
         case .rewrite:
@@ -64,10 +56,6 @@ enum PromptBuilder {
             instruction = "Summarize the following text concisely."
         case .fixGrammar:
             instruction = "Correct the spelling, grammar, and punctuation of the following text. Preserve the original meaning, tone, and language."
-        case .translate:
-            instruction = "Translate the following text into \(targetLanguage)."
-        case .reply:
-            instruction = "Draft a reply to the following message. Write the reply in the same language as the message."
         case .custom(let request):
             instruction = "Apply the following instruction to the text below.\nInstruction: \(request)"
         }

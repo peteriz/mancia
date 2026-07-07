@@ -2,11 +2,12 @@
 
 AI-Edit is a small macOS menu bar utility that puts an AI text edit within a
 keystroke of anywhere you type. Press a global hotkey in any app, and a
-floating panel appears next to your cursor offering quick actions — Rewrite,
-Summarize, Fix Grammar, Translate, Reply — or a free-form instruction you type
-yourself. The result replaces your current selection, or the whole document,
-right where you were typing. No copy-pasting into a chat window, no context
-switch.
+compact Writing Tools-style panel appears next to your text caret offering
+quick actions — Proofread, Rewrite, Summarize — or a free-form instruction
+you type yourself. The result is applied in place immediately; an
+"Original | Rewritten" toggle lets you compare and keep either version, and
+you can chain further edits in the same session. No copy-pasting into a chat
+window, no context switch.
 
 ```
   ⌃⌥⌘E in any app
@@ -24,14 +25,17 @@ switch.
 ## Features
 
 - **Global hotkey** (default `⌃⌥⌘E`, remappable) works system-wide, in any app.
-- **Floating panel** appears near your cursor without stealing focus from the
-  app you're editing in.
-- **Five built-in actions** — Rewrite, Summarize, Fix Grammar, Translate,
-  Reply — plus a free-form instruction field for anything else.
+- **Floating panel** appears next to your text caret (centered on screen for
+  whole-document edits) without stealing focus from the app you're editing in.
+- **Three built-in actions** — Proofread, Rewrite, Summarize — plus a
+  free-form "Describe your change…" field for anything else.
 - **Two scopes** — edit just the current selection, or the entire document
   (select-all under the hood).
-- **Result preview** before it lands — Apply, Copy, or Retry before committing
-  the change.
+- **Applied instantly, reversible** — the result lands in your document right
+  away; an **Original | Rewritten** toggle compares versions, and **Done**
+  (or Esc) keeps whichever is showing.
+- **Cyclical sessions** — the panel stays open after an apply, so you can
+  chain edits (proofread, then "make it sound excited", …) before closing.
 - **Menu bar only** — no Dock icon, no app windows to manage.
 - **Pluggable provider layer** — ships with GitHub Copilot CLI today; the
   `LLMProvider` protocol is designed so more backends can be added later.
@@ -104,36 +108,41 @@ development builds, not a bug.
 1. Select some text in any app (Mail, Notes, Slack, a browser text box,
    your editor — anywhere text can be selected and pasted).
 2. Press `⌃⌥⌘E` (or use "Edit Selection…" from the menu bar icon).
-3. The panel appears near your cursor, showing "Selection (N chars)".
-4. Click an action (Rewrite, Summarize, Fix Grammar, Translate, Reply) or
-   type an instruction into the free-form field and press Return.
-5. Review the result in the preview, then **Apply** (Return) to paste it back
-   in place of your selection, **Copy** to just grab it, or **Retry** to
-   re-run the same action.
+3. The panel appears next to your caret, with a "Selection · N chars" caption
+   (a small menu on the caption switches to "Entire document").
+4. Click an action (Proofread, Rewrite, Summarize) or type an instruction
+   into "Describe your change…" and press Return.
+5. The result replaces your selection immediately. The panel then shows an
+   **Original | Rewritten** toggle — flip it to compare (it drives the target
+   app's native undo/redo) — plus **Done**.
+6. The session stays open: run another action or type another instruction to
+   edit the current result again, or press **Done**/`Esc` to finish, keeping
+   whichever version is showing.
 
 **Editing the entire document:**
 
-1. Press `⌃⌥⌘E` with nothing selected (or click the "Entire document" segment
-   in the panel).
-2. AI-Edit selects all (`⌘A`) in the frontmost app, captures the whole text,
-   and runs your chosen action over it.
-3. Apply pastes the result back over the entire document (select-all, then
-   paste).
+1. Press `⌃⌥⌘E` with nothing selected — the panel opens centered on screen
+   with an "Entire document" caption.
+2. For every action, AI-Edit selects all (`⌘A`) in the frontmost app,
+   captures the whole text (picking up any manual edits you made between
+   actions), runs your chosen action, and pastes the result back over the
+   document. The Original | Rewritten toggle re-applies the tracked versions.
 
-Press `Esc` at any point to close the panel without changing anything — your
-original clipboard contents are always restored afterward.
+Press `Esc` at any point to close the session — your original clipboard
+contents are always restored after each capture/apply.
 
 ## Settings
 
 Open via the menu bar icon ▸ **Settings…** (`⌘,`):
 
 - **Shortcut** — re-record the global hotkey.
-- **Provider** — GitHub Copilot CLI (only option today); a model text field
-  (blank = provider default / "auto"); a Copilot binary path field with a
+- **Provider** — GitHub Copilot CLI (only option today); a **Model** picker
+  (populated from the Copilot CLI's cached model list in `~/.copilot/data.db`;
+  "Default" = provider default); a **Reasoning effort** picker ("Default" =
+  no flag, otherwise passed as `--reasoning-effort`, narrowed to the levels
+  the selected model supports); a Copilot binary path field with a
   **Detect** button and a status dot (green = ready, red = not found/error,
   hover for details).
-- **Translation** — target language for the Translate action (default
-  "English").
 - **General** — Launch at login toggle.
 
 ## Troubleshooting
@@ -169,9 +178,14 @@ Everything goes through the pasteboard:
    text lives only in memory.
 4. Send the captured text to the provider with a prompt built from the chosen
    action.
-5. On Apply: put the result on the clipboard, post `⌘V` (or `⌘A` then `⌘V`)
-   into the original app, then restore your original clipboard again about a
-   second later.
+5. Apply immediately: put the result on the clipboard, post `⌘V` (or `⌘A`
+   then `⌘V`) into the original app, then restore your original clipboard
+   again about a second later.
+6. The Original | Rewritten toggle rides the target app's native undo stack
+   (`⌘Z` / `⇧⌘Z`) for selections, and re-applies the tracked text for
+   whole-document edits. Repeat edits in the same session replace the
+   previous paste (undo, then paste) so the toggle always compares the
+   session's original against the latest result in a single step.
 
 This is why Accessibility permission is required, and why the app briefly
 touches your clipboard on each edit (always restoring it afterward).

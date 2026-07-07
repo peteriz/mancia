@@ -8,6 +8,7 @@ struct SettingsView: View {
 
     @State private var providerStatus: ProviderStatus = .ready
     @State private var checking = false
+    @State private var models: [CopilotModel] = []
 
     var body: some View {
         Form {
@@ -20,7 +21,18 @@ struct SettingsView: View {
                     Text("GitHub Copilot CLI").tag(0)
                 }
                 .disabled(true)
-                TextField("Model:", text: $settings.copilotModel, prompt: Text("auto"))
+                Picker("Model:", selection: $settings.copilotModel) {
+                    Text("Default").tag("")
+                    ForEach(models) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+                Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
+                    Text("Default").tag("")
+                    ForEach(reasoningEffortOptions, id: \.self) { level in
+                        Text(level.capitalized).tag(level)
+                    }
+                }
                 HStack {
                     TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
                     Button("Detect") { settings.copilotPath = detectedPath() }
@@ -41,10 +53,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Translation") {
-                TextField("Target language:", text: $settings.targetLanguage, prompt: Text("English"))
-            }
-
             Section("General") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { settings.launchAtLogin },
@@ -53,8 +61,22 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
-        .task { await refreshStatus() }
+        .frame(width: 440, height: 540)
+        .task {
+            models = CopilotModelCatalog.modelsForPicker(storedModel: settings.copilotModel)
+            await refreshStatus()
+        }
+    }
+
+    /// Effort levels for the picker: the selected model's supported levels when
+    /// the cache knows them, else all CLI levels; always includes the stored
+    /// value so the picker binding stays valid.
+    private var reasoningEffortOptions: [String] {
+        var options = models.first { $0.id == settings.copilotModel }?.supportedReasoningEfforts
+            ?? CopilotModelCatalog.allReasoningEfforts
+        let stored = settings.reasoningEffort
+        if !stored.isEmpty, !options.contains(stored) { options.append(stored) }
+        return options
     }
 
     private func detectedPath() -> String {

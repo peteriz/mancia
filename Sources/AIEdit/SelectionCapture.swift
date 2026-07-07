@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 /// A snapshot of the general pasteboard, so we can restore the user's clipboard
 /// after borrowing it for copy/paste.
@@ -45,6 +46,7 @@ enum SelectionCapture {
         static let a: CGKeyCode = 0
         static let c: CGKeyCode = 8
         static let v: CGKeyCode = 9
+        static let z: CGKeyCode = 6
     }
 
     /// Capture the current selection from the frontmost app via ⌘C.
@@ -84,6 +86,71 @@ enum SelectionCapture {
         result.snapshot.restore()
     }
 
+    /// Probe the target app for a live selection mid-session via ⌘C, without
+    /// disturbing the session's pasteboard snapshot. Returns nil when nothing
+    /// is selected (the pasteboard doesn't change on an empty ⌘C).
+    static func captureFreshSelection(from result: SelectionCaptureResult) async -> String? {
+        result.targetApp?.activate()
+        try? await Task.sleep(for: .milliseconds(120))
+        let snapshot = PasteboardSnapshot.capture()
+        let text = await copyCurrentSelection()
+        snapshot.restore()
+        return text
+    }
+
+    /// Undo the last applied edit in the target app via a synthetic ⌘Z.
+    static func undo(in result: SelectionCaptureResult) async {
+        result.targetApp?.activate()
+        try? await Task.sleep(for: .milliseconds(150))
+        postCommandKey(KeyCode.z)
+        try? await Task.sleep(for: .milliseconds(150))
+    }
+
+    /// Redo the last undone edit in the target app via a synthetic ⇧⌘Z.
+    static func redo(in result: SelectionCaptureResult) async {
+        result.targetApp?.activate()
+        try? await Task.sleep(for: .milliseconds(150))
+        postCommandKey(KeyCode.z, flags: [.maskCommand, .maskShift])
+        try? await Task.sleep(for: .milliseconds(150))
+    }
+
+    /// Screen rectangle (AppKit bottom-left-origin coordinates) of the focused
+    /// element's selected text range / caret, via the Accessibility API.
+    /// Returns nil when any step fails (caller falls back to the mouse).
+    static func selectionScreenRect() -> CGRect? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedValue
+        ) == .success, let focusedValue, CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else { return nil }
+        let element = focusedValue as! AXUIElement
+
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeValue
+        ) == .success, let rangeValue else { return nil }
+
+        var boundsValue: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXBoundsForRangeParameterizedAttribute as CFString, rangeValue, &boundsValue
+        ) == .success, let boundsValue, CFGetTypeID(boundsValue) == AXValueGetTypeID() else { return nil }
+
+        var axRect = CGRect.zero
+        guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &axRect),
+              axRect.origin.x.isFinite, axRect.origin.y.isFinite,
+              axRect != .zero else { return nil }
+
+        // AX coordinates have a top-left origin on the primary screen; AppKit
+        // uses a bottom-left origin. Flip vertically against the primary screen.
+        guard let primary = NSScreen.screens.first else { return nil }
+        return CGRect(
+            x: axRect.origin.x,
+            y: primary.frame.maxY - axRect.origin.y - axRect.height,
+            width: axRect.width,
+            height: axRect.height
+        )
+    }
+
     // MARK: - Internals
 
     /// Post ⌘C and poll the pasteboard for a change (up to 600 ms).
@@ -102,12 +169,12 @@ enum SelectionCapture {
         return (string?.isEmpty == false) ? string : nil
     }
 
-    private static func postCommandKey(_ keyCode: CGKeyCode) {
+    private static func postCommandKey(_ keyCode: CGKeyCode, flags: CGEventFlags = .maskCommand) {
         let source = CGEventSource(stateID: .combinedSessionState)
         let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
         let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
-        down?.flags = .maskCommand
-        up?.flags = .maskCommand
+        down?.flags = flags
+        up?.flags = flags
         down?.post(tap: .cghidEventTap)
         up?.post(tap: .cghidEventTap)
     }

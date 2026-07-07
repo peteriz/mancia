@@ -12,13 +12,23 @@ final class EditPanel {
         self.model = model
     }
 
+    /// Where to place the panel when showing it.
+    enum Placement {
+        /// Adjacent to a screen rect (AppKit coordinates), e.g. the text caret.
+        case near(CGRect)
+        /// Next to the current mouse location (legacy fallback).
+        case nearMouse
+        /// Centered on the main screen (entire-document scope).
+        case centered
+    }
+
     var isVisible: Bool { panel?.isVisible ?? false }
 
-    /// Show the panel near the current mouse location, clamped on screen.
-    func show() {
+    /// Show the panel at the given placement, clamped on screen.
+    func show(placement: Placement = .nearMouse) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        position(panel)
+        position(panel, placement: placement)
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -66,6 +76,8 @@ final class EditPanel {
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
         panel.isFloatingPanel = true
@@ -75,12 +87,30 @@ final class EditPanel {
         return panel
     }
 
-    private func position(_ panel: NSPanel) {
+    private func position(_ panel: NSPanel, placement: Placement) {
+        // Size the panel to its SwiftUI content before computing the origin —
+        // a freshly created panel still has a zero-height frame here.
+        if let content = panel.contentView {
+            panel.setContentSize(content.fittingSize)
+        }
         panel.layoutIfNeeded()
         let size = panel.frame.size
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
-        var origin = CGPoint(x: mouse.x + 8, y: mouse.y - size.height - 8)
+        var origin: CGPoint
+        var screen: NSScreen?
+        switch placement {
+        case .near(let rect):
+            // Just below the caret/selection, left-aligned with it.
+            origin = CGPoint(x: rect.minX, y: rect.minY - size.height - 8)
+            screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
+        case .nearMouse:
+            let mouse = NSEvent.mouseLocation
+            origin = CGPoint(x: mouse.x + 8, y: mouse.y - size.height - 8)
+            screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        case .centered:
+            screen = NSScreen.main
+            let visible = screen?.visibleFrame ?? .zero
+            origin = CGPoint(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2)
+        }
         if let visible = screen?.visibleFrame {
             origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
             origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)

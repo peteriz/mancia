@@ -1,147 +1,169 @@
 import SwiftUI
 
-/// Compact SwiftUI content for the floating edit panel.
+/// Compact, Writing Tools-style SwiftUI content for the floating edit panel.
+/// The describe field and action rows are always visible; a status strip at
+/// the bottom cycles through idle / running / applied / error.
 struct EditPanelView: View {
     @Bindable var model: PanelModel
 
-    private let actions: [EditAction] = [.rewrite, .summarize, .fixGrammar, .translate, .reply]
+    private let actions: [EditAction] = [.fixGrammar, .rewrite, .summarize]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            switch model.phase {
-            case .input: inputView
-            case .running: runningView
-            case .result: resultView
-            case .error: errorView
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Describe your change…", text: $model.instruction)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { model.submitInstruction() }
+                .accessibilityLabel("Custom instruction")
+                .accessibilityIdentifier("CustomInstruction")
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(actions, id: \.title) { action in
+                    ActionRow(action: action) { model.onPerform?(action) }
+                }
             }
+            Divider()
+            statusStrip
         }
-        .padding(14)
-        .frame(width: 380)
+        .padding(10)
+        .frame(width: 310)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .onExitCommand { model.onCancel?() }
     }
 
-    // MARK: - Sections
+    // MARK: - Status strip
 
-    private var header: some View {
-        HStack {
-            Image(systemName: "wand.and.stars")
-                .foregroundStyle(.tint)
-            Text("AI-Edit")
-                .font(.headline)
-            Spacer()
-            scopePicker
+    @ViewBuilder
+    private var statusStrip: some View {
+        switch model.phase {
+        case .idle: idleStrip
+        case .running: runningStrip
+        case .applied: appliedStrip
+        case .error: errorStrip
         }
     }
 
-    private var scopePicker: some View {
-        Picker("Scope", selection: $model.scope) {
-            Text(model.hasSelection ? "Selection (\(model.selectionCharCount))" : "Selection")
-                .tag(PanelModel.Scope.selection)
-            Text("Entire document").tag(PanelModel.Scope.document)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 210)
-        .disabled(!model.hasSelection && model.phase != .input)
-        .onAppear {
-            if !model.hasSelection { model.scope = .document }
-        }
-    }
-
-    private var inputView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ForEach(actions, id: \.title) { action in
-                    Button {
-                        model.onPerform?(action)
-                    } label: {
-                        VStack(spacing: 3) {
-                            Image(systemName: action.symbol)
-                            Text(action.title)
-                                .font(.caption2)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(scopeUnavailable)
-                    .accessibilityLabel(action.title)
-                    .accessibilityIdentifier(action.title)
+    /// One-line subtle scope caption; a small menu allows switching scope
+    /// when a selection exists.
+    private var idleStrip: some View {
+        HStack(spacing: 4) {
+            if model.hasSelection {
+                Menu {
+                    Button("Selection · \(model.selectionCharCount) chars") { model.scope = .selection }
+                    Button("Entire document") { model.scope = .document }
+                } label: {
+                    Text(scopeText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityLabel("Scope")
+                .accessibilityIdentifier("Scope")
+            } else {
+                Text("Entire document")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            TextField("Or tell the AI what to do…", text: $model.instruction)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { model.submitInstruction() }
-                .disabled(scopeUnavailable)
-                .accessibilityLabel("Custom instruction")
-                .accessibilityIdentifier("CustomInstruction")
+            Spacer()
+        }
+        .padding(.leading, 2)
+    }
+
+    private var scopeText: String {
+        switch model.scope {
+        case .selection: return "Selection · \(model.selectionCharCount) chars"
+        case .document: return "Entire document"
         }
     }
 
-    private var runningView: some View {
-        HStack(spacing: 10) {
+    private var runningStrip: some View {
+        HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("Asking Copilot…")
+            Text(model.runningTitle.isEmpty ? "Working…" : "\(model.runningTitle)…")
+                .font(.callout)
             Spacer()
-            Button("Cancel") { model.onCancel?() }
-                .keyboardShortcut(.cancelAction)
+            Button("Cancel") { model.onCancelRun?() }
+                .controlSize(.small)
                 .accessibilityLabel("Cancel")
                 .accessibilityIdentifier("Cancel")
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
     }
 
-    private var resultView: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ScrollView {
-                Text(model.resultText)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
+    private var appliedStrip: some View {
+        HStack(spacing: 8) {
+            Picker("Version", selection: versionBinding) {
+                Text("Original").tag(PanelModel.Version.original)
+                Text("Rewritten").tag(PanelModel.Version.rewritten)
             }
-            .frame(maxHeight: 180)
-            .background(Color(nsColor: .textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            HStack {
-                Button("Apply") { model.onApply?() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Apply")
-                    .accessibilityIdentifier("Apply")
-                Button("Copy") { model.onCopy?() }
-                    .accessibilityLabel("Copy")
-                    .accessibilityIdentifier("Copy")
-                Button("Retry") { model.onRetry?() }
-                    .accessibilityLabel("Retry")
-                    .accessibilityIdentifier("Retry")
-                Spacer()
-                Button("Cancel") { model.onCancel?() }
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityLabel("Cancel")
-                    .accessibilityIdentifier("Cancel")
-            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityLabel("Version")
+            .accessibilityIdentifier("VersionToggle")
+            Spacer()
+            Button("Done") { model.onCancel?() }
+                .controlSize(.small)
+                .accessibilityLabel("Done")
+                .accessibilityIdentifier("Done")
         }
+        .padding(.vertical, 2)
     }
 
-    private var errorView: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    /// Routes segment changes through the coordinator so it can drive the
+    /// target app's undo stack / re-apply path.
+    private var versionBinding: Binding<PanelModel.Version> {
+        Binding(
+            get: { model.appliedVersion },
+            set: { model.onSelectVersion?($0) }
+        )
+    }
+
+    private var errorStrip: some View {
+        HStack(spacing: 8) {
             Label(model.errorText, systemImage: "exclamationmark.triangle")
+                .font(.caption)
                 .foregroundStyle(.red)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Retry") { model.onRetry?() }
-                    .accessibilityLabel("Retry")
-                    .accessibilityIdentifier("Retry")
-                Spacer()
-                Button("Close") { model.onCancel?() }
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityLabel("Close")
-                    .accessibilityIdentifier("Close")
-            }
+            Spacer()
+            Button("Retry") { model.onRetry?() }
+                .controlSize(.small)
+                .accessibilityLabel("Retry")
+                .accessibilityIdentifier("Retry")
         }
+        .padding(.vertical, 2)
     }
+}
 
-    private var scopeUnavailable: Bool {
-        model.scope == .selection && !model.hasSelection
+/// A Writing Tools-style action row: icon + label with a hover highlight.
+private struct ActionRow: View {
+    let action: EditAction
+    let perform: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: perform) {
+            HStack(spacing: 8) {
+                Image(systemName: action.symbol)
+                    .frame(width: 18)
+                    .foregroundStyle(.tint)
+                Text(action.title)
+                Spacer()
+            }
+            .padding(.vertical, 5)
+            .padding(.horizontal, 6)
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .background(
+                hovering ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(.clear),
+                in: RoundedRectangle(cornerRadius: 6)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(action.title)
+        .accessibilityIdentifier(action.title)
     }
 }
