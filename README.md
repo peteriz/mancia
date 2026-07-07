@@ -75,7 +75,8 @@ Other Makefile targets:
 |-------------|------------------------------------------------------------|
 | `make build`| Debug build (`swift build`) — compiles, no app bundle.     |
 | `make test` | Runs the unit tests (`swift test`).                         |
-| `make app`  | Release build + assembles `build/AI-Edit.app` (ad-hoc signed). |
+| `make app`  | Release build + assembles `build/AI-Edit.app` (stable-signed when `CODESIGN_ID` or `AI-Edit Dev Signing` exists; ad-hoc fallback). |
+| `make release` | Same as `make app`, but requires explicit `CODESIGN_ID` for release signing. |
 | `make run`  | `make app`, then `open build/AI-Edit.app` — quick dev loop. |
 | `make clean`| `swift package clean` + removes `build/`.                   |
 
@@ -99,10 +100,28 @@ grant it ahead of time):
    or use the menu bar item **"Accessibility permission…"** which deep-links
    straight to this pane.
 
-Note: because this permission is tied to the specific app binary, **you must
-re-grant it after every rebuild** (`make app`/`make run` produces a new
-binary each time). This is a normal macOS behavior for unsigned/ad-hoc-signed
-development builds, not a bug.
+Note: this permission is tied to the app's code-signing identity. Ad-hoc
+development builds usually need re-approval after each rebuild. Stable-signed
+builds keep the same Accessibility approval across updates as long as the
+bundle id and signing identity stay the same.
+
+For local development, create a persistent "AI-Edit Dev Signing" code-signing
+certificate in Keychain Access, or pass one explicitly:
+
+```sh
+CODESIGN_ID="AI-Edit Dev Signing" make app
+```
+
+`scripts/make_app.sh` automatically uses `AI-Edit Dev Signing` when it exists.
+For public GitHub releases, sign every version with the same Developer ID
+Application certificate:
+
+```sh
+CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" make release
+```
+
+Developer ID builds are signed with hardened runtime by default so they are
+ready for notarization.
 
 ## Usage
 
@@ -166,8 +185,8 @@ Open via the menu bar icon ▸ **Settings…** (`⌘,`):
   Shortcut and record a different combination.
 - **Nothing happens / permission dialog keeps appearing** — check
   System Settings ▸ Privacy & Security ▸ Accessibility and make sure AI-Edit
-  is toggled on. Remember it needs re-granting after every rebuild (see
-  above).
+  is toggled on. If this happens after every rebuild, use a stable signing
+  identity for local builds (see above).
 - **The result looks wrong / got pasted into the wrong place** — AI-Edit
   restores your original clipboard about a second after pasting; if you
   interrupt that window (e.g. switch apps very fast) the paste target may be

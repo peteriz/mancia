@@ -20,16 +20,34 @@ changes proportionate to that (see the "Quality bar" note in
 ```sh
 make build   # swift build            — debug compile
 make test    # swift test             — unit tests
-make app     # scripts/make_app.sh    — release build + build/AI-Edit.app (ad-hoc signed)
+make app     # scripts/make_app.sh    — release build + build/AI-Edit.app
+make release # scripts/make_app.sh    — same, but requires explicit CODESIGN_ID
 make run     # make app && open build/AI-Edit.app — fastest way to try changes
 make clean   # swift package clean && rm -rf build
 ```
 
 `make run` is the tightest loop for manual testing since it produces a real
-signed `.app` you can trigger the hotkey against. Remember: every fresh build
-is a new binary, so **re-grant Accessibility** (System Settings ▸ Privacy &
-Security ▸ Accessibility) after each `make run`/`make app` if the hotkey
-seems to do nothing.
+signed `.app` you can trigger the hotkey against. To avoid re-granting
+Accessibility after every rebuild, create a persistent "AI-Edit Dev Signing"
+code-signing certificate in Keychain Access or pass one explicitly:
+
+```sh
+CODESIGN_ID="AI-Edit Dev Signing" make run
+```
+
+The app falls back to ad-hoc signing when no identity is available; those
+builds may need Accessibility re-approval after each rebuild.
+
+For GitHub releases, set `CODESIGN_ID` explicitly and use the same Developer
+ID Application certificate every time:
+
+```sh
+CODESIGN_ID="Developer ID Application: Your Name (TEAMID)" make release
+```
+
+Do not change `CFBundleIdentifier` (`io.github.peteriz.ai-edit`) between
+releases unless you are intentionally forcing users to approve permissions
+again.
 
 For pipeline changes that don't need the UI, use the debug hooks instead of
 clicking through the panel:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Assemble a release .app bundle from the SPM executable, ad-hoc signed.
+# Assemble a release .app bundle from the SPM executable.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,9 +32,23 @@ if [[ -z "$IDENTITY" ]] && security find-identity -v -p codesigning 2>/dev/null 
     IDENTITY="AI-Edit Dev Signing"
 fi
 if [[ -n "$IDENTITY" ]]; then
+    CODESIGN_FLAGS_ARRAY=()
+    if [[ -n "${CODESIGN_FLAGS:-}" ]]; then
+        read -r -a CODESIGN_FLAGS_ARRAY <<< "$CODESIGN_FLAGS"
+    elif [[ "$IDENTITY" == Developer\ ID\ Application:* ]]; then
+        CODESIGN_FLAGS_ARRAY=(--options runtime)
+    fi
     echo "==> codesign ($IDENTITY)"
-    codesign --force --deep -s "$IDENTITY" "$BUNDLE"
+    if (( ${#CODESIGN_FLAGS_ARRAY[@]} > 0 )); then
+        codesign --force --deep "${CODESIGN_FLAGS_ARRAY[@]}" -s "$IDENTITY" "$BUNDLE"
+    else
+        codesign --force --deep -s "$IDENTITY" "$BUNDLE"
+    fi
 else
+    if [[ "${REQUIRE_SIGNING:-0}" == "1" ]]; then
+        echo "error: no signing identity found; set CODESIGN_ID for release builds" >&2
+        exit 1
+    fi
     echo "==> codesign (ad-hoc — Accessibility must be re-granted after each rebuild)"
     codesign --force --deep -s - "$BUNDLE"
 fi
