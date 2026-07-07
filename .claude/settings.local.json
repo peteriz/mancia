@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sw_vers)",
+      "Bash(xcodebuild -version)",
+      "Bash(swift --version)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(gh extension *)",
+      "Bash(copilot --version)",
+      "Bash(copilot --help)",
+      "Bash(time copilot -p \"Rewrite the following text to be more professional. Output ONLY the rewritten text, nothing else: 'hey can u send me that file asap'\" -s --no-color --no-custom-instructions --available-tools=)",
+      "Bash(osascript *)",
+      "Bash(git init *)"
+    ]
+  }
+}
