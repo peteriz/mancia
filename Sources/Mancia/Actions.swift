@@ -45,26 +45,109 @@ enum EditAction: Equatable, Sendable {
 enum PromptBuilder {
     /// The strict trailing instruction shared by every template.
     static let outputOnlyClause =
-        "Output ONLY the resulting text. No preamble, no explanations, no quotes, no markdown fences."
+        "Return only the resulting text. Do not include a preamble, explanation, quotation marks, or Markdown code fence."
+
+    static let rewriteTemplate = PromptTemplate(
+        task: "Rewrite the text for clarity, flow, and natural phrasing.",
+        requirements: [
+            "Preserve the meaning, factual details, tone, language, and formatting.",
+            "Do not add information, examples, claims, or opinions.",
+            "Keep the result close to the original length unless a shorter version is clearer.",
+        ]
+    )
+
+    static let summarizeTemplate = PromptTemplate(
+        task: "Summarize the text.",
+        requirements: [
+            "Keep the main point, key decisions, names, numbers, dates, and constraints.",
+            "Remove repetition, examples, and supporting detail unless needed for accuracy.",
+            "Use clear, concise language in the same language as the source text.",
+        ]
+    )
+
+    static let proofreadTemplate = PromptTemplate(
+        task: "Proofread the text.",
+        requirements: [
+            "Fix spelling, grammar, punctuation, capitalization, and obvious typos.",
+            "Preserve the meaning, tone, language, formatting, line breaks, and wording as much as possible.",
+            "Change only what is needed for correctness.",
+        ]
+    )
 
     static func build(action: EditAction, text: String) -> String {
-        let instruction: String
         switch action {
         case .rewrite:
-            instruction = "Rewrite the following text to be clearer and more natural while preserving its meaning."
+            return rewriteTemplate.render(text: text)
         case .summarize:
-            instruction = "Summarize the following text concisely."
+            return summarizeTemplate.render(text: text)
         case .fixGrammar:
-            instruction = "Correct the spelling, grammar, and punctuation of the following text. Preserve the original meaning, tone, and language."
+            return proofreadTemplate.render(text: text)
         case .custom(let request):
-            instruction = "Apply the following instruction to the text below.\nInstruction: \(request)"
+            return PromptTemplate.custom(request: request).render(text: text)
         }
-        return """
-        \(instruction)
-        \(outputOnlyClause)
+    }
+}
 
-        TEXT:
-        \(text)
+/// A single editable prompt template for an action.
+struct PromptTemplate: Equatable, Sendable {
+    let task: String
+    let requirements: [String]
+    let userInstruction: String?
+
+    init(task: String, requirements: [String], userInstruction: String? = nil) {
+        self.task = task
+        self.requirements = requirements
+        self.userInstruction = userInstruction
+    }
+
+    static func custom(request: String) -> PromptTemplate {
+        PromptTemplate(
+            task: "Apply the user instruction to the input text.",
+            requirements: [
+                "Follow the user instruction exactly, without adding unrelated changes.",
+                "Preserve any content, details, formatting, tone, and language not targeted by the instruction.",
+                "If the instruction asks for a format change, apply only that format change.",
+            ],
+            userInstruction: request
+        )
+    }
+
+    func render(text: String) -> String {
+        var sections = [
+            """
+        Task:
+        \(task)
+        """,
+        ]
+
+        if let userInstruction {
+            sections.append(
+                """
+                User instruction:
+                <<<
+                \(userInstruction)
+                >>>
+                """
+            )
+        }
+
+        sections.append(
+            """
+        Requirements:
+        \(requirements.map { "- \($0)" }.joined(separator: "\n"))
+        - \(PromptBuilder.outputOnlyClause)
         """
+        )
+
+        sections.append(
+            """
+        Input text:
+        <<<
+        \(text)
+        >>>
+        """
+        )
+
+        return sections.joined(separator: "\n\n")
     }
 }

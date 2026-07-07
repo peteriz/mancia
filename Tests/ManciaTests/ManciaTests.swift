@@ -11,13 +11,33 @@ func promptContainsTextAndClause() {
         let prompt = PromptBuilder.build(action: action, text: sample)
         #expect(prompt.contains(sample), "prompt for \(action.title) should contain the input text")
         #expect(prompt.contains(PromptBuilder.outputOnlyClause), "prompt for \(action.title) should contain the output-only clause")
+        #expect(prompt.contains("Task:\n"), "prompt for \(action.title) should include a task section")
+        #expect(prompt.contains("Requirements:\n"), "prompt for \(action.title) should include a requirements section")
+        #expect(prompt.contains("Input text:\n<<<\n\(sample)\n>>>"), "prompt for \(action.title) should delimit the input text")
     }
+}
+
+@Test("Preset prompt templates carry action-specific guidance")
+func presetPromptTemplatesAreSpecific() {
+    let rewrite = PromptBuilder.build(action: .rewrite, text: "some text")
+    #expect(rewrite.contains("Rewrite the text for clarity, flow, and natural phrasing."))
+    #expect(rewrite.contains("Do not add information, examples, claims, or opinions."))
+
+    let summarize = PromptBuilder.build(action: .summarize, text: "some text")
+    #expect(summarize.contains("Summarize the text."))
+    #expect(summarize.contains("Use clear, concise language in the same language as the source text."))
+
+    let proofread = PromptBuilder.build(action: .fixGrammar, text: "some text")
+    #expect(proofread.contains("Proofread the text."))
+    #expect(proofread.contains("Change only what is needed for correctness."))
 }
 
 @Test("Custom prompt carries the instruction")
 func customPromptContainsInstruction() {
     let prompt = PromptBuilder.build(action: .custom("Make it a haiku"), text: "some text")
-    #expect(prompt.contains("Make it a haiku"))
+    #expect(prompt.contains("Apply the user instruction to the input text."))
+    #expect(prompt.contains("User instruction:\n<<<\nMake it a haiku\n>>>"))
+    #expect(prompt.contains("Follow the user instruction exactly, without adding unrelated changes."))
 }
 
 @Test("Action parsing round-trips CLI identifiers")

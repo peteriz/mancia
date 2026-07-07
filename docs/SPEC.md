@@ -89,9 +89,24 @@ Mancia/
 ## Actions & prompts (`Actions.swift`)
 
 `enum EditAction: rewrite, summarize, fixGrammar, custom(String)`.
-Every template must end with a strict instruction like:
-"Output ONLY the resulting text. No preamble, no explanations, no quotes, no
-markdown fences." Keep templates in one place, unit-testable.
+`PromptBuilder.build(action:text:)` is the only path that turns an action into
+the prompt sent to Copilot. Each preset action has a named `PromptTemplate` in
+`Actions.swift`:
+
+- **Proofread** (`fixGrammar`) — correct spelling, grammar, punctuation, and
+  typos while changing only what is needed for correctness.
+- **Rewrite** — improve clarity, flow, and natural phrasing while preserving
+  meaning, facts, tone, language, formatting, and approximate length.
+- **Summarize** — keep the main point, key decisions, names, numbers, dates,
+  and constraints while removing repetition and unnecessary supporting detail.
+- **Custom** — puts the user's free-form instruction in its own delimited
+  section, then preserves anything not targeted by that instruction.
+
+All templates render with the same sections (`Task`, `Requirements`, delimited
+`Input text`) and include the strict output rule:
+"Return only the resulting text. Do not include a preamble, explanation,
+quotation marks, or Markdown code fence." Keep templates in one place,
+unit-testable.
 
 ## Provider layer
 

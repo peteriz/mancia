@@ -216,6 +216,13 @@ prompt):
   prints the result (exit 0) or an error to stderr (exit 1). (`fix-grammar`
   is the CLI id for the action labeled **Proofread** in the panel.)
 
+`PromptBuilder` keeps every Copilot prompt template in `Actions.swift`.
+Proofread, Rewrite, and Summarize each use a named `PromptTemplate`; Custom
+uses the same structure with the user's instruction in its own delimited
+section. Every rendered prompt has `Task`, `Requirements`, and delimited
+`Input text` sections plus the shared output-only clause, so templates are easy
+to review and adjust.
+
 Both run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no
 `NSApplication` run loop to drive the actor hops. These flags are the
