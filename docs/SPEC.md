@@ -42,7 +42,7 @@ AI-Edit/
 ├── Tests/AIEditTests/             # unit tests (prompt templates, provider args, trimming)
 ├── Support/Info.plist             # LSUIElement=true, bundle id io.github.peteriz.ai-edit
 ├── docs/SPEC.md                   # this file
-└── scripts/make_app.sh            # SPM binary → AI-Edit.app, ad-hoc codesign
+└── scripts/make_app.sh            # SPM binary → AI-Edit.app, stable codesign when available
 ```
 
 ## Dependencies (SPM)
@@ -162,9 +162,11 @@ so it comes to front). Sections:
   executable `AIEdit`, test target.
 - `scripts/make_app.sh`: `swift build -c release`, assemble
   `build/AI-Edit.app/Contents/{MacOS,Resources}`, copy binary + Info.plist,
-  write PkgInfo, `codesign --force --deep -s - build/AI-Edit.app`.
+  write PkgInfo, then sign with `CODESIGN_ID`, local `AI-Edit Dev Signing`, or
+  ad-hoc fallback.
 - `Makefile` targets: `build` (debug swift build), `test` (swift test),
-  `app` (release bundle), `run` (app + `open`), `clean`.
+  `app` (release bundle), `release` (requires explicit `CODESIGN_ID`), `run`
+  (app + `open`), `clean`.
 
 ## Debug/E2E hooks (important for automated verification)
 

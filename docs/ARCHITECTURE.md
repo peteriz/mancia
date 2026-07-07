@@ -41,7 +41,7 @@ Tests/AIEditTests/AIEditTests.swift   Prompt templates, argv construction (incl.
                                       decoding/fallback (all pure, no process spawning)
 
 Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.ai-edit
-scripts/make_app.sh                  swift build -c release → build/AI-Edit.app, ad-hoc codesign
+scripts/make_app.sh                  swift build -c release → build/AI-Edit.app, stable codesign when available
 ```
 
 There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
@@ -194,15 +194,18 @@ presence — this is a menu-bar-only app) and bundle id
   `AIEdit` (depends on `sindresorhus/KeyboardShortcuts`), one test target
   `AIEditTests`.
 - **Makefile** — `build` (`swift build`), `test` (`swift test`), `app`
-  (`scripts/make_app.sh`), `run` (`app` + `open build/AI-Edit.app`), `clean`
+  (`scripts/make_app.sh`), `release` (requires explicit `CODESIGN_ID`, then
+  `REQUIRE_SIGNING=1 scripts/make_app.sh`),
+  `run` (`app` + `open build/AI-Edit.app`), `clean`
   (`swift package clean` + `rm -rf build`).
 - **scripts/make_app.sh** — `swift build -c release`, assembles
   `build/AI-Edit.app/Contents/{MacOS,Resources}`, copies the binary and
-  `Support/Info.plist`, writes a `PkgInfo`, then
-  `codesign --force --deep -s - build/AI-Edit.app` (ad-hoc signature — no
-  Developer ID). Because the signature/binary changes on every rebuild,
-  Accessibility must be re-granted each time (macOS ties the grant to the
-  binary's identity).
+  `Support/Info.plist`, writes a `PkgInfo`, then signs the bundle. Signing
+  order is: explicit `CODESIGN_ID`, local `AI-Edit Dev Signing` certificate,
+  then ad-hoc fallback unless `REQUIRE_SIGNING=1`. Developer ID identities get
+  `--options runtime` by default for notarization readiness. Accessibility
+  approval survives updates only when `CFBundleIdentifier`
+  (`io.github.peteriz.ai-edit`) and the signing identity stay stable.
 
 ## Debug/E2E hooks
 
