@@ -36,8 +36,12 @@ jobs:
 
       - name: Package DMG
         env:
-          # Repo secrets; empty until a Developer ID identity is configured,
-          # in which case make_app.sh falls back to ad-hoc signing.
+          # Optional repo secrets, unset today: releases ship ad-hoc signed
+          # (make_app.sh's fallback), which is this project's intended
+          # default — users right-click > Open once; see the README's
+          # Gatekeeper note. If a Developer ID identity is ever added,
+          # setting these signs releases with it instead (the runner would
+          # also need a keychain-import step first).
           CODESIGN_ID: ${{ secrets.CODESIGN_ID }}
           CODESIGN_FLAGS: ${{ secrets.CODESIGN_FLAGS }}
         run: make dmg
