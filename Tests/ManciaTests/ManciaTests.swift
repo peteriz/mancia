@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 @testable import Mancia
 
 // MARK: - Prompt templates
@@ -458,4 +459,42 @@ func augmentedPathPrependsAndDedupes() {
     #expect(parts.count == Set(parts).count)
     // Works with no base PATH.
     #expect(!CopilotCLIProvider.augmentedPath(base: nil).isEmpty)
+}
+
+// MARK: - Panel key commands
+
+@Test("Panel shortcuts resolve to the expected commands")
+func panelKeyCommandsResolve() {
+    typealias Case = (chars: String, mods: NSEvent.ModifierFlags, expected: PanelKeyCommand)
+    let cases: [Case] = [
+        ("a", .command, .selectAll),
+        ("c", .command, .copy),
+        ("v", .command, .paste),
+        ("x", .command, .cut),
+        ("z", .command, .undo),
+        ("z", [.command, .shift], .redo),
+        // charactersIgnoringModifiers reports an uppercase letter with ⇧ held.
+        ("Z", [.command, .shift], .redo),
+        ("w", .command, .closePanel),
+        (",", .command, .openSettings),
+        ("\r", .command, .submit),
+    ]
+    for c in cases {
+        #expect(
+            PanelKeyCommand.resolve(characters: c.chars, modifiers: c.mods) == c.expected,
+            "⌘-shortcut for \(c.chars) should resolve to \(c.expected)")
+    }
+}
+
+@Test("Non-shortcut keys resolve to nil")
+func panelKeyCommandsRejectNonShortcuts() {
+    // Plain typing, wrong or extra modifiers, and empty input stay untouched.
+    #expect(PanelKeyCommand.resolve(characters: "a", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "a", modifiers: .shift) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "a", modifiers: [.command, .option]) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "a", modifiers: [.command, .control]) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "q", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
 }

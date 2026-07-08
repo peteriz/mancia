@@ -105,6 +105,10 @@ CODESIGN_ID="Mancia Dev Signing" make app
 With no selected text, Mancia switches to whole-document mode and uses select-all
 under the hood.
 
+Keyboard shortcuts in the panel: `Cmd-A/C/V/X` and `Cmd-Z`/`Shift-Cmd-Z` edit
+the instruction field, `Return` or `Cmd-Return` runs, `Left`/`Right` switch
+versions, `Cmd-,` opens Settings, and `Esc` or `Cmd-W` closes.
+
 ## Settings
 
 Open settings from the menu bar icon:

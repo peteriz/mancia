@@ -26,6 +26,8 @@ Sources/Mancia/
 │   ├── PanelModel.swift          @Observable state shared between coordinator and view
 │   ├── EditPanel.swift           NSPanel host (floating, non-activating; placed at the
 │   │                             caret, at the mouse, or centered)
+│   ├── PanelKeyCommand.swift     ⌘-shortcut mapping for the panel (no menu bar, so the
+│   │                             panel resolves Edit-menu-style key equivalents itself)
 │   └── EditPanelView.swift       SwiftUI content (describe field + action rows + status strip)
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider protocol and ProviderStatus

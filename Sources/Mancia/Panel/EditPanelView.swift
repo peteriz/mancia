@@ -49,6 +49,7 @@ struct EditPanelView: View {
         .onExitCommand { model.onCancel?() }
         .onAppear { fieldFocused = true }
         .onChange(of: model.sessionSeq) { fieldFocused = true }
+        .onChange(of: model.focusSeq) { fieldFocused = true }
     }
 
     private var isRunning: Bool { model.phase == .running }
