@@ -94,7 +94,11 @@ wired to call `coordinator.start()`.
    instruction (`PanelModel.submitInstruction()` → `.custom(text)`).
    `EditCoordinator.perform(_:)` resolves this cycle's input and apply
    strategy (`resolveInput()`):
-   - `.document` scope: re-captures via `⌘A`+`⌘C` every cycle
+   - `.document` scope: when the session originally found no selection, first
+     probes with a fresh `⌘C`; a new non-empty live selection switches the
+     session to `.selection` scope, unless it matches the currently shown
+     whole-document version (which can be the app's own previous `⌘A`
+     selection). Otherwise it re-captures via `⌘A`+`⌘C` every cycle
      (`SelectionCapture.captureEntireDocument(from:)`); captured text that
      differs from the currently shown version (a manual edit) becomes the new
      session baseline (`versions = [captured]`). Applies with `⌘A`+`⌘V`.
