@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish-dmg:
+    name: Build and publish DMG
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Align bundle version with release tag
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Support/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Support/Info.plist
+          echo "Building Mancia $VERSION from tag $TAG"
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+      - name: Package DMG
+        env:
+          # Optional repo secrets, unset today: releases ship ad-hoc signed
+          # (make_app.sh's fallback), which is this project's intended
+          # default — users right-click > Open once; see the README's
+          # Gatekeeper note. If a Developer ID identity is ever added,
+          # setting these signs releases with it instead (the runner would
+          # also need a keychain-import step first).
+          CODESIGN_ID: ${{ secrets.CODESIGN_ID }}
+          CODESIGN_FLAGS: ${{ secrets.CODESIGN_FLAGS }}
+        run: make dmg
+
+      - name: Upload DMG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" build/Mancia-*.dmg --clobber
