@@ -45,6 +45,10 @@ open build/Mancia.app
 
 To install it permanently, copy `build/Mancia.app` to `/Applications`.
 
+Or build a distributable disk image with `make dmg`, which produces
+`build/Mancia-<version>.dmg`. Open it and drag Mancia onto the Applications
+shortcut to install.
+
 Useful development commands:
 
 | Command | What it does |
@@ -52,6 +56,7 @@ Useful development commands:
 | `make build` | Debug build with `swift build`. |
 | `make test` | Runs unit tests. |
 | `make app` | Builds and assembles `build/Mancia.app`. |
+| `make dmg` | Builds `build/Mancia-<version>.dmg` for drag-to-install. |
 | `make run` | Builds the app bundle and opens it. |
 | `make clean` | Removes SwiftPM and app build output. |
 
