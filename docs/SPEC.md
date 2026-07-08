@@ -1,5 +1,24 @@
 # Mancia — Implementation Specification
 
+> **Historical design document.** This is the original v0.1 design spec, kept
+> for context. The implemented behavior has since evolved; see
+> [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
+> behavior. Notably:
+>
+> - The panel's actions are now a single hero **Improve** button (a
+>   proofread-and-rewrite blend) plus a free-form instruction field. The
+>   separate Proofread / Rewrite / Summarize preset buttons were dropped from
+>   the UI; those templates survive only as prompt logic reachable through the
+>   debug CLI (`--complete`).
+> - There is no Translate or Reply action, and no "Entire document" preview: the
+>   scope caption still lets you switch between the selection and the whole
+>   document, but there is no separate scope menu screen.
+> - Edits **apply immediately** (no preview-then-Apply step). After an edit the
+>   panel keeps an iteration history and shows `←` / `→` version navigation so
+>   you can move between the original and each generated version.
+> - After applying, the panel either flashes "Improved" and auto-closes or stays
+>   open with the version strip, per the **post-apply behavior** setting.
+
 A macOS menu bar app providing system-wide, selection-based AI text editing.
 Press a global hotkey in **any** app, and a small floating panel appears near the
 cursor offering AI actions (Rewrite, Summarize, Fix Grammar, Translate, Reply,

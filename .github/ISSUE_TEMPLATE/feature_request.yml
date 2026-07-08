@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement or new capability for Mancia.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mancia is intentionally small and menu-bar-app appropriate. Proposals
+        that keep it lightweight and focused are easiest to accept.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that Mancia makes hard or impossible today?
+      placeholder: When I edit whole documents I want to...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like Mancia to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you have tried or thought about.
+    validations:
+      required: false

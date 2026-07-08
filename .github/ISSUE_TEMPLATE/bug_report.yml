@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in Mancia is broken or behaves unexpectedly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Mancia edits text in other apps via the pasteboard
+        and synthetic keystrokes, so details about the target app and your
+        environment help a lot.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+      placeholder: The panel opened but nothing was pasted back into the document...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact sequence you followed.
+      placeholder: |
+        1. Select text in <app>
+        2. Press Control-Option-Command-E
+        3. Press Improve
+        4. ...
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 14.5, 15.1, 26.0"
+    validations:
+      required: true
+  - type: input
+    id: mancia-version
+    attributes:
+      label: Mancia version / commit
+      description: Version from About Mancia, or the git commit you built.
+      placeholder: "0.1.0 / abc1234"
+    validations:
+      required: true
+  - type: input
+    id: target-app
+    attributes:
+      label: Target app
+      description: The frontmost app you were editing text in when it failed.
+      placeholder: "e.g. TextEdit, Safari, VS Code, Slack"
+    validations:
+      required: true
+  - type: input
+    id: copilot-version
+    attributes:
+      label: GitHub Copilot CLI version
+      description: Output of `copilot --version`.
+      placeholder: "e.g. 1.0.69"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error text
+      description: >
+        Any error shown in the panel, plus relevant output from Console.app
+        (filter for "Mancia") or from running the binary in a terminal. Output
+        of `swift run Mancia --provider-check` is useful for provider issues.
+      render: shell
+    validations:
+      required: false
