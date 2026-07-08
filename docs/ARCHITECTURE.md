@@ -30,17 +30,21 @@ Sources/Mancia/
 │   │                             panel resolves Edit-menu-style key equivalents itself)
 │   └── EditPanelView.swift       SwiftUI content (describe field + action rows + status strip)
 ├── Providers/
-│   ├── LLMProvider.swift         LLMProvider protocol and ProviderStatus
-│   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, Process)
+│   ├── LLMProvider.swift         LLMProvider/WarmableLLMProvider protocols and ProviderStatus
+│   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, fallback Process)
+│   ├── CopilotACPConfig.swift    ACP sidecar configuration value
+│   ├── CopilotACPSidecar.swift   Keeps one Copilot ACP process/session warm
+│   ├── CopilotACPClient.swift    Minimal JSON-RPC client for `copilot --acp --stdio`
 │   └── CopilotModelCatalog.swift Reads the CLI's cached model list from ~/.copilot/data.db
 │                                 (SQLite, read-only) for the settings pickers
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
     └── SettingsView.swift        SwiftUI settings window content
 
-Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv construction (incl. --reasoning-effort),
-                                      post-processing, binary discovery order, model-catalog
-                                      decoding/fallback (all pure, no process spawning)
+Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv/ACP construction and parsing
+                                      (incl. --reasoning-effort), post-processing,
+                                      binary discovery order, model-catalog decoding/fallback
+                                      (all pure, no process spawning)
 
 Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.mancia
 scripts/make_app.sh                  swift build -c release → build/Mancia.app, stable codesign when available
@@ -105,6 +109,9 @@ wired to call `coordinator.start()`.
    It then builds the prompt with `PromptBuilder.build(action:text:)` and
    calls `provider.complete(prompt)` inside a cancellable `Task`. While it
    runs, only the strip's **Cancel** is enabled (spinner + action name).
+   Providers that conform to `WarmableLLMProvider` are warmed when the panel
+   opens and after it closes; `CopilotCLIProvider` uses that hook to keep one
+   empty, single-use ACP session ready for the next edit.
 5. **Confirm (whole-document only)** — before a `.document`-scope result
    overwrites the document, the panel pauses in `PanelModel.phase == .confirm`
    (`ApplyConfirmation.isRequired`, gated by
@@ -147,6 +154,20 @@ protocol LLMProvider: Sendable {
 Today the app constructs one `CopilotCLIProvider` directly and passes it to
 the places that need completion or availability checks.
 
+`CopilotCLIProvider` uses two execution paths:
+
+- **Primary latency path:** a persistent `copilot --acp --stdio` process, driven
+  by `CopilotACPClient` over JSON-RPC. `CopilotACPSidecar` warms one empty
+  session while the panel is open; the session is consumed by a single prompt
+  and then discarded so selected text cannot carry into later edits.
+- **Fallback reliability path:** the original one-shot `copilot -p <prompt>` CLI
+  invocation. ACP launch, protocol, empty-output, and timeout failures fall back
+  here; user cancellation stays cancellation.
+
+Both paths run in private empty temp directories and use the same ambient-context
+disable flags: `--available-tools=`, `--disable-builtin-mcps`, `--no-remote`,
+and `--no-custom-instructions`.
+
 To add a new provider:
 
 1. Create `Sources/Mancia/Providers/<Name>Provider.swift` conforming to
@@ -167,6 +188,9 @@ To add a new provider:
 4. Add unit tests alongside the existing ones in
    `Tests/ManciaTests/ManciaTests.swift` for prompt/argv construction and
    output post-processing.
+5. If the provider can hide startup latency, conform to `WarmableLLMProvider`;
+   warming must be an optimization only, with cancellation and fallback behavior
+   matching the synchronous `complete(_:)` path.
 
 `EditCoordinator`, `DebugCLI`, and `StatusBarController` should continue to use
 `provider.complete(_:)` / `provider.checkAvailability()` rather than knowing
@@ -180,12 +204,15 @@ email, web page, or chat message the user highlighted) and can carry embedded
 "instructions", so the defenses target the *data path*, not the user's own
 instruction:
 
-- **Sandboxed provider (the real boundary).** Every completion runs
-  `copilot … --available-tools= --no-custom-instructions` in a private empty
-  temp `cwd`, with the prompt passed as a single `-p` argv element (no shell).
-  The model therefore has no tools, no repo context, and no shell — the blast
-  radius is "text in, text out". `argvAlwaysSandboxed` locks this invariant so a
-  future edit can't silently re-enable tools.
+- **Sandboxed provider (the real boundary).** Every completion runs through
+  either `copilot --acp --stdio` or the one-shot `copilot -p` fallback in a
+  private empty temp `cwd`. Both paths pass
+  `--available-tools= --disable-builtin-mcps --no-remote --no-custom-instructions`;
+  the prompt is sent as ACP JSON-RPC text or as one single `-p` argv element
+  (never through a shell). The model therefore has no tools, no repo context, no
+  remote-session context, and no shell — the blast radius is "text in, text out".
+  `argvAlwaysSandboxed` and the ACP argv/parsing tests lock this invariant so a
+  future edit can't silently re-enable ambient context.
 - **Nonce-fenced input (`PromptDelimiter`, `Actions.swift`).** Each request wraps
   the instruction and the input text in `[[LABEL:<nonce>]] … [[/LABEL:<nonce>]]`
   markers keyed by an unguessable per-call nonce (`PromptDelimiter.makeNonce`

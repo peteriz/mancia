@@ -1,72 +1,5 @@
 import Foundation
 
-struct CopilotACPConfig: Equatable {
-    let executable: String
-    let model: String
-    let reasoningEffort: String
-}
-
-/// Keeps one Copilot ACP process alive and one empty session warm.
-///
-/// The warm session is single-use: once a prompt is sent, the session id is
-/// discarded so selected text never carries into a later edit.
-actor CopilotACPSidecar {
-    private var client: CopilotACPClient?
-    private var config: CopilotACPConfig?
-    private var warmSessionID: String?
-
-    func prepare(config newConfig: CopilotACPConfig) async {
-        do {
-            _ = try await warmSession(config: newConfig)
-        } catch {
-            await reset()
-        }
-    }
-
-    func complete(_ prompt: String, config newConfig: CopilotACPConfig) async throws -> String {
-        let client = try await client(config: newConfig)
-        let sessionID: String
-        if let warmSessionID {
-            sessionID = warmSessionID
-            self.warmSessionID = nil
-        } else {
-            sessionID = try await client.newSession()
-        }
-        do {
-            return try await client.prompt(sessionID: sessionID, text: prompt)
-        } catch {
-            await reset()
-            throw error
-        }
-    }
-
-    private func warmSession(config newConfig: CopilotACPConfig) async throws -> String {
-        if let warmSessionID, config == newConfig { return warmSessionID }
-        let client = try await client(config: newConfig)
-        let sessionID = try await client.newSession()
-        warmSessionID = sessionID
-        return sessionID
-    }
-
-    private func client(config newConfig: CopilotACPConfig) async throws -> CopilotACPClient {
-        if let client, config == newConfig { return client }
-        await reset()
-        let client = try await CopilotACPClient(config: newConfig)
-        self.client = client
-        self.config = newConfig
-        return client
-    }
-
-    private func reset() async {
-        warmSessionID = nil
-        config = nil
-        if let client {
-            await client.stop()
-            self.client = nil
-        }
-    }
-}
-
 /// Minimal ACP JSON-RPC client for Copilot CLI.
 actor CopilotACPClient {
     private let process: Process
@@ -130,8 +63,7 @@ actor CopilotACPClient {
             params: ["cwd": workingDir.path, "mcpServers": []],
             timeout: 15
         )
-        guard let result = field("result", in: line) as? [String: Any],
-              let sessionID = result["sessionId"] as? String else {
+        guard let sessionID = Self.sessionID(fromNewSessionResponse: line) else {
             throw ProviderError.emptyOutput
         }
         return sessionID
@@ -147,7 +79,7 @@ actor CopilotACPClient {
             ],
             timeout: 90
         )
-        let stopReason = (field("result", in: line) as? [String: Any])?["stopReason"] as? String
+        let stopReason = Self.stopReason(fromPromptResponse: line)
         guard stopReason == nil || stopReason == "end_turn" else {
             throw ProviderError.nonZeroExit(1, "Copilot stopped with \(stopReason ?? "unknown reason").")
         }
@@ -182,7 +114,7 @@ actor CopilotACPClient {
     }
 
     private func handle(line: String) {
-        guard let object = jsonObject(line) else { return }
+        guard let object = Self.jsonObject(line) else { return }
         if let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
             if let error = object["error"] as? [String: Any] {
                 continuation.resume(throwing: ProviderError.nonZeroExit(1, String(describing: error)))
@@ -206,15 +138,10 @@ actor CopilotACPClient {
     }
 
     private func appendChunk(from params: [String: Any]) {
-        guard let sessionID = params["sessionId"] as? String,
-              var current = chunksBySession[sessionID],
-              let update = params["update"] as? [String: Any],
-              update["sessionUpdate"] as? String == "agent_message_chunk",
-              let content = update["content"] as? [String: Any],
-              content["type"] as? String == "text",
-              let text = content["text"] as? String else { return }
-        current += text
-        chunksBySession[sessionID] = current
+        guard let chunk = Self.agentMessageChunk(from: params),
+              var current = chunksBySession[chunk.sessionID] else { return }
+        current += chunk.text
+        chunksBySession[chunk.sessionID] = current
     }
 
     private func failPending(_ id: Int, with error: Error) {
@@ -258,15 +185,30 @@ actor CopilotACPClient {
         return data
     }
 
-    private func jsonObject(_ line: String) -> [String: Any]? {
+    static func sessionID(fromNewSessionResponse line: String) -> String? {
+        guard let result = jsonObject(line)?["result"] as? [String: Any] else { return nil }
+        return result["sessionId"] as? String
+    }
+
+    static func stopReason(fromPromptResponse line: String) -> String? {
+        (jsonObject(line)?["result"] as? [String: Any])?["stopReason"] as? String
+    }
+
+    static func agentMessageChunk(from params: [String: Any]) -> (sessionID: String, text: String)? {
+        guard let sessionID = params["sessionId"] as? String,
+              let update = params["update"] as? [String: Any],
+              update["sessionUpdate"] as? String == "agent_message_chunk",
+              let content = update["content"] as? [String: Any],
+              content["type"] as? String == "text",
+              let text = content["text"] as? String else { return nil }
+        return (sessionID, text)
+    }
+
+    private static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
         return object
-    }
-
-    private func field(_ name: String, in line: String) -> Any? {
-        jsonObject(line)?[name]
     }
 }

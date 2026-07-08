@@ -385,6 +385,48 @@ func acpArgvDisablesAmbientContext() {
     #expect(args.contains("none"))
 }
 
+@Test("ACP failures fall back to one-shot CLI except cancellation")
+func acpFallbackPolicy() {
+    #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.timedOut))
+    #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.launchFailed("sidecar exited")))
+    #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.emptyOutput))
+    #expect(!CopilotCLIProvider.shouldFallbackFromACPError(CancellationError()))
+}
+
+@Test("ACP response parsing extracts session ids and stop reasons")
+func acpResponseParsing() {
+    let sessionLine = #"{"jsonrpc":"2.0","id":1,"result":{"sessionId":"session-123"}}"#
+    #expect(CopilotACPClient.sessionID(fromNewSessionResponse: sessionLine) == "session-123")
+    #expect(CopilotACPClient.sessionID(fromNewSessionResponse: #"{"result":{}}"#) == nil)
+
+    let doneLine = #"{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}"#
+    #expect(CopilotACPClient.stopReason(fromPromptResponse: doneLine) == "end_turn")
+    #expect(CopilotACPClient.stopReason(fromPromptResponse: #"{"result":{}}"#) == nil)
+}
+
+@Test("ACP update parsing extracts only text message chunks")
+func acpUpdateParsing() {
+    let params: [String: Any] = [
+        "sessionId": "session-123",
+        "update": [
+            "sessionUpdate": "agent_message_chunk",
+            "content": ["type": "text", "text": "hello"],
+        ],
+    ]
+    let chunk = CopilotACPClient.agentMessageChunk(from: params)
+    #expect(chunk?.sessionID == "session-123")
+    #expect(chunk?.text == "hello")
+
+    let nonText: [String: Any] = [
+        "sessionId": "session-123",
+        "update": [
+            "sessionUpdate": "agent_message_chunk",
+            "content": ["type": "image", "text": "ignored"],
+        ],
+    ]
+    #expect(CopilotACPClient.agentMessageChunk(from: nonText) == nil)
+}
+
 @Test("Argv appends --model when a model is set")
 func argvIncludesModel() {
     let args = CopilotCLIProvider.arguments(executable: "/opt/homebrew/bin/copilot", prompt: "hi", model: "gpt-5")

@@ -149,6 +149,12 @@ final class CopilotCLIProvider: LLMProvider {
         return args
     }
 
+    /// ACP is an optimization over the one-shot CLI path, so provider failures
+    /// should fall back unless the user cancelled the in-flight edit.
+    static func shouldFallbackFromACPError(_ error: Error) -> Bool {
+        !(error is CancellationError)
+    }
+
     /// Trim surrounding whitespace and strip a single wrapping code-fence pair.
     static func postProcess(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,11 +180,8 @@ final class CopilotCLIProvider: LLMProvider {
                 config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
             )
             return Self.postProcess(output)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch ProviderError.timedOut {
-            throw ProviderError.timedOut
         } catch {
+            if !Self.shouldFallbackFromACPError(error) { throw error }
             // ACP is a latency optimization. Keep the old one-shot CLI path as
             // the reliability boundary when the sidecar is missing or wedged.
         }
