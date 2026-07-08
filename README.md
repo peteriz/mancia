@@ -4,9 +4,15 @@
 
 # Mancia
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
+</p>
+
 Mancia is a small macOS menu bar app for editing text with AI anywhere you type.
-Select text in any app, press a hotkey, choose an action, and Mancia replaces
-the text in place. No chat window, no copy-paste loop.
+Select text in any app, press a hotkey, and Mancia rewrites the text in place.
+No chat window, no copy-paste loop.
 
 It currently uses the local GitHub Copilot CLI as its provider.
 
@@ -15,7 +21,7 @@ It currently uses the local GitHub Copilot CLI as its provider.
 - Works system-wide with a global hotkey, defaulting to `Control-Option-Command-E`.
 - Opens a compact floating panel near your cursor.
 - Edits the current selection, or the whole document when nothing is selected.
-- Includes Proofread, Rewrite, Summarize, and a custom instruction field.
+- Offers a one-tap **Improve** action (proofread and rewrite combined) plus a free-form instruction field for anything else.
 - Applies results in place and lets you move between the original and generated versions.
 - Restores your clipboard after each capture and paste.
 - Runs as a menu bar app with no Dock icon.
@@ -49,6 +55,15 @@ Or build a distributable disk image with `make dmg`, which produces
 `build/Mancia-<version>.dmg`. Open it and drag Mancia onto the Applications
 shortcut to install.
 
+### Gatekeeper note
+
+Mancia is not notarized. The first time you open a build you downloaded or
+copied from a DMG, macOS may refuse to launch it ("Mancia can't be opened
+because Apple cannot check it for malicious software"). Right-click the app and
+choose **Open**, then confirm; or open **System Settings > Privacy & Security**
+and click **Open Anyway**. You only need to do this once per build. Builds you
+compile yourself with `make app` are not quarantined and open normally.
+
 Useful development commands:
 
 | Command | What it does |
@@ -81,7 +96,8 @@ CODESIGN_ID="Mancia Dev Signing" make app
 
 1. Select text in any app.
 2. Press `Control-Option-Command-E`.
-3. Choose **Proofread**, **Rewrite**, **Summarize**, or type your own instruction.
+3. Press **Improve** for a proofread-and-rewrite pass, or type your own
+   instruction and submit it.
 4. Review the inserted result.
 5. Use the arrows to switch versions, run another edit, or press **Done**.
 
@@ -108,6 +124,8 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 ## Project Docs
 
 - [Contributing](docs/CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Implementation spec](docs/SPEC.md)
 
