@@ -40,7 +40,7 @@ if [[ -z "$IDENTITY" ]]; then
         # left over from a previous app name). Without this, renaming the app
         # silently drops us back to ad-hoc signing, whose signature changes
         # every build and voids the Accessibility grant.
-        IDENTITY="$(grep -Eo '"[^"]*Dev Signing[^"]*"' <<< "$IDENTITIES" | head -n1 | tr -d '"')"
+        IDENTITY="$(grep -Eo '"[^"]*Dev Signing[^"]*"' <<< "$IDENTITIES" | head -n1 | tr -d '"' || true)"
     fi
 fi
 if [[ -n "$IDENTITY" ]]; then
