@@ -16,10 +16,6 @@ No chat window, no copy-paste loop.
 
 It currently uses the local GitHub Copilot CLI as its provider.
 
-<p align="center">
-  <img src="docs/assets/panel-screenshot.png" alt="Mancia's floating edit panel ready to improve the selected text" width="440">
-</p>
-
 ## What It Does
 
 - Works system-wide with a global hotkey, defaulting to `Control-Option-Command-E`.
