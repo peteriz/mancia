@@ -114,7 +114,9 @@ versions, `Cmd-,` opens Settings, and `Esc` or `Cmd-W` closes.
 Open settings from the menu bar icon:
 
 - Change the global shortcut.
-- Choose a Copilot model and reasoning effort when available.
+- Choose a Copilot model and reasoning effort when available; models are
+  grouped fastest-first (Fastest/Balanced/Most capable), and an ultra-fast
+  model is preselected by default until you choose otherwise.
 - Set or detect the Copilot CLI path.
 - Toggle launch at login.
 
