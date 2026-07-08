@@ -5,7 +5,6 @@
 # Mancia
 
 <p align="center">
-  <a href="https://github.com/peteriz/mancia/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/peteriz/mancia/ci.yml?branch=main&label=CI" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
@@ -18,7 +17,7 @@ No chat window, no copy-paste loop.
 It currently uses the local GitHub Copilot CLI as its provider.
 
 <p align="center">
-  <img src="docs/assets/panel-screenshot.png" alt="Mancia's floating edit panel over a document in TextEdit, ready to improve the selected text" width="640">
+  <img src="docs/assets/panel-screenshot.png" alt="Mancia's floating edit panel ready to improve the selected text" width="480">
 </p>
 
 ## What It Does
@@ -105,10 +104,6 @@ CODESIGN_ID="Mancia Dev Signing" make app
    instruction and submit it.
 4. Review the inserted result.
 5. Use the arrows to switch versions, run another edit, or press **Done**.
-
-<p align="center">
-  <img src="docs/assets/panel-applied.png" alt="Mancia after applying Improve: the text is corrected and the panel shows an Improved status with version arrows and a Done button" width="640">
-</p>
 
 With no selected text, Mancia switches to whole-document mode and uses select-all
 under the hood.
