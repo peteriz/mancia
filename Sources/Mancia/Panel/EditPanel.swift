@@ -11,6 +11,8 @@ final class EditPanel {
     /// was consumed (used to cancel the post-apply auto-close and to drive
     /// keyboard version navigation without the field swallowing the arrows).
     var onKeyDown: ((NSEvent) -> Bool)?
+    /// Invoked by ⌘, — the app has no menu bar to own this shortcut.
+    var onOpenSettings: (() -> Void)?
 
     init(model: PanelModel) {
         self.model = model
@@ -43,10 +45,13 @@ final class EditPanel {
 
     /// Retake key status after the target app was activated for a keystroke
     /// burst, so Esc (and typing) reach the panel again. No reordering, no
-    /// flicker; no-op when the panel isn't on screen.
+    /// flicker; no-op when the panel isn't on screen. Also puts focus back in
+    /// the field — regaining key alone doesn't restore the first responder
+    /// (e.g. after the Settings window closes).
     func focus() {
         guard let panel, panel.isVisible else { return }
         panel.makeKeyAndOrderFront(nil)
+        model.focusSeq &+= 1
     }
 
     // MARK: - Construction
@@ -79,6 +84,14 @@ final class EditPanel {
         panel.contentView = hosting
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
         panel.onKeyDown = { [weak self] event in self?.onKeyDown?(event) ?? false }
+        panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        panel.onSubmit = { [weak self] in
+            guard let model = self?.model else { return }
+            // Mirror the Return key: inert while a request runs or a
+            // whole-document replacement awaits confirmation.
+            guard model.phase != .running, model.phase != .confirm else { return }
+            model.runPrimary()
+        }
         return panel
     }
 
@@ -114,10 +127,14 @@ final class EditPanel {
     }
 }
 
-/// NSPanel that can become key (needed for the text field) and routes Esc.
+/// NSPanel that can become key (needed for the text field), routes Esc, and
+/// resolves the ⌘-shortcuts an Edit menu would normally own (the app is
+/// menu-bar-only, so there is none).
 private final class KeyablePanel: NSPanel {
     var onCancel: (() -> Void)?
     var onKeyDown: ((NSEvent) -> Bool)?
+    var onOpenSettings: (() -> Void)?
+    var onSubmit: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
 
@@ -131,5 +148,42 @@ private final class KeyablePanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, onKeyDown?(event) == true { return }
         super.sendEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              let command = PanelKeyCommand.resolve(
+                  characters: event.charactersIgnoringModifiers,
+                  modifiers: event.modifierFlags
+              )
+        else { return super.performKeyEquivalent(with: event) }
+
+        switch command {
+        case .selectAll: dispatchEditorAction(#selector(NSText.selectAll(_:)))
+        case .copy: dispatchEditorAction(#selector(NSText.copy(_:)))
+        case .paste: dispatchEditorAction(#selector(NSText.paste(_:)))
+        case .cut: dispatchEditorAction(#selector(NSText.cut(_:)))
+        case .undo: if let undo = fieldUndoManager, undo.canUndo { undo.undo() }
+        case .redo: if let undo = fieldUndoManager, undo.canRedo { undo.redo() }
+        case .closePanel: onCancel?()
+        case .openSettings: onOpenSettings?()
+        case .submit: onSubmit?()
+        }
+        // Always consume a recognized shortcut, like a menu item would —
+        // a no-op (e.g. nothing to undo) should not fall through and beep.
+        return true
+    }
+
+    /// Send a standard editing action down the responder chain, which reaches
+    /// the field editor while the instruction field is focused — exactly what
+    /// the matching Edit-menu item would do.
+    private func dispatchEditorAction(_ action: Selector) {
+        _ = NSApp.sendAction(action, to: nil, from: self)
+    }
+
+    /// The focused field's undo stack (the field editor is an NSTextView).
+    /// Scoped to typing in the panel — never the target document.
+    private var fieldUndoManager: UndoManager? {
+        (firstResponder as? NSTextView)?.undoManager
     }
 }

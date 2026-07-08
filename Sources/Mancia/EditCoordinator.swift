@@ -36,6 +36,8 @@ final class EditCoordinator {
     /// A completed whole-document result awaiting explicit confirmation before
     /// it overwrites the document (`.confirm` phase).
     private var pendingApply: (output: String, baseline: String)?
+    /// Wired by AppDelegate; invoked by the panel's ⌘, shortcut.
+    var onOpenSettings: (() -> Void)?
 
     init(provider: LLMProvider, settings: AppSettings) {
         self.provider = provider
@@ -52,6 +54,7 @@ final class EditCoordinator {
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
         panel.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
     }
 
     /// Entry point from hotkey or menu. Starts a fresh session. Ignores
@@ -347,6 +350,12 @@ final class EditCoordinator {
         // Discard any result awaiting confirmation and return to a resting state.
         pendingApply = nil
         model.phase = versions.count > 1 ? .applied : .idle
+        panel.focus()
+    }
+
+    /// Retake key status for the panel if a session is on screen — used when
+    /// the Settings window closes after stealing key from the panel (⌘,).
+    func refocusPanel() {
         panel.focus()
     }
 

@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let coordinator = EditCoordinator(provider: provider, settings: settings)
+        coordinator.onOpenSettings = { [weak self] in self?.showSettings() }
         self.coordinator = coordinator
 
         let statusBar = StatusBarController(provider: provider)
@@ -45,6 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentViewController = hosting
         window.isReleasedWhenClosed = false
         window.center()
+        // Opening Settings activates the app and takes key status away from
+        // the floating panel; without this, an open edit session stops
+        // responding to Esc and typing after Settings closes.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.coordinator?.refocusPanel() }
+        }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
     }

@@ -34,6 +34,9 @@ final class PanelModel {
     var currentIndex = 0
     /// Bumped on every fresh session so the view can refocus the field.
     var sessionSeq = 0
+    /// Bumped whenever the panel retakes key status (e.g. after the Settings
+    /// window closes) so the view puts focus back in the field.
+    var focusSeq = 0
 
     // Wired by EditCoordinator.
     var onPerform: ((EditAction) -> Void)?
