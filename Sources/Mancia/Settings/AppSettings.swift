@@ -32,6 +32,7 @@ final class AppSettings {
         static let copilotModel = "copilotModel"
         static let reasoningEffort = "reasoningEffort"
         static let postApplyBehavior = "postApplyBehavior"
+        static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
     }
 
     private let defaults: UserDefaults
@@ -51,6 +52,12 @@ final class AppSettings {
     var postApplyBehavior: PostApplyBehavior {
         didSet { defaults.set(postApplyBehavior.rawValue, forKey: Key.postApplyBehavior) }
     }
+    /// When true (default), a whole-document replacement pauses for explicit
+    /// confirmation before it overwrites the document. Selection edits are never
+    /// gated — they are low blast-radius and trivially undone.
+    var confirmWholeDocumentReplace: Bool {
+        didSet { defaults.set(confirmWholeDocumentReplace, forKey: Key.confirmWholeDocumentReplace) }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -62,6 +69,9 @@ final class AppSettings {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self.postApplyBehavior = defaults.string(forKey: Key.postApplyBehavior)
             .flatMap(PostApplyBehavior.init(rawValue:)) ?? .hybrid
+        // Default on: absent key means the safety gate is enabled.
+        self.confirmWholeDocumentReplace =
+            defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
     }
 
     // MARK: - Launch at login

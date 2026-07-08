@@ -11,7 +11,7 @@ import Observation
 @MainActor
 @Observable
 final class PanelModel {
-    enum Phase: Equatable { case idle, running, applied, error }
+    enum Phase: Equatable { case idle, running, confirm, applied, error }
     enum Scope: Equatable { case selection, document }
 
     var phase: Phase = .idle
@@ -24,6 +24,10 @@ final class PanelModel {
     var instruction = ""
     var runningTitle = ""
     var errorText = ""
+    /// Size of the document and the pending result while awaiting confirmation
+    /// of a whole-document replacement (`.confirm` phase).
+    var pendingOriginalCharCount = 0
+    var pendingResultCharCount = 0
     /// Iteration history: number of versions (original + one per applied
     /// result) and which version the document currently shows.
     var versionCount = 0
@@ -36,6 +40,8 @@ final class PanelModel {
     /// Navigate the document to versions[index].
     var onNavigate: ((Int) -> Void)?
     var onRetry: (() -> Void)?
+    /// Apply the pending whole-document replacement awaiting confirmation.
+    var onConfirmApply: (() -> Void)?
     /// Stop the in-flight action but keep the session open.
     var onCancelRun: (() -> Void)?
     /// Close the whole session (Esc / Done), keeping the document as shown.
@@ -50,6 +56,8 @@ final class PanelModel {
         instruction = ""
         runningTitle = ""
         errorText = ""
+        pendingOriginalCharCount = 0
+        pendingResultCharCount = 0
         versionCount = 0
         currentIndex = 0
         sessionSeq &+= 1

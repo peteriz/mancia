@@ -56,6 +56,7 @@ struct SettingsView: View {
                         Text(behavior.label).tag(behavior)
                     }
                 }
+                Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
                 Toggle("Launch at login", isOn: Binding(
                     get: { settings.launchAtLogin },
                     set: { settings.launchAtLogin = $0 }

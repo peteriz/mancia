@@ -33,6 +33,9 @@ final class EditCoordinator {
     /// True from the moment a session begins starting until the panel closes,
     /// so a repeated hotkey/menu trigger can't spawn an overlapping capture.
     private var sessionActive = false
+    /// A completed whole-document result awaiting explicit confirmation before
+    /// it overwrites the document (`.confirm` phase).
+    private var pendingApply: (output: String, baseline: String)?
 
     init(provider: LLMProvider, settings: AppSettings) {
         self.provider = provider
@@ -45,6 +48,7 @@ final class EditCoordinator {
         model.onPerform = { [weak self] in self?.perform($0) }
         model.onNavigate = { [weak self] in self?.navigate(to: $0) }
         model.onRetry = { [weak self] in self?.retry() }
+        model.onConfirmApply = { [weak self] in self?.confirmApply() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
         panel.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
@@ -65,6 +69,7 @@ final class EditCoordinator {
         autoCloseTask?.cancel()
         autoCloseTask = nil
         pendingAction = nil
+        pendingApply = nil
         capture = nil
         versions = []
         currentIndex = 0
@@ -139,33 +144,33 @@ final class EditCoordinator {
             // Input capture may have activated the target app; retake key
             // status so Esc reaches the panel while the provider runs.
             panel.focus()
-            let prompt = PromptBuilder.build(action: action, text: resolved.text)
+            let prompt: String
+            do {
+                try PromptGuard.validate(action: action, text: resolved.text)
+                prompt = PromptBuilder.build(action: action, text: resolved.text)
+            } catch {
+                if !Task.isCancelled { fail(error.localizedDescription) }
+                return
+            }
             do {
                 let output = try await provider.complete(prompt)
                 if Task.isCancelled { return }
                 guard let capture else { return }
+                // Gate a whole-document overwrite behind explicit confirmation:
+                // an injection-influenced or runaway result there would silently
+                // replace the entire document. Selection edits apply immediately.
+                if ApplyConfirmation.isRequired(
+                    isWholeDocument: resolved.strategy == .entireDocument,
+                    userOptedIn: settings.confirmWholeDocumentReplace
+                ) {
+                    presentConfirmation(output: output, baseline: resolved.text)
+                    return
+                }
                 // Apply immediately. Keystrokes are posted to the target
                 // app's pid, so the panel stays visible throughout.
-                switch resolved.strategy {
-                case .entireDocument:
-                    await SelectionCapture.apply(text: output, to: capture, entireDocument: true)
-                case .liveSelection:
-                    await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
-                case .undoThenPaste:
-                    await SelectionCapture.undo(in: capture)
-                    await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
-                }
+                await applyResolved(output: output, strategy: resolved.strategy, capture: capture)
                 if Task.isCancelled { return }
-                // Record the iteration: drop any forward history, then append.
-                if versions.isEmpty { versions = [resolved.text] }
-                versions = Array(versions.prefix(currentIndex + 1))
-                versions.append(output)
-                currentIndex = versions.count - 1
-                syncIterationState()
-                model.instruction = ""
-                model.phase = .applied
-                panel.focus()
-                scheduleAutoCloseIfHybrid()
+                recordApplied(output: output, baseline: resolved.text)
             } catch is CancellationError {
                 if model.phase == .running { model.phase = previousPhase }
                 return
@@ -173,6 +178,63 @@ final class EditCoordinator {
                 if Task.isCancelled { return }
                 fail(error.localizedDescription)
             }
+        }
+    }
+
+    /// Perform the actual text replacement for a resolved strategy.
+    private func applyResolved(output: String, strategy: ApplyStrategy, capture: SelectionCaptureResult) async {
+        switch strategy {
+        case .entireDocument:
+            await SelectionCapture.apply(text: output, to: capture, entireDocument: true)
+        case .liveSelection:
+            await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
+        case .undoThenPaste:
+            await SelectionCapture.undo(in: capture)
+            await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
+        }
+    }
+
+    /// Record an applied result in the iteration history and move to the applied
+    /// phase (shared by the immediate and confirmed apply paths).
+    private func recordApplied(output: String, baseline: String) {
+        // Record the iteration: drop any forward history, then append.
+        if versions.isEmpty { versions = [baseline] }
+        versions = Array(versions.prefix(currentIndex + 1))
+        versions.append(output)
+        currentIndex = versions.count - 1
+        syncIterationState()
+        model.instruction = ""
+        model.phase = .applied
+        panel.focus()
+        scheduleAutoCloseIfHybrid()
+    }
+
+    // MARK: - Whole-document confirmation
+
+    /// Pause a completed whole-document result in the confirm phase, surfacing
+    /// the size change so the user can decide before overwriting everything.
+    private func presentConfirmation(output: String, baseline: String) {
+        pendingApply = (output, baseline)
+        model.pendingOriginalCharCount = baseline.count
+        model.pendingResultCharCount = output.count
+        model.phase = .confirm
+        panel.focus()
+    }
+
+    /// Apply the pending whole-document replacement after the user confirmed.
+    /// Commit into `.running` before the destructive ⌘A+⌘V so the confirm
+    /// affordance can't imply "nothing has happened yet" mid-overwrite; this
+    /// mirrors the immediate apply path, which is `.running` while it pastes.
+    private func confirmApply() {
+        guard model.phase == .confirm, let capture, let pending = pendingApply else { return }
+        pendingApply = nil
+        model.runningTitle = "Replacing document"
+        model.phase = .running
+        currentTask?.cancel()
+        currentTask = Task {
+            await SelectionCapture.apply(text: pending.output, to: capture, entireDocument: true)
+            if Task.isCancelled { return }
+            recordApplied(output: pending.output, baseline: pending.baseline)
         }
     }
 
@@ -282,6 +344,8 @@ final class EditCoordinator {
         currentTask = nil
         autoCloseTask?.cancel()
         autoCloseTask = nil
+        // Discard any result awaiting confirmation and return to a resting state.
+        pendingApply = nil
         model.phase = versions.count > 1 ? .applied : .idle
         panel.focus()
     }
@@ -292,6 +356,7 @@ final class EditCoordinator {
         currentTask = nil
         autoCloseTask?.cancel()
         autoCloseTask = nil
+        pendingApply = nil
         sessionActive = false
         panel.close()
     }
@@ -323,6 +388,14 @@ final class EditCoordinator {
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         autoCloseTask?.cancel()
         autoCloseTask = nil
+        if model.phase == .confirm {
+            // Return / keypad Enter confirms the pending whole-document replace.
+            if event.keyCode == 36 || event.keyCode == 76 {
+                confirmApply()
+                return true
+            }
+            return false
+        }
         guard model.phase == .applied,
               model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
