@@ -51,7 +51,14 @@ enum DebugCLI {
         let input = String(data: data, encoding: .utf8) ?? ""
         let settings = AppSettings()
         let provider = CopilotCLIProvider(settings: settings)
-        let prompt = PromptBuilder.build(action: action, text: input)
+        let prompt: String
+        do {
+            try PromptGuard.validate(action: action, text: input)
+            prompt = PromptBuilder.build(action: action, text: input)
+        } catch {
+            printErr("Error: \(error.localizedDescription)")
+            exit(2)
+        }
         do {
             let output = try await provider.complete(prompt)
             print(output)

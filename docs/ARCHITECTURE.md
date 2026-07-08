@@ -77,8 +77,8 @@ wired to call `coordinator.start()`.
    The panel is a cyclical **edit session**: the describe field and the
    horizontal preset buttons (Proofread / Rewrite / Summarize) are always
    visible, dimmed and disabled while a request runs; a status strip cycles
-   `PanelModel.phase` through `.idle → .running → .applied/.error` and back
-   until the user closes it. The panel **stays visible throughout**: all
+   `PanelModel.phase` through `.idle → .running → .confirm → .applied/.error`
+   and back until the user closes it. The panel **stays visible throughout**: all
    synthetic keystrokes are posted directly to the target app's process
    (`CGEvent.postToPid`), so they cannot be swallowed by the panel and no
    hide/reveal dance is needed. After each keystroke burst (which activates
@@ -103,7 +103,17 @@ wired to call `coordinator.start()`.
    It then builds the prompt with `PromptBuilder.build(action:text:)` and
    calls `provider.complete(prompt)` inside a cancellable `Task`. While it
    runs, only the strip's **Cancel** is enabled (spinner + action name).
-5. **Apply & iterate** — when the result arrives,
+5. **Confirm (whole-document only)** — before a `.document`-scope result
+   overwrites the document, the panel pauses in `PanelModel.phase == .confirm`
+   (`ApplyConfirmation.isRequired`, gated by
+   `AppSettings.confirmWholeDocumentReplace`, default on). The hero button
+   becomes **Replace document** (⏎ / `EditCoordinator.confirmApply()`), the
+   strip shows the size change (`ApplyConfirmation.summary`), and **Cancel**
+   discards the pending result. Selection edits skip this — they are
+   low blast-radius and undoable — and apply straight away. This keeps an
+   injection-influenced or runaway result from silently replacing everything.
+6. **Apply & iterate** — when the result arrives (immediately for selections,
+   on confirm for documents),
    `SelectionCapture.apply(text:to:entireDocument:)` pastes it (pasteboard →
    activate target → `⌘V`, restoring the user's pasteboard ~1 s later) with
    the panel still on screen. The coordinator records the iteration
@@ -159,6 +169,49 @@ To add a new provider:
 `EditCoordinator`, `DebugCLI`, and `StatusBarController` should continue to use
 `provider.complete(_:)` / `provider.checkAvailability()` rather than knowing
 provider-specific details.
+
+## Prompt gate & injection hardening
+
+The panel's free-form instruction field plus the captured **selected text** form
+an open prompt gate. The selected text is untrusted third-party content (an
+email, web page, or chat message the user highlighted) and can carry embedded
+"instructions", so the defenses target the *data path*, not the user's own
+instruction:
+
+- **Sandboxed provider (the real boundary).** Every completion runs
+  `copilot … --available-tools= --no-custom-instructions` in a private empty
+  temp `cwd`, with the prompt passed as a single `-p` argv element (no shell).
+  The model therefore has no tools, no repo context, and no shell — the blast
+  radius is "text in, text out". `argvAlwaysSandboxed` locks this invariant so a
+  future edit can't silently re-enable tools.
+- **Nonce-fenced input (`PromptDelimiter`, `Actions.swift`).** Each request wraps
+  the instruction and the input text in `[[LABEL:<nonce>]] … [[/LABEL:<nonce>]]`
+  markers keyed by an unguessable per-call nonce (`PromptDelimiter.makeNonce`
+  also re-rolls if the token happens to appear in the content). Because the
+  nonce is unpredictable, text authored ahead of time can't forge a closing
+  marker to "escape" its block. An adjacent `treatInputAsDataClause` tells the
+  model never to obey instructions found inside the input.
+- **Input validation (`PromptGuard.swift`).** `PromptGuard.validate(action:text:)`
+  bounds the instruction (`maxInstructionCharacters`) and input text
+  (`maxInputCharacters`) and rejects empties, surfacing typed
+  `PromptGuardError`s. Both `EditCoordinator.perform` and `DebugCLI.complete`
+  validate before building the prompt; failures surface through the panel error
+  state / stderr rather than sending a runaway request to the provider.
+- **Human-in-the-loop for whole-document overwrites (`ApplyConfirmation`).**
+  A `.document`-scope result never auto-pastes: the coordinator pauses in the
+  `.confirm` phase and the user must press **Replace document** (the size delta
+  is shown as a signal). This bounds the blast radius of an injection-influenced
+  or runaway result — the dangerous ⌘A+⌘V path — while leaving low-risk,
+  undoable selection edits immediate. Default on
+  (`AppSettings.confirmWholeDocumentReplace`), user-toggleable. The confirm/
+  keystroke wiring lives in `EditCoordinator`/`EditPanelView` and is verified by
+  manual testing; the pure policy (`ApplyConfirmation`) is unit-tested.
+
+Deliberately **not** done: a "jailbreak/abuse classifier" on the instruction
+field. Mancia is a single-user local utility — the operator already owns the
+authenticated `copilot` binary, so policing their own instruction crosses no
+trust boundary and would be trivially bypassable theatre. Prompt wording is UX,
+not a security boundary; the sandbox is.
 
 ## Permissions model
 

@@ -24,9 +24,9 @@ struct EditPanelView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 field
-                    .disabled(isRunning)
-                    .opacity(isRunning ? 0.42 : 1)
-                    .animation(.easeInOut(duration: 0.2), value: isRunning)
+                    .disabled(fieldLocked)
+                    .opacity(fieldLocked ? 0.42 : 1)
+                    .animation(.easeInOut(duration: 0.2), value: model.phase)
                 improveButton
             }
 
@@ -52,6 +52,10 @@ struct EditPanelView: View {
     }
 
     private var isRunning: Bool { model.phase == .running }
+    private var isConfirming: Bool { model.phase == .confirm }
+    /// The instruction field is inert while a request runs or a whole-document
+    /// replacement is awaiting confirmation.
+    private var fieldLocked: Bool { isRunning || isConfirming }
     private var hasCustomInstruction: Bool {
         !model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -153,9 +157,16 @@ struct EditPanelView: View {
     // MARK: - Improve button
 
     private var improveButton: some View {
-        Button { model.onPerform?(.improve) } label: {
+        Button { heroAction() } label: {
             HStack(spacing: 7) {
-                if isRunning {
+                if isConfirming {
+                    Text("Replace document")
+                        .font(.system(size: 14, weight: .semibold))
+                        .tracking(-0.05)
+                    Text("↵")
+                        .font(.system(size: 12, weight: .semibold))
+                        .opacity(0.7)
+                } else if isRunning {
                     Text("\(runningLabel)…")
                         .font(.system(size: 14, weight: .semibold))
                         .tracking(-0.05)
@@ -188,8 +199,18 @@ struct EditPanelView: View {
         }
         .buttonStyle(.plain)
         .allowsHitTesting(!isRunning)
-        .accessibilityLabel("Improve")
-        .accessibilityIdentifier("Improve")
+        .accessibilityLabel(isConfirming ? "Replace document" : "Improve")
+        .accessibilityIdentifier(isConfirming ? "ReplaceDocument" : "Improve")
+    }
+
+    /// Route the hero button: apply the pending replacement while confirming,
+    /// otherwise run the Improve action.
+    private func heroAction() {
+        if isConfirming {
+            model.onConfirmApply?()
+        } else {
+            model.onPerform?(.improve)
+        }
     }
 
     /// The verb shown inside the button while it runs. Stays honest during the
@@ -206,6 +227,7 @@ struct EditPanelView: View {
         switch model.phase {
         case .idle: idleStatus
         case .running: runningStatus
+        case .confirm: confirmStatus
         case .applied: appliedStatus
         case .error: errorStatus
         }
@@ -235,6 +257,24 @@ struct EditPanelView: View {
             Spacer(minLength: 0)
             GhostButton("Cancel") { model.onCancelRun?() }
                 .accessibilityIdentifier("Cancel")
+        }
+        .padding(.horizontal, 1)
+    }
+
+    /// Awaiting confirmation before a whole-document overwrite. Shows the size
+    /// change as a signal (e.g. a document collapsing to a few characters) and
+    /// offers Cancel; the hero button becomes "Replace document".
+    private var confirmStatus: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Palette.accent).frame(width: 7, height: 7)
+            Text("Review · \(ApplyConfirmation.summary(originalCharacters: model.pendingOriginalCharCount, resultCharacters: model.pendingResultCharCount))")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Palette.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            GhostButton("Cancel") { model.onCancelRun?() }
+                .accessibilityIdentifier("ConfirmCancel")
         }
         .padding(.horizontal, 1)
     }
