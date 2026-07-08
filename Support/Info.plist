@@ -10,6 +10,10 @@
     <string>io.github.peteriz.mancia</string>
     <key>CFBundleExecutable</key>
     <string>Mancia</string>
+    <key>CFBundleIconFile</key>
+    <string>Mancia</string>
+    <key>CFBundleIconName</key>
+    <string>Mancia</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
