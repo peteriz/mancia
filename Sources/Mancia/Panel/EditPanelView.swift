@@ -175,11 +175,6 @@ struct EditPanelView: View {
                     Text("Improve")
                         .font(.system(size: 14, weight: .semibold))
                         .tracking(-0.05)
-                    if !hasCustomInstruction {
-                        Text("↵")
-                            .font(.system(size: 12, weight: .semibold))
-                            .opacity(0.7)
-                    }
                 }
             }
             .frame(maxWidth: .infinity)

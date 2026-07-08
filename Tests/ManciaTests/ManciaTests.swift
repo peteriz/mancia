@@ -242,14 +242,97 @@ func confirmSettingDefaultsOnAndPersists() {
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
 
-    // Absent key → the safety gate is on by default.
-    let first = AppSettings(defaults: defaults)
+    // Absent key → the safety gate is on by default. No model catalog needed
+    // for this test, so inject an empty one to keep it off real disk I/O.
+    let first = AppSettings(defaults: defaults, modelCatalog: { [] })
     #expect(first.confirmWholeDocumentReplace == true)
 
     // The opt-out persists across instances.
     first.confirmWholeDocumentReplace = false
-    let second = AppSettings(defaults: defaults)
+    let second = AppSettings(defaults: defaults, modelCatalog: { [] })
     #expect(second.confirmWholeDocumentReplace == false)
+}
+
+@MainActor
+@Test("Never-configured copilotModel resolves to the recommended fast model and persists it")
+func copilotModelFirstRunResolvesRecommendation() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let catalog = [
+        CopilotModel(id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", modelPickerCategory: "versatile"),
+        CopilotModel(
+            id: "gpt-5.4-mini", name: "GPT-5.4 mini",
+            supportedReasoningEfforts: ["none", "low", "medium"], modelPickerCategory: "lightweight"),
+    ]
+
+    // Key absent → resolves to the recommended model and carries its "none"
+    // reasoning effort, both persisted so future launches read them back
+    // like any other explicit choice.
+    let settings = AppSettings(defaults: defaults, modelCatalog: { catalog })
+    #expect(settings.copilotModel == "gpt-5.4-mini")
+    #expect(settings.reasoningEffort == "none")
+    #expect(defaults.string(forKey: "copilotModel") == "gpt-5.4-mini")
+    #expect(defaults.string(forKey: "reasoningEffort") == "none")
+
+    // A later launch reads the persisted value back verbatim, even though
+    // the injected catalog now recommends something else — the first-run
+    // resolution never re-runs once a value exists.
+    let differentCatalog = [
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight"),
+    ]
+    let relaunched = AppSettings(defaults: defaults, modelCatalog: { differentCatalog })
+    #expect(relaunched.copilotModel == "gpt-5.4-mini")
+    #expect(relaunched.reasoningEffort == "none")
+}
+
+@MainActor
+@Test("An explicit auto choice (empty string) is never overridden by the recommendation")
+func copilotModelExplicitAutoIsRespected() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    // Simulate the user picking "Default" in the picker: the key exists but
+    // holds an empty string, distinct from an absent key.
+    defaults.set("", forKey: "copilotModel")
+
+    let catalog = [
+        CopilotModel(id: "gpt-5.4-mini", name: "GPT-5.4 mini", modelPickerCategory: "lightweight"),
+    ]
+    let settings = AppSettings(defaults: defaults, modelCatalog: { catalog })
+    #expect(settings.copilotModel == "")
+}
+
+@MainActor
+@Test("An explicit model choice is never overridden by the recommendation")
+func copilotModelExplicitChoiceIsRespected() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    defaults.set("claude-opus-4.8", forKey: "copilotModel")
+
+    let catalog = [
+        CopilotModel(id: "gpt-5.4-mini", name: "GPT-5.4 mini", modelPickerCategory: "lightweight"),
+    ]
+    let settings = AppSettings(defaults: defaults, modelCatalog: { catalog })
+    #expect(settings.copilotModel == "claude-opus-4.8")
+}
+
+@MainActor
+@Test("First-run resolution with an empty catalog leaves the model unset")
+func copilotModelFirstRunEmptyCatalog() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    #expect(settings.copilotModel == "")
+    // Left absent (not persisted as ""), so a later launch retries once a
+    // real catalog becomes available.
+    #expect(defaults.object(forKey: "copilotModel") == nil)
 }
 
 @Test("Action parsing round-trips CLI identifiers")
@@ -347,6 +430,112 @@ func modelCatalogDedupesAndFilters() {
 func modelCatalogRejectsGarbage() {
     #expect(CopilotModelCatalog.decode("not json at all") == nil)
     #expect(CopilotModelCatalog.decode("[]") == nil)
+}
+
+@Test("Model catalog decodes the picker category and price category")
+func modelCatalogDecodesCategories() {
+    let json = """
+    [{"id":"claude-haiku-4.5","name":"Claude Haiku 4.5",
+      "modelPickerCategory":"lightweight","modelPickerPriceCategory":"low"},
+     {"id":"claude-opus-4.8","name":"Claude Opus 4.8",
+      "modelPickerCategory":"powerful","modelPickerPriceCategory":"high"}]
+    """
+    let models = CopilotModelCatalog.decode(json)
+    #expect(models?[0].modelPickerCategory == "lightweight")
+    #expect(models?[0].modelPickerPriceCategory == "low")
+    #expect(models?[1].modelPickerCategory == "powerful")
+    #expect(models?[1].modelPickerPriceCategory == "high")
+}
+
+// MARK: - Latency tiers
+
+@Test("tiered groups models fastest-to-slowest and excludes the auto entry")
+func tieredGroupsFastestToSlowest() {
+    let models = [
+        CopilotModel(id: "auto", name: "Auto"),
+        CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8", modelPickerCategory: "powerful", modelPickerPriceCategory: "high"),
+        CopilotModel(id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", modelPickerCategory: "versatile", modelPickerPriceCategory: "medium"),
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight", modelPickerPriceCategory: "low"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers.map(\.title) == ["Fastest", "Balanced", "Most capable"])
+    #expect(tiers[0].models.map(\.id) == ["claude-haiku-4.5"])
+    #expect(tiers[1].models.map(\.id) == ["claude-sonnet-4.6"])
+    #expect(tiers[2].models.map(\.id) == ["claude-opus-4.8"])
+    // The special "auto" entry never appears in any tier.
+    #expect(!tiers.flatMap(\.models).contains { $0.id == "auto" })
+}
+
+@Test("tiered puts unknown or missing categories in the Balanced tier")
+func tieredUnknownCategoryFallsBackToBalanced() {
+    let models = [
+        CopilotModel(id: "mystery", name: "Mystery Model"),
+        CopilotModel(id: "weird", name: "Weird Model", modelPickerCategory: "nonsense"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers.map(\.title) == ["Balanced"])
+    #expect(Set(tiers[0].models.map(\.id)) == ["mystery", "weird"])
+}
+
+@Test("tiered sorts within a tier by price then by name")
+func tieredSortsByPriceThenName() {
+    let models = [
+        CopilotModel(id: "z-high", name: "Z High", modelPickerCategory: "powerful", modelPickerPriceCategory: "high"),
+        CopilotModel(id: "a-medium", name: "A Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
+        CopilotModel(id: "b-medium", name: "B Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers[0].models.map(\.id) == ["a-medium", "b-medium", "z-high"])
+}
+
+@Test("tiered omits empty tiers entirely")
+func tieredOmitsEmptyTiers() {
+    let models = [
+        CopilotModel(id: "only-fast", name: "Only Fast", modelPickerCategory: "lightweight"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers.map(\.title) == ["Fastest"])
+}
+
+// MARK: - Recommended fast model
+
+@Test("recommendedFastModel picks the measured winner when present")
+func recommendedFastModelPrefersMeasuredWinner() {
+    let models = [
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "gpt-5.4-mini", name: "GPT-5.4 mini", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight"),
+    ]
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "gpt-5.4-mini")
+}
+
+@Test("recommendedFastModel falls through the preferred order when the winner is absent")
+func recommendedFastModelFallsThroughPreferredOrder() {
+    let models = [
+        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", modelPickerCategory: "lightweight"),
+    ]
+    // gpt-5.4-mini and claude-haiku-4.5 are both absent; gemini-3.5-flash
+    // precedes gpt-5-mini in the preferred order.
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "gemini-3.5-flash")
+}
+
+@Test("recommendedFastModel falls back to the first Fastest-tier model when no preferred id is present")
+func recommendedFastModelFallsBackToFastestTier() {
+    let models = [
+        CopilotModel(id: "some-other-lightweight", name: "Zeta Light", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "another-lightweight", name: "Alpha Light", modelPickerCategory: "lightweight"),
+    ]
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "another-lightweight")
+}
+
+@Test("recommendedFastModel returns nil for an empty catalog or one with no lightweight models")
+func recommendedFastModelNilWhenNoLightweightModels() {
+    #expect(CopilotModelCatalog.recommendedFastModel(from: []) == nil)
+    let noLightweight = [
+        CopilotModel(id: "claude-sonnet-4.6", name: "Claude Sonnet 4.6", modelPickerCategory: "versatile"),
+    ]
+    #expect(CopilotModelCatalog.recommendedFastModel(from: noLightweight) == nil)
 }
 
 @Test("env fallback prepends the copilot argument")

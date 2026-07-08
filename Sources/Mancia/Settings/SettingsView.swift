@@ -25,8 +25,15 @@ struct SettingsView: View {
             Section("GitHub Copilot CLI") {
                 Picker("Model:", selection: $settings.copilotModel) {
                     Text("Default").tag("")
-                    ForEach(models) { model in
-                        Text(model.name).tag(model.id)
+                    // Grouped fastest-first (Fastest → Balanced → Most
+                    // capable); the special "auto" cache entry is excluded
+                    // from the tiers since the row above already covers it.
+                    ForEach(modelTiers) { tier in
+                        Section(tier.title) {
+                            ForEach(tier.models) { model in
+                                Text(modelLabel(for: model)).tag(model.id)
+                            }
+                        }
                     }
                 }
                 Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
@@ -135,6 +142,21 @@ struct SettingsView: View {
             return message.lowercased().contains("sign")
         }
         return false
+    }
+
+    /// Models grouped into latency tiers, fastest first, for the sectioned
+    /// picker above.
+    private var modelTiers: [ModelTier] {
+        CopilotModelCatalog.tiered(models)
+    }
+
+    /// The measured ultra-fast default, so its row can be marked.
+    private var recommendedModelID: String? {
+        CopilotModelCatalog.recommendedFastModel(from: models)
+    }
+
+    private func modelLabel(for model: CopilotModel) -> String {
+        model.id == recommendedModelID ? "\(model.name) (Recommended)" : model.name
     }
 
     /// Effort levels for the picker: the selected model's supported levels when

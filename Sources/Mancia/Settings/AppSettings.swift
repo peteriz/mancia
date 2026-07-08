@@ -59,14 +59,58 @@ final class AppSettings {
         didSet { defaults.set(confirmWholeDocumentReplace, forKey: Key.confirmWholeDocumentReplace) }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    /// Designated initializer. `modelCatalog` is injected (rather than always
+    /// reading `~/.copilot/data.db` directly) so the first-run recommendation
+    /// below is unit-testable with a fixed model list.
+    init(defaults: UserDefaults = .standard, modelCatalog: () -> [CopilotModel] = { CopilotModelCatalog.loadModels() ?? [] }) {
         self.defaults = defaults
         self.copilotPath = (defaults.string(forKey: Key.copilotPath) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.copilotModel = (defaults.string(forKey: Key.copilotModel) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // First-run recommendation: `copilotModel` has three meaningful states
+        // — "never chosen" (key absent), "explicitly Default/auto" (key
+        // present, value ""), and "explicitly some model" (key present,
+        // non-empty). Only the first state gets the measured ultra-fast
+        // default; both explicit states — including explicit auto — are read
+        // back verbatim and never touched again. Resolving here (once, at
+        // settings-load time) and persisting the result means the Settings
+        // picker shows a real, marked selection instead of a "Default"
+        // placeholder whose effect the user can't see, and every other
+        // reader of `copilotModel` (the provider, the picker) sees one
+        // consistent value with no extra indirection.
+        if defaults.object(forKey: Key.copilotModel) != nil {
+            self.copilotModel = (defaults.string(forKey: Key.copilotModel) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            let catalog = modelCatalog()
+            let recommended = CopilotModelCatalog.recommendedFastModel(from: catalog) ?? ""
+            self.copilotModel = recommended
+            self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !recommended.isEmpty {
+                defaults.set(recommended, forKey: Key.copilotModel)
+                // The benchmark that picked `recommended` timed it with
+                // `--reasoning-effort none` where the model supports "none" —
+                // that flag is what makes it ultra-fast rather than merely
+                // lightweight. Carry it along on this same first-run path
+                // (and only this path) so the default actually delivers the
+                // measured speed; an explicit reasoningEffort choice is never
+                // touched, matching the copilotModel contract above.
+                if defaults.object(forKey: Key.reasoningEffort) == nil,
+                   let match = catalog.first(where: { $0.id == recommended }),
+                   match.supportedReasoningEfforts?.contains("none") == true {
+                    // `didSet` never fires for property assignments made
+                    // inside a class's own initializer (verified: even a
+                    // second assignment to the same property is silent), so
+                    // this needs its own explicit persist.
+                    self.reasoningEffort = "none"
+                    defaults.set("none", forKey: Key.reasoningEffort)
+                }
+            }
+        }
+
         self.postApplyBehavior = defaults.string(forKey: Key.postApplyBehavior)
             .flatMap(PostApplyBehavior.init(rawValue:)) ?? .hybrid
         // Default on: absent key means the safety gate is enabled.
