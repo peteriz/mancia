@@ -58,7 +58,6 @@ Mancia/
 │   ├── Settings/
 │   │   ├── AppSettings.swift      # UserDefaults-backed observable settings
 │   │   └── SettingsView.swift     # SwiftUI settings window
-│   └── Resources/                 # menu bar icon (SF Symbol ok — no asset needed)
 ├── Tests/ManciaTests/             # unit tests (prompt templates, provider args, trimming)
 ├── Support/Info.plist             # LSUIElement=true, bundle id io.github.peteriz.mancia
 ├── docs/SPEC.md                   # this file
@@ -159,7 +158,7 @@ the coordinator, status menu, settings view, and debug CLI.
 
 ## Menu bar (`StatusBarController`)
 
-`NSStatusItem` with SF Symbol `wand.and.stars` (template image). Menu:
+`NSStatusItem` with SF Symbol `hand.point.up.left.fill` (template image). Menu:
 - "Edit Selection…  ⌃⌥⌘E" (triggers same flow as hotkey, hotkey shown reflects current binding if easy, else static)
 - "Provider: GitHub Copilot ✓/⚠︎" (disabled info row reflecting availability check)
 - Separator
