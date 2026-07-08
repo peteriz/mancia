@@ -29,3 +29,9 @@ jobs:
 
       - name: Test
         run: make test
+
+      - name: Assemble app bundle
+        run: make app
+
+      - name: Package DMG
+        run: make dmg
