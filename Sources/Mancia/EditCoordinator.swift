@@ -84,6 +84,7 @@ final class EditCoordinator {
         model.capturing = true
         panel.show(placement: instantPlacement())
         panel.focus()
+        warmProvider()
         currentTask = Task {
             let result = await SelectionCapture.captureSelection()
             if Task.isCancelled { return }
@@ -368,6 +369,17 @@ final class EditCoordinator {
         pendingApply = nil
         sessionActive = false
         panel.close()
+        warmProviderAfterClose()
+    }
+
+    private func warmProvider() {
+        guard let provider = provider as? WarmableLLMProvider else { return }
+        Task { await provider.prepareForPanel() }
+    }
+
+    private func warmProviderAfterClose() {
+        guard let provider = provider as? WarmableLLMProvider else { return }
+        Task { await provider.panelDidClose() }
     }
 
     // MARK: - Post-apply behavior

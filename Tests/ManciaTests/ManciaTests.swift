@@ -145,6 +145,9 @@ func argvAlwaysSandboxed() {
                     #expect(!args.contains("--allow-all-tools"))
                     // Ambient custom instructions stay off.
                     #expect(args.contains("--no-custom-instructions"))
+                    // Ambient MCP and remote-session context stay off.
+                    #expect(args.contains("--disable-builtin-mcps"))
+                    #expect(args.contains("--no-remote"))
                 }
             }
         }
@@ -357,10 +360,29 @@ func argvHasEmptyAvailableTools() {
     #expect(args.contains("-s"))
     #expect(args.contains("--no-color"))
     #expect(args.contains("--no-custom-instructions"))
+    #expect(args.contains("--disable-builtin-mcps"))
+    #expect(args.contains("--no-remote"))
     // prompt is passed as its own element right after -p
     let promptIndex = args.firstIndex(of: "-p")
     #expect(promptIndex != nil)
     #expect(args[promptIndex! + 1] == "hi")
+}
+
+@Test("ACP argv starts stdio server with ambient context disabled")
+func acpArgvDisablesAmbientContext() {
+    let args = CopilotCLIProvider.acpArguments(
+        executable: "/opt/homebrew/bin/copilot", model: "gpt-5.4-mini", reasoningEffort: "none"
+    )
+    #expect(args.contains("--acp"))
+    #expect(args.contains("--stdio"))
+    #expect(args.contains("--available-tools="))
+    #expect(args.contains("--no-custom-instructions"))
+    #expect(args.contains("--disable-builtin-mcps"))
+    #expect(args.contains("--no-remote"))
+    #expect(args.contains("--model"))
+    #expect(args.contains("gpt-5.4-mini"))
+    #expect(args.contains("--reasoning-effort"))
+    #expect(args.contains("none"))
 }
 
 @Test("Argv appends --model when a model is set")

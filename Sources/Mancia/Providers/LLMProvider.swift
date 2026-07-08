@@ -36,3 +36,10 @@ protocol LLMProvider: Sendable {
     func complete(_ prompt: String) async throws -> String
     func checkAvailability() async -> ProviderStatus
 }
+
+/// Optional latency hook for providers that can keep a one-shot session warm
+/// while the floating panel is open.
+protocol WarmableLLMProvider: LLMProvider {
+    func prepareForPanel() async
+    func panelDidClose() async
+}
