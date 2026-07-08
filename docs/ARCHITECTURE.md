@@ -45,7 +45,7 @@ scripts/make_app.sh                  swift build -c release → build/Mancia.app
 ```
 
 There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
-`wand.and.stars`, set directly on the status item's `NSStatusBarButton`.
+`hand.point.up.left.fill`, set directly on the status item's `NSStatusBarButton`.
 
 ## Core flow
 

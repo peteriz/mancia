@@ -55,26 +55,17 @@ enum Palette {
     }
 }
 
-/// The Mancia identity mark — the pointing-hand menu-bar glyph. Resolves from
-/// the app bundle when assembled (`make app`/`make run`); falls back to an SF
-/// Symbol under a bare `swift run` where the resource is not bundled.
+/// The Mancia identity mark — the pointing-hand menu-bar glyph.
 enum BrandMark {
+    static let systemSymbolName = "hand.point.up.left.fill"
+
     /// A SwiftUI view of the mark, tinted to read on the current surface.
     @MainActor
     static func view(size: CGFloat) -> some View {
-        Group {
-            if let image = NSImage(named: "MenuBarIcon") {
-                Image(nsImage: image)
-                    .resizable()
-                    .renderingMode(.template)
-                    .interpolation(.high)
-            } else {
-                Image(systemName: "hand.point.up.left.fill")
-                    .resizable()
-            }
-        }
-        .scaledToFit()
-        .frame(width: size, height: size)
-        .foregroundStyle(Palette.text)
+        Image(systemName: systemSymbolName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .foregroundStyle(Palette.text)
     }
 }
