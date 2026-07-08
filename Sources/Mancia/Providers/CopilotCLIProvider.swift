@@ -38,6 +38,7 @@ final class CopilotCLIProvider: LLMProvider {
     let displayName = "GitHub Copilot CLI"
 
     private let settings: AppSettings
+    private let acpSidecar = CopilotACPSidecar()
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -117,12 +118,41 @@ final class CopilotCLIProvider: LLMProvider {
             "--no-color",
             "--no-custom-instructions",
             "--available-tools=",
+            "--disable-builtin-mcps",
+            "--no-remote",
         ]
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
         if !trimmedModel.isEmpty { args += ["--model", trimmedModel] }
         let trimmedEffort = reasoningEffort.trimmingCharacters(in: .whitespaces)
         if !trimmedEffort.isEmpty { args += ["--reasoning-effort", trimmedEffort] }
         return args
+    }
+
+    /// Build argv for the persistent ACP server used to keep one empty edit
+    /// session warm while the panel is open.
+    static func acpArguments(executable: String, model: String, reasoningEffort: String = "") -> [String] {
+        var args: [String] = []
+        if executable == "/usr/bin/env" { args.append("copilot") }
+        args += [
+            "--acp",
+            "--stdio",
+            "--no-color",
+            "--no-custom-instructions",
+            "--available-tools=",
+            "--disable-builtin-mcps",
+            "--no-remote",
+        ]
+        let trimmedModel = model.trimmingCharacters(in: .whitespaces)
+        if !trimmedModel.isEmpty { args += ["--model", trimmedModel] }
+        let trimmedEffort = reasoningEffort.trimmingCharacters(in: .whitespaces)
+        if !trimmedEffort.isEmpty { args += ["--reasoning-effort", trimmedEffort] }
+        return args
+    }
+
+    /// ACP is an optimization over the one-shot CLI path, so provider failures
+    /// should fall back unless the user cancelled the in-flight edit.
+    static func shouldFallbackFromACPError(_ error: Error) -> Bool {
+        !(error is CancellationError)
     }
 
     /// Trim surrounding whitespace and strip a single wrapping code-fence pair.
@@ -144,6 +174,17 @@ final class CopilotCLIProvider: LLMProvider {
     func complete(_ prompt: String) async throws -> String {
         let (path, model, reasoningEffort) = await config()
         let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
+        do {
+            let output = try await acpSidecar.complete(
+                prompt,
+                config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
+            )
+            return Self.postProcess(output)
+        } catch {
+            if !Self.shouldFallbackFromACPError(error) { throw error }
+            // ACP is a latency optimization. Keep the old one-shot CLI path as
+            // the reliability boundary when the sidecar is missing or wedged.
+        }
         let args = Self.arguments(executable: executable, prompt: prompt, model: model, reasoningEffort: reasoningEffort)
 
         let result: ProcessResult
@@ -234,6 +275,20 @@ final class CopilotCLIProvider: LLMProvider {
             executable: executable, arguments: arguments,
             environment: environment, workingDir: workDir, timeout: timeout
         )
+    }
+}
+
+extension CopilotCLIProvider: WarmableLLMProvider {
+    func prepareForPanel() async {
+        let (path, model, reasoningEffort) = await config()
+        let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
+        await acpSidecar.prepare(
+            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
+        )
+    }
+
+    func panelDidClose() async {
+        await prepareForPanel()
     }
 }
 

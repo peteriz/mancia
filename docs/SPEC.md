@@ -18,6 +18,9 @@
 >   you can move between the original and each generated version.
 > - After applying, the panel either flashes "Improved" and auto-closes or stays
 >   open with the version strip, per the **post-apply behavior** setting.
+> - The Copilot provider now prefers a warmed, single-use ACP session
+>   (`copilot --acp --stdio`) for lower latency; the original one-shot
+>   `copilot -p` invocation remains the fallback path.
 
 A macOS menu bar app providing system-wide, selection-based AI text editing.
 Press a global hotkey in **any** app, and a small floating panel appears near the
@@ -143,13 +146,22 @@ the coordinator, status menu, settings view, and debug CLI.
 - Locates the binary: `AppSettings.copilotPath` if set, else search
   `/opt/homebrew/bin/copilot`, `/usr/local/bin/copilot`, `~/.local/bin/copilot`,
   else `/usr/bin/env copilot`.
-- Runs (verified working command):
+- Primary path: keeps one `copilot --acp --stdio` process alive and warms one
+  empty session while the panel is open. Each warmed session is single-use: once
+  a prompt is sent, the session id is discarded so selected text cannot carry
+  into later requests.
+- Fallback path: runs the original one-shot command,
   `copilot -p <prompt> -s --no-color --no-custom-instructions --available-tools=`
-  plus `--model <m>` when `AppSettings.copilotModel` is non-empty.
+  plus `--model <m>` and `--reasoning-effort <level>` when configured. ACP
+  launch, protocol, empty-output, and timeout failures fall back here; user
+  cancellation does not.
 - **Important:** pass `--available-tools=` as a *single argv element* (empty
-  value) — it disables all agent tools.
-- Working directory: a private empty temp dir (avoid the CLI scanning a repo).
-- 90 s timeout via structured concurrency; kill the process on cancel/timeout.
+  value) in both paths — it disables all agent tools. Both paths also pass
+  `--disable-builtin-mcps`, `--no-remote`, and `--no-custom-instructions`.
+- Working directory: a private empty temp dir in both paths (avoid the CLI
+  scanning a repo).
+- 90 s prompt timeout via structured concurrency; kill the one-shot process on
+  cancel/timeout and reset the ACP sidecar on ACP failures.
 - Trim whitespace/newlines; strip a single wrapping ``` fence pair if present.
 - Errors: non-zero exit → throw with stderr/stdout tail included; binary not
   found → clear message telling the user to `npm install -g @github/copilot`
