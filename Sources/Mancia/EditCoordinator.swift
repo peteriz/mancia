@@ -259,7 +259,8 @@ final class EditCoordinator {
         if model.scope == .document {
             if !model.hasSelection,
                let fresh = await SelectionCapture.captureFreshSelection(from: capture),
-               !fresh.isEmpty {
+               !fresh.isEmpty,
+               versions.isEmpty || fresh != versions[currentIndex] {
                 model.hasSelection = true
                 model.selectionCharCount = fresh.count
                 model.scope = .selection
