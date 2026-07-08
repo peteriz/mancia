@@ -243,10 +243,11 @@ final class EditCoordinator {
 
     /// Determine this cycle's input text and apply strategy.
     ///
-    /// - Document scope: re-capture via ⌘A+⌘C every cycle, so manual edits the
-    ///   user made between cycles (and the navigation position) are respected;
-    ///   text that differs from the currently shown version becomes the new
-    ///   session baseline (versions = [captured]).
+    /// - Document scope: if the session started without selected text, first
+    ///   probe for a fresh live selection. Otherwise re-capture via ⌘A+⌘C every
+    ///   cycle, so manual edits the user made between cycles (and the
+    ///   navigation position) are respected; text that differs from the
+    ///   currently shown version becomes the new session baseline.
     /// - Selection scope, first cycle: the text captured when the session
     ///   started; the original selection is still live in the target app.
     /// - Selection scope, later cycles: probe with a fresh ⌘C — a new user
@@ -256,6 +257,16 @@ final class EditCoordinator {
     private func resolveInput() async -> (text: String, strategy: ApplyStrategy)? {
         guard let capture else { return nil }
         if model.scope == .document {
+            if !model.hasSelection,
+               let fresh = await SelectionCapture.captureFreshSelection(from: capture),
+               !fresh.isEmpty,
+               versions.isEmpty || fresh != versions[currentIndex] {
+                model.hasSelection = true
+                model.selectionCharCount = fresh.count
+                model.scope = .selection
+                resetBaseline(to: fresh)
+                return (fresh, .liveSelection)
+            }
             let text = await SelectionCapture.captureEntireDocument(from: capture)
             guard let text, !text.isEmpty else { return nil }
             if versions.isEmpty || text != versions[currentIndex] {
