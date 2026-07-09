@@ -72,5 +72,21 @@ CI runs `swift build` and `swift test` on every pull request and on pushes to
 `main` (see [.github/workflows/ci.yml](../.github/workflows/ci.yml)). Keep the
 build warning-free and the tests green.
 
+## Releasing
+
+Releases are cut by pushing a version tag; do not create releases in the
+GitHub UI. The [release workflow](../.github/workflows/release.yml) builds and
+tests at the tag, packages `Mancia-<version>.dmg`, and publishes the GitHub
+release with the DMG attached (this repo has immutable releases, so assets
+must be attached before publishing — the workflow handles that ordering).
+
+```sh
+git tag 0.0.2          # from an up-to-date main
+git push origin 0.0.2
+```
+
+The tag version becomes `CFBundleShortVersionString`/`CFBundleVersion` in the
+released app; a leading `v` is stripped if present.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current app structure and
 [SPEC.md](SPEC.md) for implementation notes.

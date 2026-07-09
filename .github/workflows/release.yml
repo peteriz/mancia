@@ -1,10 +1,11 @@
 name: Release
 
 on:
-  release:
-    # Upload the DMG while the release is still mutable, then publish it after
-    # the asset is attached. Published releases are immutable and reject uploads.
-    types: [created]
+  push:
+    # Version tags, with or without a leading v (e.g. 0.0.2, v0.1.0).
+    tags:
+      - "[0-9]*"
+      - "v[0-9]*"
 
 permissions:
   contents: write
@@ -12,24 +13,20 @@ permissions:
 jobs:
   build-and-publish-dmg:
     name: Build and publish DMG
-    if: ${{ github.event.release.draft }}
     runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name }}
 
       - name: Show toolchain
         run: swift --version
 
       - name: Align bundle version with release tag
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          VERSION="${TAG#v}"
+          VERSION="${GITHUB_REF_NAME#v}"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Support/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" Support/Info.plist
-          echo "Building Mancia $VERSION from tag $TAG"
+          echo "Building Mancia $VERSION from tag $GITHUB_REF_NAME"
 
       - name: Build
         run: make build
@@ -49,12 +46,20 @@ jobs:
           CODESIGN_FLAGS: ${{ secrets.CODESIGN_FLAGS }}
         run: make dmg
 
-      - name: Upload DMG to release
+      # This repo has immutable releases: published releases reject asset
+      # uploads. So the workflow owns the whole lifecycle — create a draft,
+      # attach the DMG while still mutable, then publish. Never create or
+      # publish releases by hand; just push a tag.
+      - name: Create draft release with DMG
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" build/Mancia-*.dmg --clobber
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/Mancia-*.dmg \
+            --draft \
+            --title "Mancia ${GITHUB_REF_NAME#v}" \
+            --generate-notes
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api "repos/${{ github.repository }}/releases/${{ github.event.release.id }}" --method PATCH -F draft=false
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
