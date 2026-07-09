@@ -54,7 +54,8 @@ To install it permanently, copy `build/Mancia.app` to `/Applications`.
 
 Or build a distributable disk image with `make dmg`, which produces
 `build/Mancia-<version>.dmg`. Open it and drag Mancia onto the Applications
-shortcut to install.
+shortcut to install. Prebuilt DMGs are attached to
+[GitHub releases](https://github.com/peteriz/mancia/releases).
 
 ### Gatekeeper note
 
