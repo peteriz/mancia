@@ -39,7 +39,8 @@ Sources/Mancia/
 │                                 (SQLite, read-only) for the settings pickers
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
-    └── SettingsView.swift        SwiftUI settings window content
+    ├── SettingsView.swift        SwiftUI settings window content
+    └── ShortcutRecorderView.swift  Native hotkey recorder (see note below)
 
 Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv/ACP construction and parsing
                                       (incl. --reasoning-effort), post-processing,
@@ -272,6 +273,18 @@ presence — this is a menu-bar-only app) and bundle id
 - **Package.swift** — swift-tools 6.0, `.macOS(.v14)`, one executable target
   `Mancia` (depends on `sindresorhus/KeyboardShortcuts`), one test target
   `ManciaTests`.
+- **Native hotkey recorder** — Settings rebinds the global shortcut through
+  `Settings/ShortcutRecorderView.swift`, not `KeyboardShortcuts.Recorder`. The
+  upstream recorder loads localized strings from the package's `Bundle.module`,
+  whose SwiftPM-generated accessor resolves the resource bundle against
+  `Bundle.main.bundleURL` — the `.app` root in a hand-assembled bundle. macOS
+  forbids loose content beside `Contents/` (codesign rejects it, so we can't put
+  it there), and the accessor's only fallback is the build-machine path, so a
+  code-signed release fatal-errored the moment Settings opened. The native
+  recorder uses KeyboardShortcuts' public `setShortcut`/`getShortcut` API and
+  formats the shortcut itself, so `Bundle.module` is never touched. The recorder
+  is UI/pasteboard-adjacent (a local `NSEvent` key monitor); its pure helpers
+  are unit-tested, and the record/persist path is manually verified.
 - **Makefile** — `build` (`swift build`), `test` (`swift test`), `app`
   (`scripts/make_app.sh`), `release` (requires explicit `CODESIGN_ID`, then
   `REQUIRE_SIGNING=1 scripts/make_app.sh`),
