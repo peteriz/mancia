@@ -21,5 +21,5 @@ let package = Package(
             path: "Tests/ManciaTests"
         ),
     ],
-    swiftLanguageVersions: [.v6]
+    swiftLanguageModes: [.v6]
 )
