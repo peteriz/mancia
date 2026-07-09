@@ -17,7 +17,7 @@
 Select text in a Mac app that supports standard copy and paste, press a global shortcut, and describe the change. Mancia uses GitHub Copilot CLI to rewrite the text in place—no chat window and no copy-paste loop.
 
 <p align="center">
-  <img src="docs/assets/mancia-panel.png" alt="Mancia panel showing the instruction field, Improve button, and status line 'Ready · edits the whole document'" width="720">
+  <img src="docs/assets/mancia-panel.png" alt="Mancia panel showing the instruction field, Improve button, and status line 'Ready · edits the whole document'" width="360">
 </p>
 
 ## What Mancia does
