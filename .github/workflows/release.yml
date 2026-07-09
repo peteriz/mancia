@@ -2,7 +2,9 @@ name: Release
 
 on:
   release:
-    types: [published]
+    # Upload the DMG while the release is still mutable, then publish it after
+    # the asset is attached. Published releases are immutable and reject uploads.
+    types: [created]
 
 permissions:
   contents: write
@@ -10,6 +12,7 @@ permissions:
 jobs:
   build-and-publish-dmg:
     name: Build and publish DMG
+    if: ${{ github.event.release.draft }}
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -50,3 +53,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" build/Mancia-*.dmg --clobber
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${{ github.repository }}/releases/${{ github.event.release.id }}" --method PATCH -F draft=false
