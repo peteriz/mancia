@@ -19,7 +19,9 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Shortcut") {
-                KeyboardShortcuts.Recorder("Edit Selection:", name: .editSelection)
+                LabeledContent("Edit Selection:") {
+                    ShortcutRecorderView(name: .editSelection)
+                }
             }
 
             Section("GitHub Copilot CLI") {

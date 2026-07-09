@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AppKit
+import KeyboardShortcuts
 @testable import Mancia
 
 // MARK: - Prompt templates
@@ -750,4 +751,36 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
+}
+
+// MARK: - Shortcut recorder (native replacement for KeyboardShortcuts.Recorder)
+
+@Test("Modifier symbols render in canonical ⌃⌥⇧⌘ order")
+@MainActor
+func shortcutModifierSymbolOrder() {
+    #expect(ShortcutRecorderView.modifierSymbols([.control, .option, .command]) == "⌃⌥⌘")
+    #expect(ShortcutRecorderView.modifierSymbols([.command, .control, .option, .shift]) == "⌃⌥⇧⌘")
+    #expect(ShortcutRecorderView.modifierSymbols([.command]) == "⌘")
+    #expect(ShortcutRecorderView.modifierSymbols([]) == "")
+}
+
+@Test("Display renders a shortcut with symbols and an uppercased key, no Bundle.module")
+@MainActor
+func shortcutDisplayFormatting() {
+    // The app default: ⌃⌥⌘E.
+    let shortcut = KeyboardShortcuts.Shortcut(.e, modifiers: [.control, .option, .command])
+    #expect(ShortcutRecorderView.display(shortcut) == "⌃⌥⌘E")
+    #expect(ShortcutRecorderView.display(nil) == nil)
+}
+
+@Test("Only shortcuts with a key and a hard modifier are accepted")
+@MainActor
+func shortcutAcceptancePolicy() {
+    // Bare letter — would hijack typing.
+    #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e)) == false)
+    // Shift alone is not a hard modifier.
+    #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e, modifiers: [.shift])) == false)
+    // A real global-hotkey combo.
+    #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e, modifiers: [.command])) == true)
+    #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e, modifiers: [.control, .option, .command])) == true)
 }
