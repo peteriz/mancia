@@ -22,6 +22,9 @@ struct SettingsView: View {
     /// UI so falling back to a possibly-stale cache is visible rather than
     /// looking like the CLI genuinely offers nothing new.
     @State private var liveListingFailed = false
+    /// Guards against overlapping live fetches when the executable path is
+    /// edited and detected in quick succession.
+    @State private var refreshingModels = false
 
     var body: some View {
         Form {
@@ -62,7 +65,11 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
+                    // A different binary can be a different Copilot version
+                    // offering a different set of models, so committing a path
+                    // re-reads the catalog as well as the status.
                     TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
+                        .onSubmit { Task { await refreshProvider() } }
                     Button("Detect") { detect() }
                 }
                 if let detectFeedback {
@@ -202,7 +209,15 @@ struct SettingsView: View {
             settings.copilotPath = resolved
             detectFeedback = "Found at \(resolved)"
         }
-        Task { await refreshStatus() }
+        Task { await refreshProvider() }
+    }
+
+    /// Re-check the provider and re-read its model list, in that order — the
+    /// `--version` probe is quick, while the listing waits on the ACP sidecar
+    /// relaunching against the new executable.
+    private func refreshProvider() async {
+        await refreshStatus()
+        await refreshLiveModels()
     }
 
     private func copyToPasteboard(_ string: String) {
@@ -219,7 +234,9 @@ struct SettingsView: View {
     /// CLI reuses the sidecar's warm session, and a failure leaves the cached
     /// list in place — flagged in the UI rather than passed off as current.
     private func refreshLiveModels() async {
-        guard let provider = provider as? ModelListingProvider else { return }
+        guard let provider = provider as? ModelListingProvider, !refreshingModels else { return }
+        refreshingModels = true
+        defer { refreshingModels = false }
         let live = await provider.availableModels()
         guard !live.isEmpty else {
             models = cachedModels
@@ -232,6 +249,10 @@ struct SettingsView: View {
             cached: cachedModels,
             storedModel: settings.copilotModel
         )
+        // First real catalog we've seen: let it correct a first-run default
+        // that could only be ranked against the cache. No-op once the user
+        // has picked a model themselves.
+        settings.adoptDerivedDefault(from: models)
     }
 
     private func refreshStatus() async {

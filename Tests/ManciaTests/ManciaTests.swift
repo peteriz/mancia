@@ -292,6 +292,75 @@ func copilotModelFirstRunResolvesRecommendation() {
 }
 
 @MainActor
+@Test("The live catalog corrects a first-run default the cache could not rank")
+func adoptDerivedDefaultUpgradesCacheOnlyPick() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    // The cache carries no usage multipliers, so first-run ranking falls
+    // through to price then name and picks the alphabetically first model.
+    let cached = [
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight", modelPickerPriceCategory: "low"),
+        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight", modelPickerPriceCategory: "low"),
+    ]
+    let settings = AppSettings(defaults: defaults, modelCatalog: { cached })
+    #expect(settings.copilotModel == "claude-haiku-4.5")
+    #expect(settings.copilotModelIsDerived)
+
+    // The live catalog adds multipliers, revealing a cheaper fast model.
+    let live = [
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight", modelPickerPriceCategory: "low", usageMultiplier: 0.33),
+        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight", modelPickerPriceCategory: "low", usageMultiplier: 0),
+    ]
+    #expect(settings.adoptDerivedDefault(from: live))
+    #expect(settings.copilotModel == "gpt-5-mini")
+    #expect(defaults.string(forKey: "copilotModel") == "gpt-5-mini")
+    // Still derived, so a later catalog can correct it again.
+    #expect(settings.copilotModelIsDerived)
+    // Idempotent once it already matches.
+    #expect(!settings.adoptDerivedDefault(from: live))
+}
+
+@MainActor
+@Test("A user's model choice is never overridden by a later live catalog")
+func adoptDerivedDefaultRespectsUserChoice() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let cached = [CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight")]
+    let settings = AppSettings(defaults: defaults, modelCatalog: { cached })
+    #expect(settings.copilotModelIsDerived)
+
+    // The user picks a model in the settings picker.
+    settings.copilotModel = "claude-opus-5"
+    #expect(!settings.copilotModelIsDerived)
+
+    let live = [CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight", usageMultiplier: 0)]
+    #expect(!settings.adoptDerivedDefault(from: live))
+    #expect(settings.copilotModel == "claude-opus-5")
+}
+
+@MainActor
+@Test("An install predating the derived flag is treated as a user choice")
+func adoptDerivedDefaultLeavesLegacyInstallsAlone() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    // A stored model with no accompanying derived flag, as written by an
+    // earlier build. Conservative: never silently change it.
+    defaults.set("gpt-5.4-mini", forKey: "copilotModel")
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    #expect(!settings.copilotModelIsDerived)
+
+    let live = [CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight", usageMultiplier: 0)]
+    #expect(!settings.adoptDerivedDefault(from: live))
+    #expect(settings.copilotModel == "gpt-5.4-mini")
+}
+
+@MainActor
 @Test("An explicit auto choice (empty string) is never overridden by the recommendation")
 func copilotModelExplicitAutoIsRespected() {
     let suite = "mancia-test-\(UUID().uuidString)"
