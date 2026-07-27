@@ -17,7 +17,7 @@
 Select text in a Mac app that supports standard copy and paste, press a global shortcut, and describe the change. Mancia uses GitHub Copilot CLI to rewrite the text in place—no chat window and no copy-paste loop.
 
 <p align="center">
-  <img src="docs/assets/mancia-panel.png" alt="Mancia panel showing the instruction field, Improve button, and status line 'Ready · edits the whole document'" width="360">
+  <img src="docs/assets/mancia-panel.png" alt="Mancia panel showing the instruction field with its preset dropdown and run button, and the status line 'Ready · ↵ improves your selection'" width="360">
 </p>
 
 ## What Mancia does
@@ -26,7 +26,8 @@ Select text in a Mac app that supports standard copy and paste, press a global s
 - Uses a configurable global shortcut.
 - Opens a compact floating panel near your cursor.
 - Edits the current selection, or attempts to edit all copyable text when nothing is selected.
-- Offers one-tap **Improve** and a free-form instruction field.
+- Offers one-tap **Improve**, a free-form instruction field, and a preset
+  dropdown that takes your typed text as extra guidance.
 - Replaces text in place and lets you move between original and generated versions.
 - Restores your clipboard after every capture and paste.
 - Stays in the menu bar without adding a Dock icon.
@@ -99,9 +100,12 @@ CODESIGN_ID="<existing codesigning identity>" make app
 
 1. Select text in an app that supports standard copy and paste.
 2. Press <kbd>Control</kbd> + <kbd>Option</kbd> + <kbd>Command</kbd> + <kbd>E</kbd>, the default shortcut.
-3. Choose **Improve**, or enter a custom instruction and submit it.
+3. Press <kbd>Return</kbd> to **Improve**, or type a custom instruction and
+   submit it. The dropdown beside the run button applies a preset, using
+   anything you typed as extra guidance.
 4. Review the result in the original app.
-5. Use the arrows to switch versions, run another edit, or choose **Done**.
+5. Use the arrows to switch versions, run another edit, or press
+   <kbd>Esc</kbd> to dismiss the panel.
 
 Try instructions such as “Make this more concise,” “Rewrite in a friendlier tone,” or “Turn these notes into bullet points.”
 

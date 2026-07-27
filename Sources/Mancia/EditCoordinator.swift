@@ -15,10 +15,13 @@ final class EditCoordinator {
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
     private var lastAction: EditAction?
+    /// Guidance typed alongside `lastAction`, so a retry replays the same request.
+    private var lastNote: String?
     /// True while the selection is being captured after an instant show; an
     /// action fired during this window is queued in `pendingAction`.
     private var capturing = false
     private var pendingAction: EditAction?
+    private var pendingNote: String?
     /// The post-apply auto-close beat (hybrid behavior). Cancelled on any panel
     /// key press so the user can keep iterating.
     private var autoCloseTask: Task<Void, Never>?
@@ -47,7 +50,7 @@ final class EditCoordinator {
     }
 
     private func wire() {
-        model.onPerform = { [weak self] in self?.perform($0) }
+        model.onPerform = { [weak self] action, note in self?.perform(action, note: note) }
         model.onNavigate = { [weak self] in self?.navigate(to: $0) }
         model.onRetry = { [weak self] in self?.retry() }
         model.onConfirmApply = { [weak self] in self?.confirmApply() }
@@ -72,6 +75,7 @@ final class EditCoordinator {
         autoCloseTask?.cancel()
         autoCloseTask = nil
         pendingAction = nil
+        pendingNote = nil
         pendingApply = nil
         capture = nil
         versions = []
@@ -96,8 +100,10 @@ final class EditCoordinator {
             model.selectionCharCount = result.text?.count ?? 0
             model.scope = hasSelection ? .selection : .document
             if let pending = pendingAction {
+                let note = pendingNote
                 pendingAction = nil
-                perform(pending)
+                pendingNote = nil
+                perform(pending, note: note)
             }
         }
     }
@@ -122,17 +128,20 @@ final class EditCoordinator {
         case undoThenPaste
     }
 
-    private func perform(_ action: EditAction) {
+    private func perform(_ action: EditAction, note: String? = nil) {
         // Fired before the background capture finished: queue it and show the
         // spinner; it runs the moment the selection is ready.
         if capturing {
             lastAction = action
+            lastNote = note
             pendingAction = action
+            pendingNote = note
             model.runningTitle = action.progressLabel
             model.phase = .running
             return
         }
         lastAction = action
+        lastNote = note
         currentTask?.cancel()
         autoCloseTask?.cancel()
         autoCloseTask = nil
@@ -150,8 +159,8 @@ final class EditCoordinator {
             panel.focus()
             let prompt: String
             do {
-                try PromptGuard.validate(action: action, text: resolved.text)
-                prompt = PromptBuilder.build(action: action, text: resolved.text)
+                try PromptGuard.validate(action: action, text: resolved.text, note: note)
+                prompt = PromptBuilder.build(action: action, text: resolved.text, note: note)
             } catch {
                 if !Task.isCancelled { fail(error.localizedDescription) }
                 return
@@ -333,15 +342,19 @@ final class EditCoordinator {
         }
     }
 
-    /// Retry after an error. If the field still shows a custom instruction, run
-    /// what the user currently sees; otherwise repeat the last action (Improve).
+    /// Retry after an error, honoring any edit the user made to the field since.
+    ///
+    /// A preset replays with the field text as its guidance. A custom
+    /// instruction — or no prior action — goes back through the primary path,
+    /// where the field text *is* the instruction and an empty field means
+    /// Improve, so Retry always runs what the panel currently describes.
     private func retry() {
-        let trimmed = model.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            perform(.custom(trimmed))
-        } else if let lastAction {
-            perform(lastAction)
+        guard let lastAction, !lastAction.isCustom else {
+            model.runPrimary()
+            return
         }
+        let typed = model.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        perform(lastAction, note: typed.isEmpty ? nil : typed)
     }
 
     /// Stop the in-flight action but keep the session open.
@@ -351,6 +364,7 @@ final class EditCoordinator {
         // would wedge with `capturing` stuck true. Let the capture finish.
         if capturing {
             pendingAction = nil
+            pendingNote = nil
             model.phase = .idle
             panel.focus()
             return

@@ -2,37 +2,40 @@ import AppKit
 import SwiftUI
 
 /// The floating edit panel — the "sharp & effective" design: a warm cream/ink
-/// surface with one decisive vermilion accent on the hero **Improve** action.
+/// surface with one decisive vermilion accent.
 ///
-/// Fixed size, never relayouts mid-use: the field and Improve button are always
-/// present. While a request runs the field dims and locks, but the Improve
-/// button stays vibrant and *becomes* the progress — an indeterminate bar
-/// sweeps its base edge — so the panel reads as fast and working, not frozen.
-/// The one-line status at the bottom swaps between idle / running / applied /
-/// error. Enter routes to Improve when the field is empty, or the typed
-/// instruction when it isn't.
+/// The panel is a single command row. Everything the user can do lives in the
+/// instruction field: type a change and press Return, press the accent run
+/// button (which means *Improve* while the field is empty), or pick a
+/// specialized preset from the dropdown beside it — with anything typed riding
+/// along as extra guidance for that preset.
+///
+/// Fixed size, never relayouts mid-use. While a request runs the field dims and
+/// locks and an indeterminate bar sweeps its base edge, so the panel reads as
+/// fast and working, not frozen. The one-line status at the bottom swaps
+/// between idle / running / confirm / applied / error and carries the
+/// secondary actions for each.
 struct EditPanelView: View {
     @Bindable var model: PanelModel
     @FocusState private var fieldFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let width: CGFloat = 312
+    private let width: CGFloat = 360
+    /// The field's inset around the run button, on the trailing and both
+    /// vertical edges. A circle inset evenly inside a capsule is concentric with
+    /// it by construction, so the two curves stay parallel at any height.
+    private let fieldInset: CGFloat = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             brandRow
                 .padding(.bottom, 11)
 
-            VStack(alignment: .leading, spacing: 8) {
-                field
-                    .disabled(fieldLocked)
-                    .opacity(fieldLocked ? 0.42 : 1)
-                    .animation(.easeInOut(duration: 0.2), value: model.phase)
-                improveButton
-            }
+            field
 
             statusLine
                 .padding(.top, 10)
-                .frame(height: 20)
+                .frame(height: 22)
         }
         .padding(12)
         .frame(width: width)
@@ -90,7 +93,7 @@ struct EditPanelView: View {
                 HStack(spacing: 3) {
                     Text(scopeText)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: 9, weight: .semibold))
                 }
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Palette.textSecondary)
@@ -117,8 +120,12 @@ struct EditPanelView: View {
 
     // MARK: - Field
 
+    /// The panel's one control: instruction text, the preset dropdown, and the
+    /// accent run button. The running progress bar rides the field's base edge
+    /// *outside* the dimming applied to the contents, so the surface stays lit
+    /// while its controls read as inert.
     private var field: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             TextField("", text: $model.instruction, prompt: placeholder)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
@@ -127,93 +134,70 @@ struct EditPanelView: View {
                 .onSubmit { model.runPrimary() }
                 .accessibilityLabel("Custom instruction")
                 .accessibilityIdentifier("CustomInstruction")
+                .padding(.trailing, 4)
 
-            Button { model.submitInstruction() } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(hasCustomInstruction ? Palette.text : Palette.textFaint)
-            }
-            .buttonStyle(.plain)
-            .disabled(!hasCustomInstruction)
-            .help("Run custom instruction")
-            .accessibilityLabel("Run custom instruction")
-            .accessibilityIdentifier("CustomSubmit")
+            PresetMenuButton { model.runPreset($0) }
+
+            runButton
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Palette.raised)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(fieldFocused ? Palette.text.opacity(0.28) : Palette.border, lineWidth: 1)
-        )
+        .opacity(fieldLocked ? 0.42 : 1)
+        .animation(.easeInOut(duration: 0.2), value: model.phase)
+        .padding(.leading, 11)
+        .padding(.trailing, fieldInset)
+        .padding(.vertical, fieldInset)
+        .background(fieldShape.fill(Palette.raised))
+        .clipShape(fieldShape)
+        .overlay(fieldShape.strokeBorder(fieldStroke, lineWidth: 1))
+        .overlay {
+            if isRunning {
+                SwooshBorder(tint: Palette.accent, animated: !reduceMotion)
+            }
+        }
+        .disabled(fieldLocked)
+    }
+
+    /// A capsule rather than a fixed radius: it stays fully round whatever the
+    /// row's height resolves to, so the shape can't drift if the controls inside
+    /// it are ever resized.
+    private var fieldShape: Capsule {
+        Capsule(style: .continuous)
+    }
+
+    /// The field is focused for nearly the whole session, so focus is carried by
+    /// a firmer neutral edge rather than the accent — the accent stays reserved
+    /// for the run button and the status dot, where it means something.
+    private var fieldStroke: Color {
+        fieldFocused && !fieldLocked ? Palette.text.opacity(0.3) : Palette.border
     }
 
     private var placeholder: Text {
         Text("Describe a change…").foregroundColor(Palette.textFaint)
     }
 
-    // MARK: - Improve button
-
-    private var improveButton: some View {
-        Button { heroAction() } label: {
-            HStack(spacing: 7) {
-                if isConfirming {
-                    Text("Replace document")
-                        .font(.system(size: 14, weight: .semibold))
-                        .tracking(-0.05)
-                    Text("↵")
-                        .font(.system(size: 12, weight: .semibold))
-                        .opacity(0.7)
-                } else if isRunning {
-                    Text("\(runningLabel)…")
-                        .font(.system(size: 14, weight: .semibold))
-                        .tracking(-0.05)
-                } else {
-                    Text("Improve")
-                        .font(.system(size: 14, weight: .semibold))
-                        .tracking(-0.05)
-                }
+    /// The primary action. Always live: an empty field means Improve, a typed
+    /// one means run that instruction — the same routing Return uses.
+    ///
+    /// A circle: the shape a capsule field resolves to once it is inset evenly
+    /// on three sides, so the button echoes the field rather than cutting
+    /// against it.
+    private var runButton: some View {
+        Button { model.runPrimary() } label: {
+            ZStack {
+                Circle().fill(Palette.accent)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Palette.onAccent)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .foregroundStyle(Palette.onAccent)
-            .background(Palette.accent)
-            .overlay(alignment: .bottom) {
-                if isRunning {
-                    IndeterminateBar(tint: Palette.onAccent)
-                        .frame(height: 3)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(.white.opacity(0.14), lineWidth: 1)
-            )
+            .frame(width: 26, height: 26)
         }
         .buttonStyle(.plain)
-        .allowsHitTesting(!isRunning)
-        .accessibilityLabel(isConfirming ? "Replace document" : "Improve")
-        .accessibilityIdentifier(isConfirming ? "ReplaceDocument" : "Improve")
+        .help(runTitle)
+        .accessibilityLabel(runTitle)
+        .accessibilityIdentifier("Run")
     }
 
-    /// Route the hero button: apply the pending replacement while confirming,
-    /// otherwise run the Improve action.
-    private func heroAction() {
-        if isConfirming {
-            model.onConfirmApply?()
-        } else {
-            model.onPerform?(.improve)
-        }
-    }
-
-    /// The verb shown inside the button while it runs. Stays honest during the
-    /// brief background-capture window before the provider call begins.
-    private var runningLabel: String {
-        if model.capturing { return "Reading selection" }
-        return model.runningTitle.isEmpty ? "Improving" : model.runningTitle
+    private var runTitle: String {
+        hasCustomInstruction ? "Run your instruction" : "Improve"
     }
 
     // MARK: - Status line
@@ -229,27 +213,44 @@ struct EditPanelView: View {
         }
     }
 
+    /// Split across the row: the state label stays anchored on the left, the
+    /// hint sits on the right under the run button it describes.
     private var idleStatus: some View {
         HStack(spacing: 7) {
             Circle().fill(Palette.accent).frame(width: 7, height: 7)
-            Text(model.capturing ? "Reading selection…" : idleHint)
+            Text(model.capturing ? "Reading selection…" : "Ready")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(Palette.textSecondary)
                 .lineLimit(1)
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            if !model.capturing {
+                Text(idleHint)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Palette.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
         .padding(.horizontal, 1)
     }
 
+    /// Teaches what Return does right now — it changes as the user types, which
+    /// is the only cue that an empty field runs Improve. The typed variant does
+    /// not name the target: the instruction is visible directly above it, and
+    /// the scope caption already says what the edit will touch.
     private var idleHint: String {
-        switch model.scope {
-        case .selection: return "Ready · replaces your selection"
-        case .document: return "Ready · edits the whole document"
-        }
+        if hasCustomInstruction { return "↵ runs your instruction" }
+        return model.scope == .selection ? "↵ improves your selection" : "↵ improves the whole document"
     }
 
     private var runningStatus: some View {
         HStack(spacing: 8) {
+            Circle().fill(Palette.accent).frame(width: 7, height: 7)
+            Text("\(runningLabel)…")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Palette.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 0)
             GhostButton("Cancel") { model.onCancelRun?() }
                 .accessibilityIdentifier("Cancel")
@@ -257,9 +258,16 @@ struct EditPanelView: View {
         .padding(.horizontal, 1)
     }
 
+    /// The verb shown while a request runs. Stays honest during the brief
+    /// background-capture window before the provider call begins.
+    private var runningLabel: String {
+        if model.capturing { return "Reading selection" }
+        return model.runningTitle.isEmpty ? "Improving" : model.runningTitle
+    }
+
     /// Awaiting confirmation before a whole-document overwrite. Shows the size
-    /// change as a signal (e.g. a document collapsing to a few characters) and
-    /// offers Cancel; the hero button becomes "Replace document".
+    /// change as a signal (e.g. a document collapsing to a few characters), and
+    /// carries the accent confirm action — Return does the same thing.
     private var confirmStatus: some View {
         HStack(spacing: 8) {
             Circle().fill(Palette.accent).frame(width: 7, height: 7)
@@ -271,26 +279,26 @@ struct EditPanelView: View {
             Spacer(minLength: 0)
             GhostButton("Cancel") { model.onCancelRun?() }
                 .accessibilityIdentifier("ConfirmCancel")
+            AccentButton("Replace ↵") { model.onConfirmApply?() }
+                .accessibilityLabel("Replace document")
+                .accessibilityIdentifier("ReplaceDocument")
         }
         .padding(.horizontal, 1)
     }
 
+    /// No close button: Esc dismisses the panel (and in hybrid mode it closes
+    /// itself after a beat), so the row is left to the result and the version
+    /// navigation.
     private var appliedStatus: some View {
         HStack(spacing: 8) {
             Circle().fill(Palette.applied).frame(width: 7, height: 7)
             Text("Improved")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(Palette.textSecondary)
+            Spacer(minLength: 8)
             if model.versionCount > 1 {
-                Text("·").foregroundStyle(Palette.textSecondary.opacity(0.5))
                 versionNav
             }
-            Spacer(minLength: 0)
-            Button("Done") { model.onCancel?() }
-                .buttonStyle(.plain)
-                .font(.system(size: 11.5, weight: .bold))
-                .foregroundStyle(Palette.accent)
-                .accessibilityIdentifier("Done")
         }
         .padding(.horizontal, 1)
     }
@@ -341,6 +349,46 @@ struct EditPanelView: View {
     }
 }
 
+/// The specialized-preset dropdown inside the field, to the left of the run
+/// button. Quiet by default — the run button is the primary action — but it
+/// lights up on hover so the affordance is discoverable.
+private struct PresetMenuButton: View {
+    let run: (PanelPreset) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Menu {
+            ForEach(PanelPreset.all) { preset in
+                Button {
+                    run(preset)
+                } label: {
+                    Label(preset.title, systemImage: preset.action.symbol)
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Image(systemName: "text.badge.star")
+                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .foregroundStyle(hovering ? Palette.text : Palette.textSecondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Capsule(style: .continuous).fill(hovering ? Palette.text.opacity(0.07) : .clear))
+            .contentShape(Capsule(style: .continuous))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { hovering = $0 }
+        .help("Editing presets")
+        .accessibilityLabel("Editing presets")
+        .accessibilityIdentifier("PresetMenu")
+    }
+}
+
 /// A small hairline-bordered secondary button used in the status line.
 private struct GhostButton: View {
     let title: String
@@ -358,42 +406,94 @@ private struct GhostButton: View {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(tint)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 2)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(tint.opacity(0.4), lineWidth: 1)
-                )
+                .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.4), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
 }
 
-/// An indeterminate progress rail that sweeps along the base of the running
-/// Improve button — the panel's single, decisive "working" signal. A capsule
-/// segment glides left-to-right over a faint track, looping until the phase
-/// leaves `.running` and the overlay is removed.
-private struct IndeterminateBar: View {
-    var tint: Color
-    @State private var animate = false
+/// A small filled-accent button for the one decisive action in a status row —
+/// today, confirming a whole-document replacement.
+private struct AccentButton: View {
+    let title: String
+    let action: () -> Void
+
+    init(_ title: String, action: @escaping () -> Void) {
+        self.title = title
+        self.action = action
+    }
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let segment = max(30, w * 0.4)
-            ZStack(alignment: .leading) {
-                Rectangle().fill(Color.black.opacity(0.20))
-                Capsule(style: .continuous)
-                    .fill(tint.opacity(0.9))
-                    .frame(width: segment)
-                    .offset(x: animate ? w : -segment)
-            }
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Palette.onAccent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(Capsule(style: .continuous).fill(Palette.accent))
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: false)) {
-                animate = true
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
+
+/// The panel's "working" signal: a comet of accent light travelling around the
+/// field's capsule edge, with a soft blurred copy beneath it for the glow.
+///
+/// The lap is driven by `TimelineView(.animation)` off the wall clock rather
+/// than a repeating `withAnimation`, because the motion lives in an angular
+/// gradient — a `ShapeStyle`, which SwiftUI will not interpolate frame by frame
+/// the way it does a geometry modifier. Reading the angle from the clock each
+/// frame sidesteps that entirely and keeps the lap at a constant rate.
+///
+/// With Reduce Motion on, the comet is replaced by a still accent ring; the
+/// status line's running verb carries the signal instead.
+private struct SwooshBorder: View {
+    var tint: Color
+    var animated: Bool
+
+    /// Seconds per lap. Slow enough to read as deliberate, quick enough that
+    /// the panel never looks stalled.
+    private let period: Double = 1.6
+    private let lineWidth: CGFloat = 2
+
+    var body: some View {
+        if animated {
+            TimelineView(.animation) { context in
+                let lap = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: period) / period
+                let angle = Angle.degrees(lap * 360)
+                ZStack {
+                    comet(angle: angle).blur(radius: 4).opacity(0.75)
+                    comet(angle: angle)
+                }
             }
+        } else {
+            Capsule(style: .continuous)
+                .strokeBorder(tint.opacity(0.5), lineWidth: lineWidth)
         }
+    }
+
+    /// A bright head fading back into a transparent tail, swept around the
+    /// capsule's border.
+    private func comet(angle: Angle) -> some View {
+        Capsule(style: .continuous)
+            .strokeBorder(
+                AngularGradient(
+                    stops: [
+                        .init(color: tint.opacity(0), location: 0),
+                        .init(color: tint.opacity(0.2), location: 0.05),
+                        .init(color: tint, location: 0.15),
+                        .init(color: tint.opacity(0), location: 0.36),
+                        .init(color: tint.opacity(0), location: 1),
+                    ],
+                    center: .center,
+                    angle: angle
+                ),
+                lineWidth: lineWidth
+            )
     }
 }

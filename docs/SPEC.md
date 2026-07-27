@@ -5,11 +5,16 @@
 > [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
 > behavior. Notably:
 >
-> - The panel's actions are now a single hero **Improve** button (a
->   proofread-and-rewrite blend) plus a free-form instruction field. The
->   separate Proofread / Rewrite / Summarize preset buttons were dropped from
->   the UI; those templates survive only as prompt logic reachable through the
->   debug CLI (`--complete`).
+> - The panel is now a single command row (~360 pt wide): a free-form
+>   instruction field whose trailing controls are a **preset dropdown**
+>   (`PanelPreset`) and an accent **run** button. Return and the run button take
+>   the same path — an empty field means **Improve** (a proofread-and-rewrite
+>   blend), a typed one runs that instruction. There is no separate hero button.
+> - The dropdown runs a named preset's specialized template; anything typed in
+>   the field rides along as *additional guidance* for that preset rather than
+>   replacing it (`PromptBuilder.build(action:text:note:)`). Today the list holds
+>   Improve alone. The Rewrite / Summarize / Proofread templates still exist and
+>   remain reachable through the debug CLI (`--complete`).
 > - There is no Translate or Reply action, and no "Entire document" preview: the
 >   scope caption still lets you switch between the selection and the whole
 >   document, but there is no separate scope menu screen.
@@ -87,15 +92,14 @@ Mancia/
    `NSPanel` with `.nonactivatingPanel` style, floating level,
    `becomesKeyOnlyIfNeeded`, so the target app keeps focus until the user
    interacts. Esc closes it.
-4. Panel UI (SwiftUI, compact, ~310 pt wide):
-   - Free-form instruction `TextField` ("Describe your change…", ⏎ submits)
-     with a trailing submit button.
-   - Equal-width preset buttons: Proofread, Rewrite, Summarize.
+4. Panel UI (SwiftUI, compact, ~360 pt wide):
+   - Free-form instruction `TextField` ("Describe a change…", ⏎ submits) with a
+     trailing preset dropdown and run button.
    - Scope menu: "Selection · N chars" or "Entire document". If nothing was
      selected, default to Entire document.
-   - While running: spinner + action name + Cancel.
+   - While running: a light sweeps the field's border, action name + Cancel.
    - Applied state: inline replacement is already pasted; show version
-     navigation plus Done.
+     navigation. Esc dismisses.
 5. **Execution** (`EditCoordinator`):
    - If scope is Entire document: activate target app, post ⌘A, then capture
      via ⌘C as above (this yields the document text).
