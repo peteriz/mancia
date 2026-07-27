@@ -121,6 +121,26 @@ enum CopilotModelCatalog {
         }
     }
 
+    /// The exact list the settings picker binds to: the live listing merged
+    /// over the cache, with the stored selection kept even when the backend no
+    /// longer offers it.
+    ///
+    /// A picker whose list omits its own bound value renders a blank selection,
+    /// so a retired-but-selected model has to survive. The *cached* entry is
+    /// reused when there is one so it keeps its tier and
+    /// `supportedReasoningEfforts`; only a model nothing knows about falls back
+    /// to a bare id-as-name row.
+    ///
+    /// Everything that renders or verifies the picker goes through here, so
+    /// `--list-models` cannot drift from what Settings actually shows.
+    static func pickerModels(live: [CopilotModel], cached: [CopilotModel], storedModel: String) -> [CopilotModel] {
+        var models = merged(live: live, cached: cached)
+        let stored = storedModel.trimmingCharacters(in: .whitespaces)
+        guard !stored.isEmpty, !models.contains(where: { $0.id == stored }) else { return models }
+        models.append(cached.first { $0.id == stored } ?? CopilotModel(id: stored, name: stored))
+        return models
+    }
+
     /// Title of the latency tier a `modelPickerCategory` maps to, fastest
     /// first. Models from the live ACP listing carry no category, so when it is
     /// unknown we fall back to the price class — high-cost models are the

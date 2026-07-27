@@ -227,12 +227,11 @@ struct SettingsView: View {
             return
         }
         liveListingFailed = false
-        var merged = CopilotModelCatalog.merged(live: live, cached: cachedModels)
-        let stored = settings.copilotModel.trimmingCharacters(in: .whitespaces)
-        if !stored.isEmpty, !merged.contains(where: { $0.id == stored }) {
-            merged.append(CopilotModel(id: stored, name: stored))
-        }
-        models = merged
+        models = CopilotModelCatalog.pickerModels(
+            live: live,
+            cached: cachedModels,
+            storedModel: settings.copilotModel
+        )
     }
 
     private func refreshStatus() async {

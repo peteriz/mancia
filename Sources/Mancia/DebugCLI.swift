@@ -59,7 +59,12 @@ enum DebugCLI {
         if live.isEmpty {
             print("Live listing unavailable — the picker falls back to the cache.")
         }
-        let merged = CopilotModelCatalog.merged(live: live, cached: cached)
+        // Same helper Settings binds to, so this can't drift from the picker.
+        let merged = CopilotModelCatalog.pickerModels(
+            live: live,
+            cached: cached,
+            storedModel: settings.copilotModel
+        )
         let recommended = CopilotModelCatalog.recommendedFastModel(from: merged)
         print("recommended: \(recommended ?? "none")")
         let cachedIDs = Set(cached.map(\.id))

@@ -70,6 +70,14 @@ actor CopilotACPClient {
         }
         // The same reply carries the live model list; keep it so Settings can
         // show what the CLI actually offers today rather than a stale cache.
+        //
+        // An empty parse deliberately does *not* clear a list we already have.
+        // A client is one `copilot --acp` process and its catalog does not
+        // change between sessions, so an empty result means this reply was
+        // malformed, not that the backend stopped offering models. The last
+        // listing from this same process is the freshest truth available;
+        // discarding it would fall Settings back to an on-disk cache that can
+        // be months old, which is the exact staleness this path exists to fix.
         let listed = Self.models(fromNewSessionResponse: line)
         if !listed.isEmpty { models = listed }
         return sessionID

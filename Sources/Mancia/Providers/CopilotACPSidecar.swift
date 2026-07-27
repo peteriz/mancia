@@ -6,6 +6,9 @@ actor CopilotACPSidecar {
     private var client: CopilotACPClient?
     private var config: CopilotACPConfig?
     private var warmSessionID: String?
+    /// In-flight client launch, shared by concurrent callers so only one
+    /// `copilot --acp` process is ever started per config.
+    private var starting: Task<CopilotACPClient, Error>?
 
     func prepare(config newConfig: CopilotACPConfig) async {
         do {
@@ -52,16 +55,45 @@ actor CopilotACPSidecar {
         return sessionID
     }
 
+    /// The client for `newConfig`, launching one if needed.
+    ///
+    /// Actor isolation does not prevent reentrancy: every `await` here is a
+    /// suspension point another caller can interleave at. Two callers arriving
+    /// with no client stored — the panel warming while Settings asks for the
+    /// model list, say — would each launch a `copilot --acp` process, and the
+    /// second assignment would strand the first one running with nothing left
+    /// to stop it. So in-flight creation is shared through a stored `Task`
+    /// rather than repeated, and the check-then-store below runs with no
+    /// `await` between the two, which is what makes it atomic.
     private func client(config newConfig: CopilotACPConfig) async throws -> CopilotACPClient {
         if let client, config == newConfig { return client }
-        await reset()
-        let client = try await CopilotACPClient(config: newConfig)
-        self.client = client
-        self.config = newConfig
-        return client
+        if let starting, config == newConfig { return try await starting.value }
+
+        let stale = client
+        client = nil
+        warmSessionID = nil
+        config = newConfig
+        let task = Task {
+            // Tear the old process down inside the task so the state above is
+            // already published before this first suspends.
+            if let stale { await stale.stop() }
+            return try await CopilotACPClient(config: newConfig)
+        }
+        starting = task
+        defer { starting = nil }
+        do {
+            let created = try await task.value
+            client = created
+            return created
+        } catch {
+            config = nil
+            throw error
+        }
     }
 
     private func reset() async {
+        starting?.cancel()
+        starting = nil
         warmSessionID = nil
         config = nil
         if let client {

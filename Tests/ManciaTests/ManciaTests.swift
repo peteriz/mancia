@@ -702,6 +702,42 @@ func mergedPrefersLiveMembership() {
     #expect(merged[0].modelPickerCategory == nil)
 }
 
+@Test("pickerModels keeps a selected model the backend has retired, with its cached metadata")
+func pickerModelsPreservesRetiredSelection() {
+    let cached = [
+        CopilotModel(id: "retired", name: "Retired Model",
+                     supportedReasoningEfforts: ["none", "low"],
+                     modelPickerCategory: "lightweight"),
+    ]
+    let live = [CopilotModel(id: "claude-opus-5", name: "Claude Opus 5", modelPickerPriceCategory: "high")]
+    let models = CopilotModelCatalog.pickerModels(live: live, cached: cached, storedModel: "retired")
+    #expect(models.map(\.id) == ["claude-opus-5", "retired"])
+    // The cached entry is reused, so the effort picker and tiering keep
+    // working rather than degrading to a bare id-as-name row.
+    let retired = models.first { $0.id == "retired" }
+    #expect(retired?.name == "Retired Model")
+    #expect(retired?.supportedReasoningEfforts == ["none", "low"])
+    #expect(retired?.modelPickerCategory == "lightweight")
+}
+
+@Test("pickerModels falls back to a bare row for a selection nothing knows about")
+func pickerModelsSynthesizesUnknownSelection() {
+    let live = [CopilotModel(id: "claude-opus-5", name: "Claude Opus 5")]
+    let models = CopilotModelCatalog.pickerModels(live: live, cached: [], storedModel: "hand-typed")
+    #expect(models.map(\.id) == ["claude-opus-5", "hand-typed"])
+    #expect(models.last?.name == "hand-typed")
+}
+
+@Test("pickerModels never duplicates a selection the live listing still offers")
+func pickerModelsNoDuplicateSelection() {
+    let live = [CopilotModel(id: "claude-opus-5", name: "Claude Opus 5")]
+    let cached = [CopilotModel(id: "claude-opus-5", name: "Claude Opus 5 (cached)")]
+    let models = CopilotModelCatalog.pickerModels(live: live, cached: cached, storedModel: "claude-opus-5")
+    #expect(models.map(\.id) == ["claude-opus-5"])
+    // An empty selection ("Default") adds no row either.
+    #expect(CopilotModelCatalog.pickerModels(live: live, cached: cached, storedModel: "  ").map(\.id) == ["claude-opus-5"])
+}
+
 @Test("merged falls back to the cache when the live listing is unavailable")
 func mergedFallsBackToCache() {
     let cached = [CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8")]
