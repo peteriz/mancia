@@ -59,11 +59,18 @@ enum DebugCLI {
         if live.isEmpty {
             print("Live listing unavailable — the picker falls back to the cache.")
         }
+        let merged = CopilotModelCatalog.merged(live: live, cached: cached)
+        let recommended = CopilotModelCatalog.recommendedFastModel(from: merged)
+        print("recommended: \(recommended ?? "none")")
         let cachedIDs = Set(cached.map(\.id))
-        for tier in CopilotModelCatalog.tiered(CopilotModelCatalog.merged(live: live, cached: cached)) {
+        for tier in CopilotModelCatalog.tiered(merged) {
             print("\n\(tier.title):")
             for model in tier.models {
-                print("  \(model.id)\(cachedIDs.contains(model.id) ? "" : "  (live only)")")
+                let usage = model.usageMultiplier.map { "\($0)x" } ?? "?"
+                var notes = ["\(usage)"]
+                if !cachedIDs.contains(model.id) { notes.append("live only") }
+                if model.id == recommended { notes.append("recommended") }
+                print("  \(model.id.padding(toLength: max(model.id.count, 24), withPad: " ", startingAt: 0))  [\(notes.joined(separator: ", "))]")
             }
         }
         exit(0)

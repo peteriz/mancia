@@ -195,7 +195,19 @@ To add a new provider:
    `modelPickerCategory` and `supportedReasoningEfforts` are carried over from
    the cache by id, and a model present only in the live listing is tiered by
    its price class. Check what the picker will show with
-   `swift run Mancia --list-models`. The reasoning-effort picker
+   `swift run Mancia --list-models`.
+
+   **Keep the catalog free of hardcoded model ids.** Everything the picker
+   does — tiering, ordering, and the first-run recommendation
+   (`recommendedFastModel`) — is derived from what the backend advertises:
+   the latency class, the price class, and the premium-request multiplier
+   (`_meta.copilotUsage`, live only). A model released tomorrow is tiered,
+   ranked, and can become the recommended default with no code change, and a
+   retired one disappears on its own. Named-id lists rot silently as models
+   come and go, so add signals rather than special cases. Unknown enum values
+   (a new latency class, price class, or reasoning-effort level) must degrade
+   to a sensible default instead of dropping the model. The reasoning-effort
+   picker
    narrows to the selected model's `supportedReasoningEfforts` and is passed
    to the CLI as `--reasoning-effort`.
 3. Add a real provider-selection path in `AppSettings` and `SettingsView`

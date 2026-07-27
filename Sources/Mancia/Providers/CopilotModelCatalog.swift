@@ -12,6 +12,11 @@ struct CopilotModel: Decodable, Identifiable, Equatable, Sendable {
     var modelPickerCategory: String?
     /// Relative cost class: "low", "medium", or "high".
     var modelPickerPriceCategory: String?
+    /// Premium-request multiplier the live listing reports (`"0.33x"` → 0.33).
+    /// Absent from the on-disk cache, which carries no cost field at all. It is
+    /// the only fine-grained, self-updating weight signal available, so the
+    /// picker's recommendation ranks on it.
+    var usageMultiplier: Double?
 }
 
 /// A named group of models, fastest-to-slowest, for the settings picker.
@@ -27,8 +32,23 @@ struct ModelTier: Identifiable, Equatable {
 enum CopilotModelCatalog {
     static let defaultDBPath = NSHomeDirectory() + "/.copilot/data.db"
 
-    /// All reasoning-effort levels the CLI accepts for `--reasoning-effort`.
+    /// Reasoning-effort levels the CLI accepts for `--reasoning-effort`, in
+    /// increasing order of effort. Only a floor — see `reasoningEfforts(in:)`.
     static let allReasoningEfforts = ["none", "low", "medium", "high", "xhigh", "max"]
+
+    /// Effort levels to offer for a catalog: the known levels above, plus any
+    /// the catalog itself advertises that we don't know about yet, so a level
+    /// the CLI adds later still reaches the picker without a code change.
+    /// Known levels keep their meaningful order; new ones are appended.
+    static func reasoningEfforts(in models: [CopilotModel]) -> [String] {
+        var levels = allReasoningEfforts
+        for model in models {
+            for level in model.supportedReasoningEfforts ?? [] where !levels.contains(level) {
+                levels.append(level)
+            }
+        }
+        return levels
+    }
 
     /// Load the cached models, or nil when the cache is unreadable.
     static func loadModels(dbPath: String = defaultDBPath) -> [CopilotModel]? {
@@ -96,6 +116,7 @@ enum CopilotModelCatalog {
             merged.modelPickerCategory = model.modelPickerCategory ?? match.modelPickerCategory
             merged.supportedReasoningEfforts = model.supportedReasoningEfforts ?? match.supportedReasoningEfforts
             merged.modelPickerPriceCategory = model.modelPickerPriceCategory ?? match.modelPickerPriceCategory
+            merged.usageMultiplier = model.usageMultiplier ?? match.usageMultiplier
             return merged
         }
     }
@@ -133,7 +154,8 @@ enum CopilotModelCatalog {
     /// Group models into latency tiers, fastest to slowest, for the settings
     /// picker. The special "auto" entry (id "auto", no category) is excluded —
     /// it is the picker's separate "Default (auto)" row. Within a tier, models
-    /// sort by price category (low, medium, high) then by display name.
+    /// sort by price category (low, medium, high), then by the premium-request
+    /// multiplier, then by display name.
     static func tiered(_ models: [CopilotModel]) -> [ModelTier] {
         let order = ["Fastest", "Balanced", "Most capable"]
         var byTitle: [String: [CopilotModel]] = [:]
@@ -146,28 +168,42 @@ enum CopilotModelCatalog {
             let sorted = group.sorted { a, b in
                 let ranks = (priceRank(a.modelPickerPriceCategory), priceRank(b.modelPickerPriceCategory))
                 if ranks.0 != ranks.1 { return ranks.0 < ranks.1 }
+                let usage = (a.usageMultiplier ?? .greatestFiniteMagnitude, b.usageMultiplier ?? .greatestFiniteMagnitude)
+                if usage.0 != usage.1 { return usage.0 < usage.1 }
                 return a.name.localizedStandardCompare(b.name) == .orderedAscending
             }
             return ModelTier(id: title, title: title, models: sorted)
         }
     }
 
-    /// Preferred order of ultra-fast lightweight models, measured by wall-clock
-    /// latency through the real Copilot CLI pipeline (see docs/ARCHITECTURE.md
-    /// or the task history for the benchmark). `gpt-5.4-mini` (paired with
-    /// `reasoningEffort: "none"`) was the fastest of the four lightweight
-    /// models available at benchmark time, roughly half the latency of the
-    /// runners-up.
-    static let preferredFastModelIDs = ["gpt-5.4-mini", "claude-haiku-4.5", "gemini-3.5-flash", "gpt-5-mini"]
-
-    /// The recommended ultra-fast default: the first preferred id present in
-    /// the catalog, else the first model in the fastest tier, else nil when
-    /// the catalog has no lightweight models at all (or is empty).
+    /// The recommended low-latency default, derived entirely from what the
+    /// backend advertises — no hardcoded model ids, so a newly released model
+    /// can win the moment it appears and a retired one stops being suggested
+    /// without any code change.
+    ///
+    /// Ranking, in order: Copilot's own latency class (the "Fastest" tier, i.e.
+    /// `modelPickerCategory == "lightweight"` or a low price when the class is
+    /// unknown), then the cheapest premium-request multiplier, then the cheaper
+    /// price class, then name for a stable tie-break. Cost is a proxy for
+    /// weight rather than a direct latency measurement, but within a single
+    /// latency class the lighter model is the faster one, and unlike a
+    /// benchmark table it stays correct on its own.
+    ///
+    /// Returns nil when the catalog has no fast-tier models at all (or is
+    /// empty), leaving the model unset rather than guessing.
     static func recommendedFastModel(from models: [CopilotModel]) -> String? {
-        let byID = Dictionary(uniqueKeysWithValues: models.map { ($0.id, $0) })
-        for id in preferredFastModelIDs where byID[id] != nil {
-            return id
-        }
-        return tiered(models).first { $0.title == "Fastest" }?.models.first?.id
+        tiered(models).first { $0.title == "Fastest" }?.models.min(by: fasterFirst)?.id
+    }
+
+    /// Ordering used to pick the recommendation: cheapest multiplier wins, then
+    /// price class, then name. A model with no multiplier sorts after every
+    /// model that has one, so an unranked entry never displaces a known-cheap
+    /// one.
+    private static func fasterFirst(_ a: CopilotModel, _ b: CopilotModel) -> Bool {
+        let usage = (a.usageMultiplier ?? .greatestFiniteMagnitude, b.usageMultiplier ?? .greatestFiniteMagnitude)
+        if usage.0 != usage.1 { return usage.0 < usage.1 }
+        let prices = (priceRank(a.modelPickerPriceCategory), priceRank(b.modelPickerPriceCategory))
+        if prices.0 != prices.1 { return prices.0 < prices.1 }
+        return a.name.localizedStandardCompare(b.name) == .orderedAscending
     }
 }

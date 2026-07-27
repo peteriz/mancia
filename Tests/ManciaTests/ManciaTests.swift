@@ -564,34 +564,42 @@ func tieredOmitsEmptyTiers() {
 
 // MARK: - Recommended fast model
 
-@Test("recommendedFastModel picks the measured winner when present")
-func recommendedFastModelPrefersMeasuredWinner() {
+@Test("recommendedFastModel picks the cheapest model in the fastest tier")
+func recommendedFastModelPrefersCheapestFastModel() {
     let models = [
-        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight"),
-        CopilotModel(id: "gpt-5.4-mini", name: "GPT-5.4 mini", modelPickerCategory: "lightweight"),
-        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight", usageMultiplier: 0.33),
+        CopilotModel(id: "cheapest", name: "Cheapest Mini", modelPickerCategory: "lightweight", usageMultiplier: 0),
+        CopilotModel(id: "pricey", name: "Pricey Mini", modelPickerCategory: "lightweight", usageMultiplier: 1),
+        // A cheaper model outside the fastest tier must never win.
+        CopilotModel(id: "cheap-but-slow", name: "Cheap But Slow", modelPickerCategory: "powerful", usageMultiplier: 0),
     ]
-    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "gpt-5.4-mini")
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "cheapest")
 }
 
-@Test("recommendedFastModel falls through the preferred order when the winner is absent")
-func recommendedFastModelFallsThroughPreferredOrder() {
+@Test("recommendedFastModel needs no code change to pick up a newly released model")
+func recommendedFastModelAdoptsNewModels() {
+    // A model nobody has heard of, released after this test was written, wins
+    // purely on the signals the backend advertises.
     let models = [
-        CopilotModel(id: "gpt-5-mini", name: "GPT-5 mini", modelPickerCategory: "lightweight"),
-        CopilotModel(id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "claude-haiku-4.5", name: "Claude Haiku 4.5", modelPickerCategory: "lightweight", usageMultiplier: 0.33),
+        CopilotModel(id: "brand-new-nano", name: "Brand New Nano", modelPickerPriceCategory: "low", usageMultiplier: 0.1),
     ]
-    // gpt-5.4-mini and claude-haiku-4.5 are both absent; gemini-3.5-flash
-    // precedes gpt-5-mini in the preferred order.
-    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "gemini-3.5-flash")
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "brand-new-nano")
 }
 
-@Test("recommendedFastModel falls back to the first Fastest-tier model when no preferred id is present")
-func recommendedFastModelFallsBackToFastestTier() {
+@Test("recommendedFastModel falls back to price then name when no multiplier is reported")
+func recommendedFastModelFallsBackWithoutMultipliers() {
     let models = [
-        CopilotModel(id: "some-other-lightweight", name: "Zeta Light", modelPickerCategory: "lightweight"),
-        CopilotModel(id: "another-lightweight", name: "Alpha Light", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "zeta", name: "Zeta Light", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "alpha", name: "Alpha Light", modelPickerCategory: "lightweight"),
     ]
-    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "another-lightweight")
+    #expect(CopilotModelCatalog.recommendedFastModel(from: models) == "alpha")
+    // A ranked model outranks an unranked one regardless of name order.
+    let mixed = [
+        CopilotModel(id: "alpha", name: "Alpha Light", modelPickerCategory: "lightweight"),
+        CopilotModel(id: "zeta", name: "Zeta Light", modelPickerCategory: "lightweight", usageMultiplier: 0.5),
+    ]
+    #expect(CopilotModelCatalog.recommendedFastModel(from: mixed) == "zeta")
 }
 
 @Test("recommendedFastModel returns nil for an empty catalog or one with no lightweight models")
@@ -611,15 +619,43 @@ func acpModelsParsedFromNewSession() {
     {"jsonrpc":"2.0","id":2,"result":{"sessionId":"abc","models":{"currentModelId":"claude-sonnet-5",
      "availableModels":[
       {"modelId":"auto","name":"Auto","description":"Let Copilot pick"},
-      {"modelId":"claude-opus-5","name":"Claude Opus 5","_meta":{"copilotPriceCategory":"high"}},
-      {"modelId":"claude-haiku-4.5","name":"Claude Haiku 4.5","_meta":{"copilotPriceCategory":"low"}}]}}}
+      {"modelId":"claude-opus-5","name":"Claude Opus 5","_meta":{"copilotPriceCategory":"high","copilotUsage":"15x"}},
+      {"modelId":"claude-haiku-4.5","name":"Claude Haiku 4.5","_meta":{"copilotPriceCategory":"low","copilotUsage":"0.33x"}}]}}}
     """
     let models = CopilotACPClient.models(fromNewSessionResponse: line)
     #expect(models.map(\.id) == ["auto", "claude-opus-5", "claude-haiku-4.5"])
     #expect(models[1].modelPickerPriceCategory == "high")
     #expect(models[2].modelPickerPriceCategory == "low")
+    #expect(models[1].usageMultiplier == 15)
+    #expect(models[2].usageMultiplier == 0.33)
     // ACP never reports the latency tier; it comes from the on-disk cache.
     #expect(models[1].modelPickerCategory == nil)
+}
+
+@Test("usage multipliers parse from the reported string form")
+func acpUsageMultiplierParsing() {
+    #expect(CopilotACPClient.usageMultiplier("0.33x") == 0.33)
+    #expect(CopilotACPClient.usageMultiplier("15x") == 15)
+    #expect(CopilotACPClient.usageMultiplier("0x") == 0)
+    // Tolerate a bare number, and stay nil for anything unparseable so a
+    // format change degrades to "unranked" rather than to a wrong number.
+    #expect(CopilotACPClient.usageMultiplier("2") == 2)
+    #expect(CopilotACPClient.usageMultiplier(3.5) == 3.5)
+    #expect(CopilotACPClient.usageMultiplier("free") == nil)
+    #expect(CopilotACPClient.usageMultiplier(nil) == nil)
+}
+
+@Test("reasoningEfforts absorbs levels the catalog reports but we don't know")
+func reasoningEffortsAbsorbsNewLevels() {
+    let models = [
+        CopilotModel(id: "a", name: "A", supportedReasoningEfforts: ["low", "ultra"]),
+        CopilotModel(id: "b", name: "B", supportedReasoningEfforts: ["ultra", "beyond"]),
+    ]
+    let levels = CopilotModelCatalog.reasoningEfforts(in: models)
+    // Known levels keep their meaningful order, new ones are appended once.
+    #expect(levels.prefix(6) == ["none", "low", "medium", "high", "xhigh", "max"])
+    #expect(levels.suffix(2) == ["ultra", "beyond"])
+    #expect(CopilotModelCatalog.reasoningEfforts(in: []) == CopilotModelCatalog.allReasoningEfforts)
 }
 
 @Test("session/new model parsing skips malformed and duplicate entries")

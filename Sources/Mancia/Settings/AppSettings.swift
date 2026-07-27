@@ -70,7 +70,7 @@ final class AppSettings {
         // First-run recommendation: `copilotModel` has three meaningful states
         // — "never chosen" (key absent), "explicitly Default/auto" (key
         // present, value ""), and "explicitly some model" (key present,
-        // non-empty). Only the first state gets the measured ultra-fast
+        // non-empty). Only the first state gets the derived low-latency
         // default; both explicit states — including explicit auto — are read
         // back verbatim and never touched again. Resolving here (once, at
         // settings-load time) and persisting the result means the Settings
@@ -91,13 +91,11 @@ final class AppSettings {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !recommended.isEmpty {
                 defaults.set(recommended, forKey: Key.copilotModel)
-                // The benchmark that picked `recommended` timed it with
-                // `--reasoning-effort none` where the model supports "none" —
-                // that flag is what makes it ultra-fast rather than merely
+                // `--reasoning-effort none`, where the chosen model supports
+                // it, is what makes the default ultra-fast rather than merely
                 // lightweight. Carry it along on this same first-run path
-                // (and only this path) so the default actually delivers the
-                // measured speed; an explicit reasoningEffort choice is never
-                // touched, matching the copilotModel contract above.
+                // (and only this path); an explicit reasoningEffort choice is
+                // never touched, matching the copilotModel contract above.
                 if defaults.object(forKey: Key.reasoningEffort) == nil,
                    let match = catalog.first(where: { $0.id == recommended }),
                    match.supportedReasoningEfforts?.contains("none") == true {

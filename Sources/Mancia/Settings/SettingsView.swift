@@ -15,6 +15,13 @@ struct SettingsView: View {
     @State private var checking = false
     @State private var models: [CopilotModel] = [CopilotModel(id: "auto", name: "Auto")]
     @State private var detectFeedback: String?
+    /// The CLI's on-disk cache, kept as the metadata donor for merges and as
+    /// the list to fall back to when the live listing is unavailable.
+    @State private var cachedModels: [CopilotModel] = []
+    /// True once a live listing attempt has come back empty. Surfaced in the
+    /// UI so falling back to a possibly-stale cache is visible rather than
+    /// looking like the CLI genuinely offers nothing new.
+    @State private var liveListingFailed = false
 
     var body: some View {
         Form {
@@ -36,6 +43,16 @@ struct SettingsView: View {
                                 Text(modelLabel(for: model)).tag(model.id)
                             }
                         }
+                    }
+                }
+                if liveListingFailed {
+                    HStack(spacing: 6) {
+                        Text("Showing cached models — couldn't read the current list from the CLI, so newly released models may be missing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Retry") { Task { await refreshLiveModels() } }
+                            .controlSize(.small)
                     }
                 }
                 Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
@@ -77,9 +94,12 @@ struct SettingsView: View {
         .task {
             let stored = settings.copilotModel
             let cached = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
+            cachedModels = cached
             models = cached
+            // Check status first: it is a fast `--version` call, while the live
+            // listing has to wait on the ACP sidecar starting up.
             await refreshStatus()
-            await refreshModels(cached: cached, stored: stored)
+            await refreshLiveModels()
         }
     }
 
@@ -167,7 +187,7 @@ struct SettingsView: View {
     /// value so the picker binding stays valid.
     private var reasoningEffortOptions: [String] {
         var options = models.first { $0.id == settings.copilotModel }?.supportedReasoningEfforts
-            ?? CopilotModelCatalog.allReasoningEfforts
+            ?? CopilotModelCatalog.reasoningEfforts(in: models)
         let stored = settings.reasoningEffort
         if !stored.isEmpty, !options.contains(stored) { options.append(stored) }
         return options
@@ -196,16 +216,21 @@ struct SettingsView: View {
     /// `~/.copilot/data.db` only gets rewritten when the interactive Copilot
     /// TUI runs, so on a machine that only ever drives Copilot through Mancia
     /// it can be badly stale and hide newly released models. Asking the running
-    /// CLI reuses the sidecar's warm session, and a failure just leaves the
-    /// cached list in place.
-    private func refreshModels(cached: [CopilotModel], stored: String) async {
+    /// CLI reuses the sidecar's warm session, and a failure leaves the cached
+    /// list in place — flagged in the UI rather than passed off as current.
+    private func refreshLiveModels() async {
         guard let provider = provider as? ModelListingProvider else { return }
         let live = await provider.availableModels()
-        guard !live.isEmpty else { return }
-        var merged = CopilotModelCatalog.merged(live: live, cached: cached)
-        let trimmed = stored.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty, !merged.contains(where: { $0.id == trimmed }) {
-            merged.append(CopilotModel(id: trimmed, name: trimmed))
+        guard !live.isEmpty else {
+            models = cachedModels
+            liveListingFailed = true
+            return
+        }
+        liveListingFailed = false
+        var merged = CopilotModelCatalog.merged(live: live, cached: cachedModels)
+        let stored = settings.copilotModel.trimmingCharacters(in: .whitespaces)
+        if !stored.isEmpty, !merged.contains(where: { $0.id == stored }) {
+            merged.append(CopilotModel(id: stored, name: stored))
         }
         models = merged
     }

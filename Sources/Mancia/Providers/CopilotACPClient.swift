@@ -214,9 +214,22 @@ actor CopilotACPClient {
             guard let id = entry["modelId"] as? String, !id.isEmpty,
                   let name = entry["name"] as? String, !name.isEmpty,
                   seen.insert(id).inserted else { return nil }
-            let price = (entry["_meta"] as? [String: Any])?["copilotPriceCategory"] as? String
-            return CopilotModel(id: id, name: name, modelPickerPriceCategory: price)
+            let meta = entry["_meta"] as? [String: Any]
+            return CopilotModel(
+                id: id,
+                name: name,
+                modelPickerPriceCategory: meta?["copilotPriceCategory"] as? String,
+                usageMultiplier: usageMultiplier(meta?["copilotUsage"])
+            )
         }
+    }
+
+    /// Parse the premium-request multiplier the listing reports as a string
+    /// (`"0.33x"`, `"15x"`, `"0x"`). Returns nil for anything unparseable so a
+    /// format change degrades to "unranked" rather than to a wrong number.
+    static func usageMultiplier(_ raw: Any?) -> Double? {
+        guard let text = raw as? String else { return raw as? Double }
+        return Double(text.hasSuffix("x") ? String(text.dropLast()) : text)
     }
 
     static func stopReason(fromPromptResponse line: String) -> String? {
