@@ -235,8 +235,8 @@ func confirmationRequiredMatrix() {
 
 @Test("Confirmation summary shows the size change")
 func confirmationSummary() {
-    #expect(ApplyConfirmation.summary(originalCharacters: 5000, resultCharacters: 30) == "5000 → 30 characters")
-    #expect(ApplyConfirmation.summary(originalCharacters: 0, resultCharacters: 0) == "0 → 0 characters")
+    #expect(ApplyConfirmation.summary(originalCharacters: 5000, resultCharacters: 30) == "5000 → 30 chars")
+    #expect(ApplyConfirmation.summary(originalCharacters: 0, resultCharacters: 0) == "0 → 0 chars")
 }
 
 @MainActor
@@ -1022,4 +1022,116 @@ func shortcutAcceptancePolicy() {
     // A real global-hotkey combo.
     #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e, modifiers: [.command])) == true)
     #expect(ShortcutRecorderView.isAcceptable(KeyboardShortcuts.Shortcut(.e, modifiers: [.control, .option, .command])) == true)
+}
+
+// MARK: - Field presets and typed guidance
+
+@Test("A preset run with typed guidance keeps its own task and fences the note")
+func presetCarriesTypedGuidance() {
+    let nonce = "G1"
+    let prompt = PromptBuilder.build(
+        action: .improve, text: "some text", note: "keep it under 20 words", nonce: nonce)
+    // The preset's specialized task survives — the note refines it, not replaces it.
+    #expect(prompt.contains("Improve the wording, grammar, and clarity"))
+    #expect(prompt.contains("[[USER_INSTRUCTION:\(nonce)]]\nkeep it under 20 words\n[[/USER_INSTRUCTION:\(nonce)]]"))
+    #expect(prompt.contains(PromptBuilder.userNoteClause))
+    // ...and the preset's own requirements are still there.
+    #expect(prompt.contains("Do not add new information or remove any."))
+}
+
+@Test("A preset without guidance is unchanged")
+func presetWithoutGuidanceIsUnchanged() {
+    let plain = PromptBuilder.build(action: .improve, text: "some text", nonce: "N")
+    for note in [nil, "", "   \n "] as [String?] {
+        #expect(PromptBuilder.build(action: .improve, text: "some text", note: note, nonce: "N") == plain)
+    }
+    #expect(!plain.contains("USER_INSTRUCTION"))
+    #expect(!plain.contains(PromptBuilder.userNoteClause))
+}
+
+@Test("Typed guidance is trimmed before it is fenced")
+func presetGuidanceIsTrimmed() {
+    let prompt = PromptBuilder.build(
+        action: .summarize, text: "body", note: "  three bullets  ", nonce: "T")
+    #expect(prompt.contains("[[USER_INSTRUCTION:T]]\nthree bullets\n[[/USER_INSTRUCTION:T]]"))
+}
+
+@Test("A custom action ignores a note — the instruction already is the request")
+func customActionIgnoresNote() {
+    let withNote = PromptBuilder.build(
+        action: .custom("make it a haiku"), text: "body", note: "ignored", nonce: "C")
+    let without = PromptBuilder.build(action: .custom("make it a haiku"), text: "body", nonce: "C")
+    #expect(withNote == without)
+    #expect(!withNote.contains("ignored"))
+}
+
+@Test("The nonce avoids colliding with typed guidance, not just the input")
+func nonceAvoidsGuidanceCollision() {
+    // A note that contains the fence token would let it forge a closing marker.
+    let note = "abc123"
+    let prompt = PromptBuilder.build(action: .improve, text: "body", note: note)
+    // Whatever nonce was chosen, the note must not contain it.
+    let marker = "[[USER_INSTRUCTION:"
+    let start = prompt.range(of: marker)!.upperBound
+    let nonce = String(prompt[start...].prefix(while: { $0 != "]" }))
+    #expect(!nonce.isEmpty)
+    #expect(!note.contains(nonce))
+    #expect(!"body".contains(nonce))
+}
+
+@Test("The field dropdown offers Improve, mapped to the Improve action")
+func presetListShape() {
+    #expect(PanelPreset.all.contains(PanelPreset.improve))
+    #expect(PanelPreset.improve.action == .improve)
+    #expect(PanelPreset.all.count == Set(PanelPreset.all.map(\.id)).count, "preset ids must be unique")
+    #expect(PanelPreset.all.allSatisfy { !$0.action.isCustom }, "presets are named templates, never free-form")
+}
+
+@Test("Guidance typed alongside a preset is bounded like a custom instruction")
+func presetGuidanceIsBounded() {
+    let long = String(repeating: "a", count: PromptGuard.maxInstructionCharacters + 1)
+    #expect(throws: PromptGuardError.instructionTooLong(limit: PromptGuard.maxInstructionCharacters)) {
+        try PromptGuard.validate(action: .improve, text: "body", note: long)
+    }
+    // A blank note is simply not part of the request.
+    #expect(throws: Never.self) { try PromptGuard.validate(action: .improve, text: "body", note: "  ") }
+    #expect(throws: Never.self) { try PromptGuard.validate(action: .improve, text: "body", note: "shorter") }
+}
+
+// MARK: - Panel routing
+
+@Test("The primary path runs Improve when empty and the typed instruction otherwise")
+@MainActor
+func primaryPathRouting() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    model.runPrimary()
+    #expect(calls.last?.0 == .improve)
+    #expect(calls.last?.1 == nil)
+
+    model.instruction = "  make it formal  "
+    model.runPrimary()
+    #expect(calls.last?.0 == .custom("make it formal"))
+    #expect(calls.last?.1 == nil)
+}
+
+@Test("A preset runs its own action, carrying the field text as guidance")
+@MainActor
+func presetRunCarriesFieldText() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    // Empty field: the preset runs alone.
+    model.runPreset(.improve)
+    #expect(calls.last?.0 == .improve)
+    #expect(calls.last?.1 == nil)
+
+    // Typed text becomes guidance for the preset, not a custom instruction.
+    model.instruction = "  keep the bullet list  "
+    model.runPreset(.improve)
+    #expect(calls.last?.0 == .improve)
+    #expect(calls.last?.1 == "keep the bullet list")
 }

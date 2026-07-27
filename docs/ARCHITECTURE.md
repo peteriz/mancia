@@ -92,9 +92,12 @@ wired to call `coordinator.start()`.
    hide/reveal dance is needed. After each keystroke burst (which activates
    the target app) the coordinator calls `panel.focus()` to retake key
    status so Esc and typing reach the panel again.
-4. **Perform** — the user picks a built-in `EditAction` or types a free-form
-   instruction (`PanelModel.submitInstruction()` → `.custom(text)`).
-   `EditCoordinator.perform(_:)` resolves this cycle's input and apply
+4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
+   Return or the run button, giving `.improve` on an empty field and
+   `.custom(text)` on a typed one) or picks a preset from the field's dropdown
+   (`PanelModel.runPreset(_:)`, which passes the typed text along as a guidance
+   note rather than as the instruction).
+   `EditCoordinator.perform(_:note:)` resolves this cycle's input and apply
    strategy (`resolveInput()`):
    - `.document` scope: when the session originally found no selection, first
      probes with a fresh `⌘C`; a new non-empty live selection switches the
@@ -121,10 +124,10 @@ wired to call `coordinator.start()`.
 5. **Confirm (whole-document only)** — before a `.document`-scope result
    overwrites the document, the panel pauses in `PanelModel.phase == .confirm`
    (`ApplyConfirmation.isRequired`, gated by
-   `AppSettings.confirmWholeDocumentReplace`, default on). The hero button
-   becomes **Replace document** (⏎ / `EditCoordinator.confirmApply()`), the
-   strip shows the size change (`ApplyConfirmation.summary`), and **Cancel**
-   discards the pending result. Selection edits skip this — they are
+   `AppSettings.confirmWholeDocumentReplace`, default on). The strip shows the
+   size change (`ApplyConfirmation.summary`) alongside **Replace** (⏎ /
+   `EditCoordinator.confirmApply()`), and **Cancel** discards the pending
+   result. Selection edits skip this — they are
    low blast-radius and undoable — and apply straight away. This keeps an
    injection-influenced or runaway result from silently replacing everything.
 6. **Apply & iterate** — when the result arrives (immediately for selections,
@@ -135,13 +138,15 @@ wired to call `coordinator.start()`.
    (`versions`: index 0 is the session original, one entry per applied
    result; running a new action from an earlier version truncates the
    forward history) and the applied strip shows `←` / `→` navigation with a
-   "2/3"-style counter plus **Done**.
+   "2/3"-style counter.
    - Navigation (`EditCoordinator.navigate(to:)`) rewrites the document with
      `versions[index]`: undo-then-paste for selections (including index 0),
      `⌘A`+`⌘V` for document scope (robust against manual edits in between).
    - **Cancel** (running strip) stops the in-flight `Task` but keeps the
      session open; **Retry** (error strip) re-runs `perform(lastAction)`;
-   - **Done**/Esc closes the session, keeping whichever version is showing.
+   - Esc closes the session, keeping whichever version is showing. The applied
+     strip carries no close button: Esc is the one dismissal, and hybrid
+     post-apply behavior closes the panel on its own after a beat.
 
 Esc anywhere in the panel routes through `KeyablePanel.cancelOperation` →
 `model.onCancel` and closes the session in every phase.

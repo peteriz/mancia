@@ -39,7 +39,8 @@ final class PanelModel {
     var focusSeq = 0
 
     // Wired by EditCoordinator.
-    var onPerform: ((EditAction) -> Void)?
+    /// Run an action, optionally with guidance the user typed alongside it.
+    var onPerform: ((EditAction, String?) -> Void)?
     /// Navigate the document to versions[index].
     var onNavigate: ((Int) -> Void)?
     var onRetry: (() -> Void)?
@@ -66,20 +67,22 @@ final class PanelModel {
         sessionSeq &+= 1
     }
 
-    /// Route the hero action. Runs `Improve` when the field is empty, otherwise
-    /// the typed custom instruction — the single Enter/primary path.
+    /// The primary path, shared by Return and the field's run button. Runs
+    /// `Improve` when the field is empty, otherwise the typed instruction.
     func runPrimary() {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            onPerform?(.improve)
+            onPerform?(.improve, nil)
         } else {
-            onPerform?(.custom(trimmed))
+            onPerform?(.custom(trimmed), nil)
         }
     }
 
-    func submitInstruction() {
+    /// Run a preset chosen from the field's dropdown. Anything typed in the
+    /// field rides along as additional guidance for the preset's specialized
+    /// prompt, rather than replacing it the way the primary path would.
+    func runPreset(_ preset: PanelPreset) {
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onPerform?(.custom(trimmed))
+        onPerform?(preset.action, trimmed.isEmpty ? nil : trimmed)
     }
 }

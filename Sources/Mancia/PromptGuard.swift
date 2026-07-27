@@ -60,10 +60,15 @@ enum PromptGuard {
     }
 
     /// Validate everything an action needs before its prompt is built: the input
-    /// text always, plus the instruction when the action is `.custom`.
-    static func validate(action: EditAction, text: String) throws {
+    /// text always, plus any free-form text the user wrote — the instruction
+    /// when the action is `.custom`, otherwise the guidance note typed
+    /// alongside a preset. Both reach the model the same way, so both get the
+    /// same bounds. An empty or absent note is simply not part of the request.
+    static func validate(action: EditAction, text: String, note: String? = nil) throws {
         if case .custom(let request) = action {
             try validateInstruction(request)
+        } else if let note, !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try validateInstruction(note)
         }
         try validateInput(text)
     }

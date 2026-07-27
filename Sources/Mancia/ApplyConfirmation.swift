@@ -20,7 +20,9 @@ enum ApplyConfirmation {
     /// A one-line, human-readable summary of the pending replacement's size
     /// change, so the user has a signal (e.g. a document collapsing to a
     /// handful of characters) before overwriting everything.
+    /// Abbreviated because it shares the panel's one-line status strip with the
+    /// Cancel and Replace actions.
     static func summary(originalCharacters: Int, resultCharacters: Int) -> String {
-        "\(originalCharacters) → \(resultCharacters) characters"
+        "\(originalCharacters) → \(resultCharacters) chars"
     }
 }
