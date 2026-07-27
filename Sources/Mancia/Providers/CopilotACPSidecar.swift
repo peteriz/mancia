@@ -32,6 +32,18 @@ actor CopilotACPSidecar {
         }
     }
 
+    /// The live model list the CLI advertises. Reuses (or warms) the idle
+    /// session rather than consuming it, so asking costs nothing extra.
+    func availableModels(config newConfig: CopilotACPConfig) async -> [CopilotModel] {
+        do {
+            _ = try await warmSession(config: newConfig)
+            return await client?.availableModels() ?? []
+        } catch {
+            await reset()
+            return []
+        }
+    }
+
     private func warmSession(config newConfig: CopilotACPConfig) async throws -> String {
         if let warmSessionID, config == newConfig { return warmSessionID }
         let client = try await client(config: newConfig)

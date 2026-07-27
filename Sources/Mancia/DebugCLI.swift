@@ -9,6 +9,10 @@ enum DebugCLI {
             run { await providerCheck() }
             return true
         }
+        if arguments.contains("--list-models") {
+            run { await listModels() }
+            return true
+        }
         if let index = arguments.firstIndex(of: "--complete") {
             let actionArg = index + 1 < arguments.count ? arguments[index + 1] : ""
             run { await complete(actionArg: actionArg) }
@@ -39,6 +43,30 @@ enum DebugCLI {
             print("\(provider.displayName): error — \(message)")
             exit(1)
         }
+    }
+
+    /// Print the settings picker's model list exactly as it will be grouped,
+    /// and where each entry came from. Useful for confirming that a newly
+    /// released model reaches the picker even when `~/.copilot/data.db` is
+    /// stale.
+    @MainActor
+    private static func listModels() async {
+        let settings = AppSettings()
+        let provider = CopilotCLIProvider(settings: settings)
+        let cached = CopilotModelCatalog.modelsForPicker(storedModel: settings.copilotModel)
+        let live = await provider.availableModels()
+        print("cached: \(cached.count) model(s)   live: \(live.count) model(s)")
+        if live.isEmpty {
+            print("Live listing unavailable — the picker falls back to the cache.")
+        }
+        let cachedIDs = Set(cached.map(\.id))
+        for tier in CopilotModelCatalog.tiered(CopilotModelCatalog.merged(live: live, cached: cached)) {
+            print("\n\(tier.title):")
+            for model in tier.models {
+                print("  \(model.id)\(cachedIDs.contains(model.id) ? "" : "  (live only)")")
+            }
+        }
+        exit(0)
     }
 
     @MainActor

@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// A Copilot model as cached by the Copilot CLI.
-struct CopilotModel: Decodable, Identifiable, Equatable {
+struct CopilotModel: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     var supportedReasoningEfforts: [String]?
@@ -79,14 +79,43 @@ enum CopilotModelCatalog {
         return models
     }
 
+    /// Combine the live ACP listing with the CLI's on-disk cache.
+    ///
+    /// The live list is authoritative for *which* models exist — it comes
+    /// straight from the running CLI, while `~/.copilot/data.db` is only
+    /// rewritten when the interactive Copilot TUI runs and so can be months
+    /// stale (this is why newly released models went missing from the picker).
+    /// The cache is still the only source of `modelPickerCategory` and
+    /// `supportedReasoningEfforts`, so those are carried over by id.
+    static func merged(live: [CopilotModel], cached: [CopilotModel]) -> [CopilotModel] {
+        guard !live.isEmpty else { return cached }
+        let cachedByID = Dictionary(cached.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return live.map { model in
+            guard let match = cachedByID[model.id] else { return model }
+            var merged = model
+            merged.modelPickerCategory = model.modelPickerCategory ?? match.modelPickerCategory
+            merged.supportedReasoningEfforts = model.supportedReasoningEfforts ?? match.supportedReasoningEfforts
+            merged.modelPickerPriceCategory = model.modelPickerPriceCategory ?? match.modelPickerPriceCategory
+            return merged
+        }
+    }
+
     /// Title of the latency tier a `modelPickerCategory` maps to, fastest
-    /// first. Unknown or missing categories land in the middle ("Balanced")
-    /// tier rather than being dropped, so a model the cache doesn't classify
-    /// still shows up somewhere in the picker.
-    private static func tierTitle(for category: String?) -> String {
+    /// first. Models from the live ACP listing carry no category, so when it is
+    /// unknown we fall back to the price class — high-cost models are the
+    /// "powerful" ones, low-cost the lightweight ones. A model with neither
+    /// signal lands in the middle ("Balanced") tier rather than being dropped,
+    /// so it still shows up somewhere in the picker.
+    private static func tierTitle(for category: String?, price: String? = nil) -> String {
         switch category {
         case "lightweight": return "Fastest"
         case "powerful": return "Most capable"
+        case "versatile": return "Balanced"
+        default: break
+        }
+        switch price {
+        case "low": return "Fastest"
+        case "high": return "Most capable"
         default: return "Balanced"
         }
     }
@@ -109,7 +138,8 @@ enum CopilotModelCatalog {
         let order = ["Fastest", "Balanced", "Most capable"]
         var byTitle: [String: [CopilotModel]] = [:]
         for model in models where model.id != "auto" {
-            byTitle[tierTitle(for: model.modelPickerCategory), default: []].append(model)
+            let title = tierTitle(for: model.modelPickerCategory, price: model.modelPickerPriceCategory)
+            byTitle[title, default: []].append(model)
         }
         return order.compactMap { title in
             guard let group = byTitle[title], !group.isEmpty else { return nil }

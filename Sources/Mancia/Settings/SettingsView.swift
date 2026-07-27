@@ -76,9 +76,10 @@ struct SettingsView: View {
         .frame(width: 440, height: 540)
         .task {
             let stored = settings.copilotModel
-            let loaded = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
-            models = loaded
+            let cached = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
+            models = cached
             await refreshStatus()
+            await refreshModels(cached: cached, stored: stored)
         }
     }
 
@@ -188,6 +189,25 @@ struct SettingsView: View {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(string, forType: .string)
+    }
+
+    /// Replace the cached picker list with what the CLI actually offers now.
+    ///
+    /// `~/.copilot/data.db` only gets rewritten when the interactive Copilot
+    /// TUI runs, so on a machine that only ever drives Copilot through Mancia
+    /// it can be badly stale and hide newly released models. Asking the running
+    /// CLI reuses the sidecar's warm session, and a failure just leaves the
+    /// cached list in place.
+    private func refreshModels(cached: [CopilotModel], stored: String) async {
+        guard let provider = provider as? ModelListingProvider else { return }
+        let live = await provider.availableModels()
+        guard !live.isEmpty else { return }
+        var merged = CopilotModelCatalog.merged(live: live, cached: cached)
+        let trimmed = stored.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty, !merged.contains(where: { $0.id == trimmed }) {
+            merged.append(CopilotModel(id: trimmed, name: trimmed))
+        }
+        models = merged
     }
 
     private func refreshStatus() async {

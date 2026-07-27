@@ -278,6 +278,16 @@ final class CopilotCLIProvider: LLMProvider {
     }
 }
 
+extension CopilotCLIProvider: ModelListingProvider {
+    func availableModels() async -> [CopilotModel] {
+        let (path, model, reasoningEffort) = await config()
+        let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
+        return await acpSidecar.availableModels(
+            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
+        )
+    }
+}
+
 extension CopilotCLIProvider: WarmableLLMProvider {
     func prepareForPanel() async {
         let (path, model, reasoningEffort) = await config()

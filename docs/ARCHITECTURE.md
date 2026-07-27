@@ -36,7 +36,8 @@ Sources/Mancia/
 │   ├── CopilotACPSidecar.swift   Keeps one Copilot ACP process/session warm
 │   ├── CopilotACPClient.swift    Minimal JSON-RPC client for `copilot --acp --stdio`
 │   └── CopilotModelCatalog.swift Reads the CLI's cached model list from ~/.copilot/data.db
-│                                 (SQLite, read-only) for the settings pickers
+│                                 (SQLite, read-only) and merges it with the live
+│                                 ACP listing for the settings pickers
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
     ├── SettingsView.swift        SwiftUI settings window content
@@ -182,10 +183,19 @@ To add a new provider:
 2. Surface configuration in `AppSettings` (`Sources/Mancia/Settings/AppSettings.swift`)
    if the provider needs its own path/model/API-key fields — follow the
    `copilotPath`/`copilotModel`/`reasoningEffort` pattern (`UserDefaults`-backed,
-   `didSet` persists). The Copilot model picker is populated by
-   `CopilotModelCatalog` from the CLI's SQLite cache (`~/.copilot/data.db`,
-   `app_state` key `copilot-available-models`), falling back to "auto" plus
-   the stored model string when unreadable; the reasoning-effort picker
+   `didSet` persists). The Copilot model picker opens on `CopilotModelCatalog`'s
+   read of the CLI's SQLite cache (`~/.copilot/data.db`, `app_state` key
+   `copilot-available-models`), falling back to "auto" plus the stored model
+   string when unreadable, then upgrades to the live list. That cache is only
+   rewritten by the interactive Copilot TUI, so on a machine that drives Copilot
+   solely through Mancia it goes stale and hides newly released models; the
+   authoritative list therefore comes from the `session/new` ACP reply, which
+   already carries `models.availableModels` (see `ModelListingProvider` and
+   `CopilotModelCatalog.merged`). ACP omits the latency tier, so
+   `modelPickerCategory` and `supportedReasoningEfforts` are carried over from
+   the cache by id, and a model present only in the live listing is tiered by
+   its price class. Check what the picker will show with
+   `swift run Mancia --list-models`. The reasoning-effort picker
    narrows to the selected model's `supportedReasoningEfforts` and is passed
    to the CLI as `--reasoning-effort`.
 3. Add a real provider-selection path in `AppSettings` and `SettingsView`

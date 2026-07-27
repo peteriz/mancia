@@ -603,6 +603,104 @@ func recommendedFastModelNilWhenNoLightweightModels() {
     #expect(CopilotModelCatalog.recommendedFastModel(from: noLightweight) == nil)
 }
 
+// MARK: - Live ACP model listing
+
+@Test("session/new response yields the live model list with price categories")
+func acpModelsParsedFromNewSession() {
+    let line = """
+    {"jsonrpc":"2.0","id":2,"result":{"sessionId":"abc","models":{"currentModelId":"claude-sonnet-5",
+     "availableModels":[
+      {"modelId":"auto","name":"Auto","description":"Let Copilot pick"},
+      {"modelId":"claude-opus-5","name":"Claude Opus 5","_meta":{"copilotPriceCategory":"high"}},
+      {"modelId":"claude-haiku-4.5","name":"Claude Haiku 4.5","_meta":{"copilotPriceCategory":"low"}}]}}}
+    """
+    let models = CopilotACPClient.models(fromNewSessionResponse: line)
+    #expect(models.map(\.id) == ["auto", "claude-opus-5", "claude-haiku-4.5"])
+    #expect(models[1].modelPickerPriceCategory == "high")
+    #expect(models[2].modelPickerPriceCategory == "low")
+    // ACP never reports the latency tier; it comes from the on-disk cache.
+    #expect(models[1].modelPickerCategory == nil)
+}
+
+@Test("session/new model parsing skips malformed and duplicate entries")
+func acpModelsSkipMalformedEntries() {
+    let line = """
+    {"result":{"sessionId":"abc","models":{"availableModels":[
+      {"modelId":"","name":"No Id"},
+      {"modelId":"no-name","name":""},
+      {"name":"Missing Id Key"},
+      {"modelId":"dupe","name":"Dupe"},
+      {"modelId":"dupe","name":"Dupe Again"}]}}}
+    """
+    #expect(CopilotACPClient.models(fromNewSessionResponse: line).map(\.id) == ["dupe"])
+}
+
+@Test("session/new model parsing returns empty for responses without a model list")
+func acpModelsEmptyWhenAbsent() {
+    #expect(CopilotACPClient.models(fromNewSessionResponse: #"{"result":{"sessionId":"abc"}}"#).isEmpty)
+    #expect(CopilotACPClient.models(fromNewSessionResponse: "not json").isEmpty)
+}
+
+// MARK: - Merging the live listing with the cache
+
+@Test("merged keeps live membership and borrows tier metadata from the cache")
+func mergedPrefersLiveMembership() {
+    // The cache is stale: it predates claude-opus-5 and still lists a model
+    // the backend has since retired.
+    let cached = [
+        CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8",
+                     supportedReasoningEfforts: ["low", "high"],
+                     modelPickerCategory: "powerful", modelPickerPriceCategory: "high"),
+        CopilotModel(id: "retired-model", name: "Retired", modelPickerCategory: "versatile"),
+    ]
+    let live = [
+        CopilotModel(id: "claude-opus-5", name: "Claude Opus 5", modelPickerPriceCategory: "high"),
+        CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8", modelPickerPriceCategory: "high"),
+    ]
+    let merged = CopilotModelCatalog.merged(live: live, cached: cached)
+    #expect(merged.map(\.id) == ["claude-opus-5", "claude-opus-4.8"])
+    // Cache metadata carries over for the model it knows...
+    #expect(merged[1].modelPickerCategory == "powerful")
+    #expect(merged[1].supportedReasoningEfforts == ["low", "high"])
+    // ...and the newly released model survives without it.
+    #expect(merged[0].modelPickerCategory == nil)
+}
+
+@Test("merged falls back to the cache when the live listing is unavailable")
+func mergedFallsBackToCache() {
+    let cached = [CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8")]
+    #expect(CopilotModelCatalog.merged(live: [], cached: cached).map(\.id) == ["claude-opus-4.8"])
+}
+
+@Test("a live-only model still lands in a sensible tier via its price class")
+func tieredUsesPriceWhenCategoryMissing() {
+    // Regression: claude-opus-5 arrived only in the live listing, so it had no
+    // modelPickerCategory and would otherwise have been filed under "Balanced".
+    let models = [
+        CopilotModel(id: "claude-opus-5", name: "Claude Opus 5", modelPickerPriceCategory: "high"),
+        CopilotModel(id: "new-mini", name: "New Mini", modelPickerPriceCategory: "low"),
+        CopilotModel(id: "new-mid", name: "New Mid", modelPickerPriceCategory: "medium"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers.map(\.title) == ["Fastest", "Balanced", "Most capable"])
+    #expect(tiers[0].models.map(\.id) == ["new-mini"])
+    #expect(tiers[1].models.map(\.id) == ["new-mid"])
+    #expect(tiers[2].models.map(\.id) == ["claude-opus-5"])
+}
+
+@Test("an explicit category still outranks the price fallback")
+func tieredCategoryBeatsPrice() {
+    // gemini-3.5-flash is lightweight but medium-priced: category must win.
+    let models = [
+        CopilotModel(id: "flash", name: "Flash", modelPickerCategory: "lightweight", modelPickerPriceCategory: "medium"),
+        CopilotModel(id: "cheap-mid", name: "Cheap Mid", modelPickerCategory: "versatile", modelPickerPriceCategory: "low"),
+    ]
+    let tiers = CopilotModelCatalog.tiered(models)
+    #expect(tiers.map(\.title) == ["Fastest", "Balanced"])
+    #expect(tiers[0].models.map(\.id) == ["flash"])
+    #expect(tiers[1].models.map(\.id) == ["cheap-mid"])
+}
+
 @Test("env fallback prepends the copilot argument")
 func argvEnvFallback() {
     let args = CopilotCLIProvider.arguments(executable: "/usr/bin/env", prompt: "hi", model: "")
