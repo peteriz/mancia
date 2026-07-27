@@ -8,6 +8,8 @@ actor CopilotACPClient {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<String, Error>] = [:]
     private var chunksBySession: [String: String] = [:]
+    /// Models advertised by the CLI in the most recent `session/new` reply.
+    private var models: [CopilotModel] = []
 
     init(config: CopilotACPConfig) async throws {
         workingDir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -66,8 +68,24 @@ actor CopilotACPClient {
         guard let sessionID = Self.sessionID(fromNewSessionResponse: line) else {
             throw ProviderError.emptyOutput
         }
+        // The same reply carries the live model list; keep it so Settings can
+        // show what the CLI actually offers today rather than a stale cache.
+        //
+        // An empty parse deliberately does *not* clear a list we already have.
+        // A client is one `copilot --acp` process and its catalog does not
+        // change between sessions, so an empty result means this reply was
+        // malformed, not that the backend stopped offering models. The last
+        // listing from this same process is the freshest truth available;
+        // discarding it would fall Settings back to an on-disk cache that can
+        // be months old, which is the exact staleness this path exists to fix.
+        let listed = Self.models(fromNewSessionResponse: line)
+        if !listed.isEmpty { models = listed }
         return sessionID
     }
+
+    /// The live model list from the most recent `session/new`, empty until one
+    /// has been created.
+    func availableModels() -> [CopilotModel] { models }
 
     func prompt(sessionID: String, text: String) async throws -> String {
         chunksBySession[sessionID] = ""
@@ -188,6 +206,38 @@ actor CopilotACPClient {
     static func sessionID(fromNewSessionResponse line: String) -> String? {
         guard let result = jsonObject(line)?["result"] as? [String: Any] else { return nil }
         return result["sessionId"] as? String
+    }
+
+    /// Parse `result.models.availableModels` out of a `session/new` reply.
+    ///
+    /// ACP reports the id/name plus a `_meta.copilotPriceCategory`, but no
+    /// `modelPickerCategory` — see `CopilotModelCatalog.merged` for how the
+    /// latency tier is recovered from the on-disk cache.
+    static func models(fromNewSessionResponse line: String) -> [CopilotModel] {
+        guard let result = jsonObject(line)?["result"] as? [String: Any],
+              let models = result["models"] as? [String: Any],
+              let available = models["availableModels"] as? [[String: Any]] else { return [] }
+        var seen = Set<String>()
+        return available.compactMap { entry in
+            guard let id = entry["modelId"] as? String, !id.isEmpty,
+                  let name = entry["name"] as? String, !name.isEmpty,
+                  seen.insert(id).inserted else { return nil }
+            let meta = entry["_meta"] as? [String: Any]
+            return CopilotModel(
+                id: id,
+                name: name,
+                modelPickerPriceCategory: meta?["copilotPriceCategory"] as? String,
+                usageMultiplier: usageMultiplier(meta?["copilotUsage"])
+            )
+        }
+    }
+
+    /// Parse the premium-request multiplier the listing reports as a string
+    /// (`"0.33x"`, `"15x"`, `"0x"`). Returns nil for anything unparseable so a
+    /// format change degrades to "unranked" rather than to a wrong number.
+    static func usageMultiplier(_ raw: Any?) -> Double? {
+        guard let text = raw as? String else { return raw as? Double }
+        return Double(text.hasSuffix("x") ? String(text.dropLast()) : text)
     }
 
     static func stopReason(fromPromptResponse line: String) -> String? {

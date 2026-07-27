@@ -37,6 +37,12 @@ protocol LLMProvider: Sendable {
     func checkAvailability() async -> ProviderStatus
 }
 
+/// Optional hook for providers that can report the models their backend offers
+/// right now, so the settings picker isn't limited to a cached list.
+protocol ModelListingProvider: LLMProvider {
+    func availableModels() async -> [CopilotModel]
+}
+
 /// Optional latency hook for providers that can keep a one-shot session warm
 /// while the floating panel is open.
 protocol WarmableLLMProvider: LLMProvider {

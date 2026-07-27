@@ -15,6 +15,16 @@ struct SettingsView: View {
     @State private var checking = false
     @State private var models: [CopilotModel] = [CopilotModel(id: "auto", name: "Auto")]
     @State private var detectFeedback: String?
+    /// The CLI's on-disk cache, kept as the metadata donor for merges and as
+    /// the list to fall back to when the live listing is unavailable.
+    @State private var cachedModels: [CopilotModel] = []
+    /// True once a live listing attempt has come back empty. Surfaced in the
+    /// UI so falling back to a possibly-stale cache is visible rather than
+    /// looking like the CLI genuinely offers nothing new.
+    @State private var liveListingFailed = false
+    /// Guards against overlapping live fetches when the executable path is
+    /// edited and detected in quick succession.
+    @State private var refreshingModels = false
 
     var body: some View {
         Form {
@@ -38,6 +48,16 @@ struct SettingsView: View {
                         }
                     }
                 }
+                if liveListingFailed {
+                    HStack(spacing: 6) {
+                        Text("Showing cached models — couldn't read the current list from the CLI, so newly released models may be missing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Retry") { Task { await refreshLiveModels() } }
+                            .controlSize(.small)
+                    }
+                }
                 Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
                     Text("Default").tag("")
                     ForEach(reasoningEffortOptions, id: \.self) { level in
@@ -45,7 +65,11 @@ struct SettingsView: View {
                     }
                 }
                 HStack {
+                    // A different binary can be a different Copilot version
+                    // offering a different set of models, so committing a path
+                    // re-reads the catalog as well as the status.
                     TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
+                        .onSubmit { Task { await refreshProvider() } }
                     Button("Detect") { detect() }
                 }
                 if let detectFeedback {
@@ -76,9 +100,13 @@ struct SettingsView: View {
         .frame(width: 440, height: 540)
         .task {
             let stored = settings.copilotModel
-            let loaded = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
-            models = loaded
+            let cached = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
+            cachedModels = cached
+            models = cached
+            // Check status first: it is a fast `--version` call, while the live
+            // listing has to wait on the ACP sidecar starting up.
             await refreshStatus()
+            await refreshLiveModels()
         }
     }
 
@@ -166,7 +194,7 @@ struct SettingsView: View {
     /// value so the picker binding stays valid.
     private var reasoningEffortOptions: [String] {
         var options = models.first { $0.id == settings.copilotModel }?.supportedReasoningEfforts
-            ?? CopilotModelCatalog.allReasoningEfforts
+            ?? CopilotModelCatalog.reasoningEfforts(in: models)
         let stored = settings.reasoningEffort
         if !stored.isEmpty, !options.contains(stored) { options.append(stored) }
         return options
@@ -181,13 +209,50 @@ struct SettingsView: View {
             settings.copilotPath = resolved
             detectFeedback = "Found at \(resolved)"
         }
-        Task { await refreshStatus() }
+        Task { await refreshProvider() }
+    }
+
+    /// Re-check the provider and re-read its model list, in that order — the
+    /// `--version` probe is quick, while the listing waits on the ACP sidecar
+    /// relaunching against the new executable.
+    private func refreshProvider() async {
+        await refreshStatus()
+        await refreshLiveModels()
     }
 
     private func copyToPasteboard(_ string: String) {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(string, forType: .string)
+    }
+
+    /// Replace the cached picker list with what the CLI actually offers now.
+    ///
+    /// `~/.copilot/data.db` only gets rewritten when the interactive Copilot
+    /// TUI runs, so on a machine that only ever drives Copilot through Mancia
+    /// it can be badly stale and hide newly released models. Asking the running
+    /// CLI reuses the sidecar's warm session, and a failure leaves the cached
+    /// list in place — flagged in the UI rather than passed off as current.
+    private func refreshLiveModels() async {
+        guard let provider = provider as? ModelListingProvider, !refreshingModels else { return }
+        refreshingModels = true
+        defer { refreshingModels = false }
+        let live = await provider.availableModels()
+        guard !live.isEmpty else {
+            models = cachedModels
+            liveListingFailed = true
+            return
+        }
+        liveListingFailed = false
+        models = CopilotModelCatalog.pickerModels(
+            live: live,
+            cached: cachedModels,
+            storedModel: settings.copilotModel
+        )
+        // First real catalog we've seen: let it correct a first-run default
+        // that could only be ranked against the cache. No-op once the user
+        // has picked a model themselves.
+        settings.adoptDerivedDefault(from: models)
     }
 
     private func refreshStatus() async {

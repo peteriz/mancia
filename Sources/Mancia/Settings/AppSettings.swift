@@ -30,6 +30,7 @@ final class AppSettings {
     private enum Key {
         static let copilotPath = "copilotPath"
         static let copilotModel = "copilotModel"
+        static let copilotModelIsDerived = "copilotModelIsDerived"
         static let reasoningEffort = "reasoningEffort"
         static let postApplyBehavior = "postApplyBehavior"
         static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
@@ -41,7 +42,25 @@ final class AppSettings {
         didSet { defaults.set(copilotPath, forKey: Key.copilotPath) }
     }
     var copilotModel: String {
-        didSet { defaults.set(copilotModel, forKey: Key.copilotModel) }
+        didSet {
+            defaults.set(copilotModel, forKey: Key.copilotModel)
+            // Every assignment from outside `init` is a user choice, which
+            // freezes the value; `adoptDerivedDefault` re-marks its own write.
+            copilotModelIsDerived = false
+        }
+    }
+    /// True while `copilotModel` holds a value this app derived rather than one
+    /// the user chose.
+    ///
+    /// First-run resolution happens in `init`, which can only see the on-disk
+    /// cache — and that cache carries no `usageMultiplier`, so it cannot rank
+    /// on the one live signal the recommendation is built around, and it can
+    /// name a model the backend has since retired. This flag keeps the derived
+    /// value revisable until the user expresses a preference, so the first live
+    /// catalog can correct it. Absent for installs that pre-date the flag,
+    /// which therefore read as user choices and are never touched.
+    private(set) var copilotModelIsDerived: Bool {
+        didSet { defaults.set(copilotModelIsDerived, forKey: Key.copilotModelIsDerived) }
     }
     /// Reasoning-effort level for the Copilot CLI; empty = provider default
     /// (no `--reasoning-effort` flag passed).
@@ -70,7 +89,7 @@ final class AppSettings {
         // First-run recommendation: `copilotModel` has three meaningful states
         // — "never chosen" (key absent), "explicitly Default/auto" (key
         // present, value ""), and "explicitly some model" (key present,
-        // non-empty). Only the first state gets the measured ultra-fast
+        // non-empty). Only the first state gets the derived low-latency
         // default; both explicit states — including explicit auto — are read
         // back verbatim and never touched again. Resolving here (once, at
         // settings-load time) and persisting the result means the Settings
@@ -83,21 +102,25 @@ final class AppSettings {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            self.copilotModelIsDerived = defaults.bool(forKey: Key.copilotModelIsDerived)
         } else {
             let catalog = modelCatalog()
             let recommended = CopilotModelCatalog.recommendedFastModel(from: catalog) ?? ""
             self.copilotModel = recommended
+            // Provisional: ranked from the cache, which carries no usage
+            // multiplier. `adoptDerivedDefault` revisits this once a live
+            // catalog exists.
+            self.copilotModelIsDerived = !recommended.isEmpty
             self.reasoningEffort = (defaults.string(forKey: Key.reasoningEffort) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !recommended.isEmpty {
                 defaults.set(recommended, forKey: Key.copilotModel)
-                // The benchmark that picked `recommended` timed it with
-                // `--reasoning-effort none` where the model supports "none" —
-                // that flag is what makes it ultra-fast rather than merely
+                defaults.set(true, forKey: Key.copilotModelIsDerived)
+                // `--reasoning-effort none`, where the chosen model supports
+                // it, is what makes the default ultra-fast rather than merely
                 // lightweight. Carry it along on this same first-run path
-                // (and only this path) so the default actually delivers the
-                // measured speed; an explicit reasoningEffort choice is never
-                // touched, matching the copilotModel contract above.
+                // (and only this path); an explicit reasoningEffort choice is
+                // never touched, matching the copilotModel contract above.
                 if defaults.object(forKey: Key.reasoningEffort) == nil,
                    let match = catalog.first(where: { $0.id == recommended }),
                    match.supportedReasoningEfforts?.contains("none") == true {
@@ -119,6 +142,29 @@ final class AppSettings {
     }
 
     // MARK: - Launch at login
+
+    /// Re-derive the auto-chosen model now that a live catalog is available,
+    /// and report whether it changed.
+    ///
+    /// `init` can only rank the on-disk cache, which has no usage multipliers
+    /// and may list retired models. This corrects that pick the first time a
+    /// real catalog arrives. It is a no-op once the user has chosen a model —
+    /// an explicit choice is never overridden, matching the `copilotModel`
+    /// contract in `init` — and it only ever moves the selection to the
+    /// cheapest model in the fastest tier, so it cannot silently escalate cost.
+    ///
+    /// `reasoningEffort` is deliberately left alone: `init` already resolved it
+    /// on the same first-run path, and re-deciding it here would risk undoing a
+    /// deliberate choice for no latency gain within one tier.
+    @discardableResult
+    func adoptDerivedDefault(from catalog: [CopilotModel]) -> Bool {
+        guard copilotModelIsDerived,
+              let recommended = CopilotModelCatalog.recommendedFastModel(from: catalog),
+              recommended != copilotModel else { return false }
+        copilotModel = recommended      // clears the flag via didSet…
+        copilotModelIsDerived = true    // …so re-mark it as still derived
+        return true
+    }
 
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }

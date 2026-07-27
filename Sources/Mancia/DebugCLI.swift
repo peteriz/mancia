@@ -9,6 +9,10 @@ enum DebugCLI {
             run { await providerCheck() }
             return true
         }
+        if arguments.contains("--list-models") {
+            run { await listModels() }
+            return true
+        }
         if let index = arguments.firstIndex(of: "--complete") {
             let actionArg = index + 1 < arguments.count ? arguments[index + 1] : ""
             run { await complete(actionArg: actionArg) }
@@ -39,6 +43,42 @@ enum DebugCLI {
             print("\(provider.displayName): error — \(message)")
             exit(1)
         }
+    }
+
+    /// Print the settings picker's model list exactly as it will be grouped,
+    /// and where each entry came from. Useful for confirming that a newly
+    /// released model reaches the picker even when `~/.copilot/data.db` is
+    /// stale.
+    @MainActor
+    private static func listModels() async {
+        let settings = AppSettings()
+        let provider = CopilotCLIProvider(settings: settings)
+        let cached = CopilotModelCatalog.modelsForPicker(storedModel: settings.copilotModel)
+        let live = await provider.availableModels()
+        print("cached: \(cached.count) model(s)   live: \(live.count) model(s)")
+        if live.isEmpty {
+            print("Live listing unavailable — the picker falls back to the cache.")
+        }
+        // Same helper Settings binds to, so this can't drift from the picker.
+        let merged = CopilotModelCatalog.pickerModels(
+            live: live,
+            cached: cached,
+            storedModel: settings.copilotModel
+        )
+        let recommended = CopilotModelCatalog.recommendedFastModel(from: merged)
+        print("recommended: \(recommended ?? "none")")
+        let cachedIDs = Set(cached.map(\.id))
+        for tier in CopilotModelCatalog.tiered(merged) {
+            print("\n\(tier.title):")
+            for model in tier.models {
+                let usage = model.usageMultiplier.map { "\($0)x" } ?? "?"
+                var notes = ["\(usage)"]
+                if !cachedIDs.contains(model.id) { notes.append("live only") }
+                if model.id == recommended { notes.append("recommended") }
+                print("  \(model.id.padding(toLength: max(model.id.count, 24), withPad: " ", startingAt: 0))  [\(notes.joined(separator: ", "))]")
+            }
+        }
+        exit(0)
     }
 
     @MainActor
