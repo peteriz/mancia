@@ -2,7 +2,7 @@
   <img src="docs/assets/mancia-logo.png" alt="Mancia logo" width="220">
 </p>
 
-# Mancia
+<h1 align="center">Mancia</h1>
 
 <p align="center">
   <a href="https://github.com/peteriz/mancia/releases/latest"><img src="https://img.shields.io/github/v/release/peteriz/mancia?display_name=tag" alt="Latest release"></a>
@@ -17,7 +17,11 @@
 Select text in a Mac app that supports standard copy and paste, press a global shortcut, and describe the change. Mancia uses GitHub Copilot CLI to rewrite the text in place—no chat window and no copy-paste loop.
 
 <p align="center">
-  <img src="docs/assets/mancia-panel.png" alt="Mancia panel showing the instruction field with its preset dropdown and run button, and the status line 'Ready · ↵ improves your selection'" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mancia-panel-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/mancia-panel-light.png">
+    <img src="docs/assets/mancia-panel-light.png" alt="Mancia panel showing the instruction field with its preset dropdown and run button, and the status line 'Ready · ↵ improves your selection'" width="340">
+  </picture>
 </p>
 
 ## What Mancia does
@@ -30,6 +34,7 @@ Select text in a Mac app that supports standard copy and paste, press a global s
   dropdown that takes your typed text as extra guidance.
 - Replaces text in place and lets you move between original and generated versions.
 - Restores your clipboard after every capture and paste.
+- Follows your system light or dark appearance.
 - Stays in the menu bar without adding a Dock icon.
 
 ## Requirements

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-28
+
+### Changed
+
+- README: the panel screenshot is re-captured from the current single-command-row
+  panel and now ships in both appearances, switching with the reader's
+  light/dark theme.
+- README: the project title is centered with the logo and badges above it.
+
 ## [0.1.0] - 2026-07-08
 
 ### Added
@@ -33,5 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/peteriz/mancia/releases/tag/v0.1.0
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.1.1...HEAD
+[0.1.1]: https://github.com/peteriz/mancia/compare/0.1.0...0.1.1
+[0.1.0]: https://github.com/peteriz/mancia/releases/tag/0.1.0
