@@ -148,7 +148,17 @@ enum SelectionCapture {
               axRect != .zero else { return nil }
 
         // AX coordinates have a top-left origin on the primary screen; AppKit
-        // uses a bottom-left origin. Flip vertically against the primary screen.
+        // uses a bottom-left origin.
+        return appKitRect(fromAX: axRect)
+    }
+
+    /// Convert an Accessibility rectangle — top-left origin, measured down from
+    /// the top of the primary screen — into AppKit screen coordinates, which
+    /// have a bottom-left origin.
+    ///
+    /// Factored out so the flip has exactly one definition: `HostWindowProbe`
+    /// reads window frames through the same API and needs the same convention.
+    static func appKitRect(fromAX axRect: CGRect) -> CGRect? {
         guard let primary = NSScreen.screens.first else { return nil }
         return CGRect(
             x: axRect.origin.x,
