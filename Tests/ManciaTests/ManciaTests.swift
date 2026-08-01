@@ -10,7 +10,10 @@ import KeyboardShortcuts
 func promptContainsTextAndClause() {
     let sample = "The quick brown fox"
     let nonce = "TESTNONCE"
-    let actions: [EditAction] = [.improve, .rewrite, .summarize, .fixGrammar, .custom("make it formal")]
+    let actions: [EditAction] = [
+        .improve, .sharpen, .planFirst, .tighten, .rewrite, .summarize, .fixGrammar,
+        .custom("make it formal"),
+    ]
     for action in actions {
         let prompt = PromptBuilder.build(action: action, text: sample, nonce: nonce)
         #expect(prompt.contains(sample), "prompt for \(action.title) should contain the input text")
@@ -46,6 +49,42 @@ func improvePromptShape() {
     #expect(prompt.lowercased().contains("improve"))
 }
 
+@Test("Sharpen restructures for an agent without inventing requirements")
+func sharpenPromptShape() {
+    let prompt = PromptBuilder.build(action: .sharpen, text: "some text")
+    #expect(prompt.contains("Restructure the text into a clear, action-oriented instruction"))
+    #expect(prompt.contains("State the goal first, in direct imperative voice."))
+    #expect(prompt.lowercased().contains("do not add requirements"))
+}
+
+@Test("Plan first reframes the ask instead of answering it")
+func planFirstPromptShape() {
+    let prompt = PromptBuilder.build(action: .planFirst, text: "some text")
+    #expect(prompt.contains("investigate and propose a plan before making any changes"))
+    #expect(prompt.contains("wait for approval before implementing"))
+    #expect(prompt.lowercased().contains("do not answer the request"))
+}
+
+@Test("Tighten compresses without dropping requirements")
+func tightenPromptShape() {
+    let prompt = PromptBuilder.build(action: .tighten, text: "some text")
+    #expect(prompt.contains("shortest version that preserves every requirement"))
+    #expect(prompt.lowercased().contains("do not drop or weaken any requirement"))
+}
+
+/// The agent presets exist to reorganize an existing prompt, never to write new
+/// requirements into it — an invented constraint would silently corrupt the
+/// user's instruction to their coding agent.
+@Test("Every agent preset forbids adding content")
+func agentPresetsForbidAdding() {
+    for action in [EditAction.sharpen, .planFirst, .tighten] {
+        let prompt = PromptBuilder.build(action: action, text: "x").lowercased()
+        #expect(
+            prompt.contains("do not add") || prompt.contains("do not invent"),
+            "\(action.title) should forbid adding new content")
+    }
+}
+
 @Test("Custom prompt carries the instruction")
 func customPromptContainsInstruction() {
     let nonce = "N0NCE"
@@ -68,7 +107,10 @@ func inputFencedWithNonce() {
 
 @Test("Every prompt tells the model to treat the input as data, not instructions")
 func promptCarriesInjectionFraming() {
-    let actions: [EditAction] = [.improve, .rewrite, .summarize, .fixGrammar, .custom("shorten")]
+    let actions: [EditAction] = [
+        .improve, .sharpen, .planFirst, .tighten, .rewrite, .summarize, .fixGrammar,
+        .custom("shorten"),
+    ]
     for action in actions {
         let prompt = PromptBuilder.build(action: action, text: "x", nonce: "N")
         #expect(
@@ -411,6 +453,10 @@ func copilotModelFirstRunEmptyCatalog() {
 @Test("Action parsing round-trips CLI identifiers")
 func actionParsing() {
     #expect(EditAction.parse("improve") == .improve)
+    #expect(EditAction.parse("sharpen") == .sharpen)
+    #expect(EditAction.parse("plan-first") == .planFirst)
+    #expect(EditAction.parse("planFirst") == .planFirst)
+    #expect(EditAction.parse("tighten") == .tighten)
     #expect(EditAction.parse("rewrite") == .rewrite)
     #expect(EditAction.parse("summarize") == .summarize)
     #expect(EditAction.parse("fix-grammar") == .fixGrammar)
@@ -1079,12 +1125,33 @@ func nonceAvoidsGuidanceCollision() {
     #expect(!"body".contains(nonce))
 }
 
-@Test("The field dropdown offers Improve, mapped to the Improve action")
+@Test("The field dropdown offers Improve plus the three agent presets, in menu order")
 func presetListShape() {
-    #expect(PanelPreset.all.contains(PanelPreset.improve))
+    #expect(PanelPreset.all == [.improve, .sharpen, .planFirst, .tighten])
     #expect(PanelPreset.improve.action == .improve)
+    #expect(PanelPreset.sharpen.action == .sharpen)
+    #expect(PanelPreset.planFirst.action == .planFirst)
+    #expect(PanelPreset.tighten.action == .tighten)
     #expect(PanelPreset.all.count == Set(PanelPreset.all.map(\.id)).count, "preset ids must be unique")
     #expect(PanelPreset.all.allSatisfy { !$0.action.isCustom }, "presets are named templates, never free-form")
+}
+
+@Test("Every preset renders a distinct title, symbol, and progress label")
+func presetLabelsAreDistinct() {
+    let actions = PanelPreset.all.map(\.action)
+    #expect(Set(actions.map(\.title)).count == actions.count)
+    #expect(Set(actions.map(\.symbol)).count == actions.count)
+    #expect(Set(actions.map(\.progressLabel)).count == actions.count)
+}
+
+@Test("Typed guidance rides along with any preset, not just Improve")
+func anyPresetAbsorbsTypedNote() {
+    for preset in PanelPreset.all {
+        let prompt = PromptBuilder.build(
+            action: preset.action, text: "body", note: "keep it under 20 words", nonce: "N")
+        #expect(prompt.contains("[[USER_INSTRUCTION:N]]\nkeep it under 20 words\n[[/USER_INSTRUCTION:N]]"))
+        #expect(prompt.contains(PromptBuilder.userNoteClause), "\(preset.title) should absorb the note")
+    }
 }
 
 @Test("Guidance typed alongside a preset is bounded like a custom instruction")

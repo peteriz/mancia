@@ -82,9 +82,9 @@ wired to call `coordinator.start()`.
      to AppKit coordinates), falling back to the mouse location;
    - centered on the main screen for entire-document scope;
    - always clamped to the screen's visible frame.
-   The panel is a cyclical **edit session**: the describe field and the
-   horizontal preset buttons (Proofread / Rewrite / Summarize) are always
-   visible, dimmed and disabled while a request runs; a status strip cycles
+   The panel is a cyclical **edit session**: the describe field and its
+   trailing preset dropdown (Improve / Sharpen / Plan first / Tighten) are
+   always visible, dimmed and disabled while a request runs; a status strip cycles
    `PanelModel.phase` through `.idle → .running → .confirm → .applied/.error`
    and back until the user closes it. The panel **stays visible throughout**: all
    synthetic keystrokes are posted directly to the target app's process
@@ -337,18 +337,31 @@ prompt):
   `provider.checkAvailability()`, prints `"<displayName>: ready"` (exit 0),
   `"...: not found"` (exit 1), or `"...: error — <message>"` (exit 1).
 - `Mancia --complete <action> <<< "text"` — reads stdin as the input text,
-  parses `<action>` via `EditAction.parse` (`rewrite | summarize |
-  fix-grammar | custom:<instruction>`; unknown values exit 2), builds the
-  prompt with `PromptBuilder.build`, calls `provider.complete(prompt)`,
-  prints the result (exit 0) or an error to stderr (exit 1). (`fix-grammar`
-  is the CLI id for the action labeled **Proofread** in the panel.)
+  parses `<action>` via `EditAction.parse` (`improve | sharpen | plan-first |
+  tighten | rewrite | summarize | fix-grammar | custom:<instruction>`; unknown
+  values exit 2), builds the prompt with `PromptBuilder.build`, calls
+  `provider.complete(prompt)`, prints the result (exit 0) or an error to stderr
+  (exit 1). (`fix-grammar` is the CLI id for the action labeled **Proofread** in
+  the panel, and `plan-first` for **Plan first**.)
 
-`PromptBuilder` keeps every Copilot prompt template in `Actions.swift`.
-Proofread, Rewrite, and Summarize each use a named `PromptTemplate`; Custom
-uses the same structure with the user's instruction in its own delimited
-section. Every rendered prompt has `Task`, `Requirements`, and delimited
-`Input text` sections plus the shared output-only clause, so templates are easy
-to review and adjust.
+`PromptBuilder` keeps every Copilot prompt template in `Actions.swift`. Improve,
+Sharpen, Plan first, Tighten, Proofread, Rewrite, and Summarize each use a named
+`PromptTemplate`; Custom uses the same structure with the user's instruction in
+its own delimited section. Every rendered prompt has `Task`, `Requirements`, and
+delimited `Input text` sections plus the shared output-only clause, so templates
+are easy to review and adjust.
+
+The dropdown presets past Improve target text written for coding agents, and all
+three restructure rather than generate — they are forbidden from inventing
+requirements, which both protects the prompt's meaning and keeps output roughly
+input-sized (and so keeps the edit fast):
+
+- **Sharpen** — goal first in imperative voice, constraints and success criteria
+  as explicit lines, concrete anchors (paths, commands, errors) kept verbatim.
+- **Plan first** — reframes an implementation request as an
+  investigate-then-plan request, without answering it.
+- **Tighten** — shortest faithful version; cuts filler only, and unlike
+  Summarize may not drop any requirement.
 
 Both run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no

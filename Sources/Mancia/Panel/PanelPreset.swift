@@ -17,7 +17,14 @@ struct PanelPreset: Identifiable, Equatable, Sendable {
     let action: EditAction
 
     static let improve = PanelPreset(id: "improve", title: "Improve", action: .improve)
+    static let sharpen = PanelPreset(id: "sharpen", title: "Sharpen", action: .sharpen)
+    static let planFirst = PanelPreset(id: "plan-first", title: "Plan first", action: .planFirst)
+    static let tighten = PanelPreset(id: "tighten", title: "Tighten", action: .tighten)
 
-    /// The presets the field dropdown offers, in menu order.
-    static let all: [PanelPreset] = [.improve]
+    /// The presets the field dropdown offers, in menu order (most-used first).
+    ///
+    /// Improve is the general prose pass; the other three target text written
+    /// for coding agents — restructure it, reframe it as a planning request, or
+    /// compress it without losing requirements.
+    static let all: [PanelPreset] = [.improve, .sharpen, .planFirst, .tighten]
 }
