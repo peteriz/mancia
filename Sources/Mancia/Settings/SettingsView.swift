@@ -26,79 +26,68 @@ struct SettingsView: View {
     /// edited and detected in quick succession.
     @State private var refreshingModels = false
 
+    /// Whether Accessibility is granted right now. Polled, because the grant
+    /// happens in System Settings — another process — and there is no
+    /// notification for it.
+    @State private var accessibilityTrusted = false
+    @State private var shortcut: String?
+    @State private var advancedExpanded = false
+
     var body: some View {
         Form {
-            Section("Shortcut") {
-                LabeledContent("Edit Selection:") {
+            Section("Ready to edit") {
+                ReadinessRow(title: "Shortcut", state: shortcutState) {
                     ShortcutRecorderView(name: .editSelection)
                 }
-            }
-
-            Section("GitHub Copilot CLI") {
-                Picker("Model:", selection: $settings.copilotModel) {
-                    Text("Default").tag("")
-                    // Grouped fastest-first (Fastest → Balanced → Most
-                    // capable); the special "auto" cache entry is excluded
-                    // from the tiers since the row above already covers it.
-                    ForEach(modelTiers) { tier in
-                        Section(tier.title) {
-                            ForEach(tier.models) { model in
-                                Text(modelLabel(for: model)).tag(model.id)
-                            }
-                        }
+                ReadinessRow(title: "Accessibility", state: accessibilityState) {
+                    if !accessibilityTrusted {
+                        Button("Open System Settings") { Permissions.openAccessibilitySettings() }
                     }
                 }
-                if liveListingFailed {
-                    HStack(spacing: 6) {
-                        Text("Showing cached models — couldn't read the current list from the CLI, so newly released models may be missing.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Retry") { Task { await refreshLiveModels() } }
-                            .controlSize(.small)
-                    }
+                ReadinessRow(title: provider.displayName, state: providerState) {
+                    if checking { ProgressView().controlSize(.small) }
+                    Button("Check") { Task { await refreshStatus() } }
+                        .disabled(checking)
                 }
-                Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
-                    Text("Default").tag("")
-                    ForEach(reasoningEffortOptions, id: \.self) { level in
-                        Text(level.capitalized).tag(level)
-                    }
-                }
-                HStack {
-                    // A different binary can be a different Copilot version
-                    // offering a different set of models, so committing a path
-                    // re-reads the catalog as well as the status.
-                    TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
-                        .onSubmit { Task { await refreshProvider() } }
-                    Button("Detect") { detect() }
-                }
-                if let detectFeedback {
-                    Text(detectFeedback)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                statusRow
                 if providerStatus != .ready {
                     remediation
                 }
             }
 
-            Section("General") {
+            Section("Ribbon") {
+                Toggle("Use the command ribbon", isOn: $settings.ribbonEnabled)
+                Text("Opens the edit session in a lane at the top of the screen instead of a panel beside the caret. Takes effect the next time you invoke it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
                 Picker("After applying:", selection: $settings.postApplyBehavior) {
                     ForEach(PostApplyBehavior.allCases) { behavior in
                         Text(behavior.label).tag(behavior)
                     }
                 }
-                Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
+            }
+
+            Section("General") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { settings.launchAtLogin },
                     set: { settings.launchAtLogin = $0 }
                 ))
             }
+
+            Section {
+                if advancedExpanded { advanced }
+            } header: {
+                advancedHeader
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 440, height: 540)
+        .frame(width: 460, height: 560)
+        .onReceive(Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()) { _ in
+            refreshReadiness()
+        }
         .task {
+            refreshReadiness()
             let stored = settings.copilotModel
             let cached = await Task.detached { CopilotModelCatalog.modelsForPicker(storedModel: stored) }.value
             cachedModels = cached
@@ -110,21 +99,108 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Status & guidance
+    // MARK: - Readiness
 
-    private var statusRow: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-            Text(providerStatus.label)
-                .foregroundStyle(.secondary)
-            if checking { ProgressView().controlSize(.small) }
-            Spacer()
-            Button("Check") { Task { await refreshStatus() } }
-                .disabled(checking)
+    private var shortcutState: ReadinessState {
+        guard let shortcut else { return .attention("Not set — record one to invoke Mancia") }
+        return .ready("\(shortcut) opens an edit session")
+    }
+
+    private var accessibilityState: ReadinessState {
+        accessibilityTrusted
+            ? .ready("Granted")
+            : .attention("Not granted — Mancia can't read or replace text without it")
+    }
+
+    private var providerState: ReadinessState {
+        switch providerStatus {
+        case .ready: return .ready("Ready")
+        case .notFound: return .attention("Not found")
+        case .error(let message): return .attention(message)
         }
     }
+
+    /// Both readings come from outside this process — the Accessibility grant
+    /// from System Settings, the shortcut from a recorder that writes straight
+    /// to defaults — so neither has a change notification to observe.
+    private func refreshReadiness() {
+        accessibilityTrusted = Permissions.isAccessibilityTrusted
+        shortcut = ShortcutRecorderView.display(KeyboardShortcuts.getShortcut(for: .editSelection))
+    }
+
+    // MARK: - Advanced
+
+    /// Its own button rather than a `DisclosureGroup`: nested in a grouped
+    /// `Form` section, the disclosure renders but never toggles — not on a
+    /// click, not on an accessibility press.
+    private var advancedHeader: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { advancedExpanded.toggle() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                Text("Advanced")
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Advanced")
+        .accessibilityHint(advancedExpanded ? "Collapse" : "Expand")
+    }
+
+    /// Every provider control that was here before, moved rather than removed:
+    /// they answer "which model, which binary", which is a question you only
+    /// ask once you already know you're ready to edit.
+    @ViewBuilder
+    private var advanced: some View {
+        Picker("Model:", selection: $settings.copilotModel) {
+            Text("Default").tag("")
+            // Grouped fastest-first (Fastest → Balanced → Most capable); the
+            // special "auto" cache entry is excluded from the tiers since the
+            // row above already covers it.
+            ForEach(modelTiers) { tier in
+                Section(tier.title) {
+                    ForEach(tier.models) { model in
+                        Text(modelLabel(for: model)).tag(model.id)
+                    }
+                }
+            }
+        }
+        if liveListingFailed {
+            HStack(spacing: 6) {
+                Text("Showing cached models — couldn't read the current list from the CLI, so newly released models may be missing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Retry") { Task { await refreshLiveModels() } }
+                    .controlSize(.small)
+            }
+        }
+        Picker("Reasoning effort:", selection: $settings.reasoningEffort) {
+            Text("Default").tag("")
+            ForEach(reasoningEffortOptions, id: \.self) { level in
+                Text(level.capitalized).tag(level)
+            }
+        }
+        HStack {
+            // A different binary can be a different Copilot version offering a
+            // different set of models, so committing a path re-reads the
+            // catalog as well as the status.
+            TextField("Copilot path:", text: $settings.copilotPath, prompt: Text("Auto-detect"))
+                .onSubmit { Task { await refreshProvider() } }
+            Button("Detect") { detect() }
+        }
+        if let detectFeedback {
+            Text(detectFeedback)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Status & guidance
 
     /// Inline, always-visible guidance for a non-ready provider, plus a
     /// context button so the user has a concrete next step rather than a

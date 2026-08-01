@@ -34,6 +34,7 @@ final class AppSettings {
         static let reasoningEffort = "reasoningEffort"
         static let postApplyBehavior = "postApplyBehavior"
         static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
+        static let ribbonEnabled = "ribbonEnabled"
     }
 
     private let defaults: UserDefaults
@@ -76,6 +77,12 @@ final class AppSettings {
     /// gated — they are low blast-radius and trivially undone.
     var confirmWholeDocumentReplace: Bool {
         didSet { defaults.set(confirmWholeDocumentReplace, forKey: Key.confirmWholeDocumentReplace) }
+    }
+    /// Which surface an edit session opens on: the command ribbon at the top of
+    /// the screen, or the floating panel beside the caret. Temporary — it exists
+    /// so the two can be compared on real work before the panel is removed.
+    var ribbonEnabled: Bool {
+        didSet { defaults.set(ribbonEnabled, forKey: Key.ribbonEnabled) }
     }
 
     /// Designated initializer. `modelCatalog` is injected (rather than always
@@ -139,6 +146,8 @@ final class AppSettings {
         // Default on: absent key means the safety gate is enabled.
         self.confirmWholeDocumentReplace =
             defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
+        // Default off while the ribbon is still being proved on real work.
+        self.ribbonEnabled = defaults.object(forKey: Key.ribbonEnabled) as? Bool ?? false
     }
 
     // MARK: - Launch at login
