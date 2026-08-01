@@ -1,53 +1,12 @@
 import SwiftUI
 
-/// Small controls shared by the ribbon and the floating panel.
+/// Small controls shared by the ribbon's command row, status strip and review
+/// gate.
 ///
-/// These began as private helpers inside `EditPanelView`. The ribbon needs the
-/// same affordances in a different register, so they moved here as internal
-/// types with their colors injected — one definition, two call sites, rather
-/// than a copy to keep in sync.
-
-/// The specialized-preset dropdown inside the panel's field, to the left of the
-/// run button. Quiet by default — the run button is the primary action — but it
-/// lights up on hover so the affordance is discoverable.
-///
-/// The ribbon has no equivalent: its Action cell carries presets directly.
-struct PresetMenuButton: View {
-    let run: (PanelPreset) -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Menu {
-            ForEach(PanelPreset.all) { preset in
-                Button {
-                    run(preset)
-                } label: {
-                    Label(preset.title, systemImage: preset.action.symbol)
-                }
-            }
-        } label: {
-            HStack(spacing: 2) {
-                Image(systemName: "text.badge.star")
-                    .font(.system(size: 11, weight: .medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundStyle(hovering ? Palette.text : Palette.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(hovering ? Palette.text.opacity(0.07) : .clear))
-            .contentShape(Capsule(style: .continuous))
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { hovering = $0 }
-        .help("Editing presets")
-        .accessibilityLabel("Editing presets")
-        .accessibilityIdentifier("PresetMenu")
-    }
-}
+/// These began as private helpers inside the floating panel's view. When the
+/// ribbon replaced it they moved here as internal types with their colors
+/// injected, so a control used in more than one register has one definition
+/// rather than a copy to keep in sync.
 
 /// A small hairline-bordered secondary button used in a status row.
 struct GhostButton: View {

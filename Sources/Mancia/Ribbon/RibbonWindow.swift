@@ -4,12 +4,13 @@ import SwiftUI
 /// The command ribbon's window: a non-activating floating panel that hosts the
 /// lane at the frame `RibbonPlacement` resolves for it.
 ///
-/// Sizing runs the opposite way round from `EditPanel`. The panel sizes itself
-/// to its content and then looks for somewhere to put it; the lane's **width is
-/// imposed by placement** and only its **height comes from content**, so the
-/// view is measured at the resolved width before the frame is set.
+/// Sizing runs the opposite way round from a panel that opens beside the
+/// caret. Such a panel sizes itself to its content and then looks for
+/// somewhere to put it; the lane's **width is imposed by placement** and only
+/// its **height comes from content**, so the view is measured at the resolved
+/// width before the frame is set.
 @MainActor
-final class RibbonWindow: EditPresentation {
+final class RibbonWindow {
     private let model: PanelModel
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?

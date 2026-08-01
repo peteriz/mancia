@@ -54,12 +54,7 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Ribbon") {
-                Toggle("Use the command ribbon", isOn: $settings.ribbonEnabled)
-                Text("Opens the edit session in a lane at the top of the screen instead of a panel beside the caret. Takes effect the next time you invoke it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Section("Editing") {
                 Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
                 Picker("After applying:", selection: $settings.postApplyBehavior) {
                     ForEach(PostApplyBehavior.allCases) { behavior in

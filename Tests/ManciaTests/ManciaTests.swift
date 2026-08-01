@@ -318,35 +318,6 @@ func confirmSettingDefaultsOnAndPersists() {
 }
 
 @MainActor
-@Test("The ribbon is the default presentation")
-func ribbonSettingDefaultsOn() {
-    let suite = "mancia-test-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defer { defaults.removePersistentDomain(forName: suite) }
-
-    let first = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(first.ribbonEnabled == true, "absent key means the ribbon")
-
-    first.ribbonEnabled = false
-    let second = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(second.ribbonEnabled == false)
-}
-
-@MainActor
-@Test("An explicitly stored ribbon choice survives a default change")
-func ribbonSettingRespectsAnExplicitFalse() {
-    let suite = "mancia-test-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defer { defaults.removePersistentDomain(forName: suite) }
-
-    // The default only applies when the key is absent, which is what lets the
-    // default flip at stage 9 without overriding anyone's opt-out.
-    defaults.set(false, forKey: "ribbonEnabled")
-    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(settings.ribbonEnabled == false)
-}
-
-@MainActor
 @Test("Never-configured copilotModel resolves to the recommended fast model and persists it")
 func copilotModelFirstRunResolvesRecommendation() {
     let suite = "mancia-test-\(UUID().uuidString)"

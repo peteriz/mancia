@@ -30,10 +30,11 @@ pragmatic, and proportionate to the app's size.
   broad unchecked annotations.
 - Keep provider and prompt logic testable with pure/static helpers, following
   `CopilotCLIProvider` and `PromptBuilder`.
-- Surface user-facing failures through clear errors or panel state, not crashes.
+- Surface user-facing failures through clear errors or ribbon state, not crashes.
 - Avoid new dependencies unless the need is strong and discussed.
-- Keep files small and aligned with the existing layout: `Panel/`, `Providers/`,
-  `Settings/`, and one primary type per file.
+- Keep files small and aligned with the existing layout: `Ribbon/`, `Panel/`,
+  `Providers/`, `Settings/`, and one primary type per file. `Ribbon/` holds the
+  editing surface; `Panel/` holds the state and chrome it shares.
 - Be careful with pasteboard, Accessibility, and synthetic keystroke changes:
   they are hard to unit-test, so document manual testing when touched.
 
@@ -41,7 +42,9 @@ pragmatic, and proportionate to the app's size.
 
 - The app edits text inline in any frontmost app using pasteboard snapshots and
   synthetic `cmd-C`, `cmd-A`, and `cmd-V`.
-- The floating panel should stay lightweight, fast, and menu-bar-app appropriate.
+- The command ribbon should stay lightweight, fast, and menu-bar-app
+  appropriate. It opens in one predictable place — under the menu bar, or under
+  the frontmost window's title bar — never chasing the caret.
 - GitHub Copilot CLI is the only provider today; the provider layer is the
   extension point for future backends.
 - Development builds are ad-hoc signed, so Accessibility permission may need to

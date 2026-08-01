@@ -5,7 +5,14 @@
 > [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
 > behavior. Notably:
 >
-> - The panel is now a single command row (~360 pt wide): a free-form
+> - **The floating panel is gone.** The edit session now runs in the
+>   **command ribbon**: a full-width lane that opens in one predictable place
+>   — flush under the menu bar, or under the frontmost window's title bar when
+>   the menu bar is not reserving a strip — rather than chasing the caret. Its
+>   cells are Target, Action, Direction and Run. The bullets that follow
+>   describe the panel that preceded it; the behavior they record carried over
+>   to the lane, the placement and the ~360 pt command row did not.
+> - The panel was a single command row (~360 pt wide): a free-form
 >   instruction field whose trailing controls are a **preset dropdown**
 >   (`PanelPreset`) and an accent **run** button. Return and the run button take
 >   the same path — an empty field means **Improve** (a proofread-and-rewrite
@@ -19,17 +26,17 @@
 >   scope caption still lets you switch between the selection and the whole
 >   document, but there is no separate scope menu screen.
 > - Edits **apply immediately** (no preview-then-Apply step). After an edit the
->   panel keeps an iteration history and shows `←` / `→` version navigation so
+>   surface keeps an iteration history and shows `←` / `→` version navigation so
 >   you can move between the original and each generated version.
-> - After applying, the panel either flashes "Improved" and auto-closes or stays
+> - After applying, the surface either flashes "Improved" and auto-closes or stays
 >   open with the version strip, per the **post-apply behavior** setting.
 > - The Copilot provider now prefers a warmed, single-use ACP session
 >   (`copilot --acp --stdio`) for lower latency; the original one-shot
 >   `copilot -p` invocation remains the fallback path.
 
 A macOS menu bar app providing system-wide, selection-based AI text editing.
-Press a global hotkey in **any** app, and a small floating panel appears near the
-cursor offering AI actions (Rewrite, Summarize, Fix Grammar, Translate, Reply,
+Press a global hotkey in **any** app, and a command ribbon appears at the top of
+the screen offering AI actions (Rewrite, Summarize, Fix Grammar, Translate, Reply,
 or a free-form instruction). The result replaces the selection inline, or the
 whole document when "Entire document" scope is chosen.
 
@@ -54,10 +61,21 @@ Mancia/
 │   ├── StatusBarController.swift  # NSStatusItem + menu
 │   ├── HotkeyManager.swift        # global hotkey (KeyboardShortcuts pkg)
 │   ├── SelectionCapture.swift     # pasteboard-based capture & replace
-│   ├── EditCoordinator.swift      # orchestrates capture → panel → provider → apply
-│   ├── Panel/
-│   │   ├── EditPanel.swift        # floating NSPanel host
-│   │   └── EditPanelView.swift    # SwiftUI content
+│   ├── EditCoordinator.swift      # orchestrates capture → ribbon → provider → apply
+│   ├── Panel/                     # shared editing state and chrome
+│   │   ├── PanelModel.swift       # observable session state
+│   │   ├── KeyablePanel.swift     # non-activating NSPanel that can take key status
+│   │   ├── PanelKeyCommand.swift  # ⌘-shortcut and focus-move mapping
+│   │   ├── PanelPreset.swift      # the specialized presets
+│   │   └── Palette.swift          # shared color tokens
+│   ├── Ribbon/
+│   │   ├── RibbonWindow.swift     # hosts and places the lane
+│   │   ├── RibbonPlacement.swift  # pure placement resolver
+│   │   ├── HostWindowProbe.swift  # frontmost window frame + full-screen state
+│   │   ├── RibbonView.swift       # the lane's content
+│   │   ├── RibbonReviewView.swift # whole-document review gate
+│   │   ├── RibbonControls.swift   # controls shared across registers
+│   │   └── RibbonPalette.swift    # the lane's color tokens
 │   ├── Providers/
 │   │   ├── LLMProvider.swift      # protocol + ProviderStatus
 │   │   ├── CopilotCLIProvider.swift
@@ -88,16 +106,21 @@ Mancia/
    - Poll `NSPasteboard.general.changeCount` every 30 ms, up to 600 ms.
    - If changed → captured selection string. If not → no selection.
    - Restore the snapshot to the pasteboard afterward.
-3. **Panel opens** near the mouse location (clamped to screen). It is an
-   `NSPanel` with `.nonactivatingPanel` style, floating level,
-   `becomesKeyOnlyIfNeeded`, so the target app keeps focus until the user
-   interacts. Esc closes it.
-4. Panel UI (SwiftUI, compact, ~360 pt wide):
-   - Free-form instruction `TextField` ("Describe a change…", ⏎ submits) with a
-     trailing preset dropdown and run button.
-   - Scope menu: "Selection · N chars" or "Entire document". If nothing was
+3. **The ribbon opens** in one predictable place, resolved by
+   `RibbonPlacement`: flush under the menu bar when the menu bar reserves a
+   strip, otherwise under the frontmost window's title bar. It is a
+   `KeyablePanel` with `.nonactivatingPanel` style and floating level, so the
+   target app keeps focus until the user interacts. Esc closes it.
+4. Ribbon UI (SwiftUI, a single lane whose width comes from placement and
+   whose height comes from content):
+   - **Target** — "Selection · N" or "Entire document". If nothing was
      selected, default to Entire document.
-   - While running: a light sweeps the field's border, action name + Cancel.
+   - **Action** — Improve by default, or a named preset.
+   - **Direction** — free-form instruction field ("Optional instruction…",
+     ⏎ submits).
+   - **Run** — the accent control; ⏎ takes the same path.
+   - While running: a light travels the Run control's border, running verb +
+     Cancel in the status strip.
    - Applied state: inline replacement is already pasted; show version
      navigation. Esc dismisses.
 5. **Execution** (`EditCoordinator`):
@@ -109,7 +132,7 @@ Mancia/
    - Write result to pasteboard, `activate` the target app, wait ~150 ms,
      post ⌘V (for Entire document scope: ⌘A then ⌘V).
    - After ~1 s, restore the user's original pasteboard.
-   - Keep the panel open for iteration navigation or another edit.
+   - Keep the ribbon open for iteration navigation or another edit.
 
 ## Actions & prompts (`Actions.swift`)
 
@@ -151,7 +174,7 @@ the coordinator, status menu, settings view, and debug CLI.
   `/opt/homebrew/bin/copilot`, `/usr/local/bin/copilot`, `~/.local/bin/copilot`,
   else `/usr/bin/env copilot`.
 - Primary path: keeps one `copilot --acp --stdio` process alive and warms one
-  empty session while the panel is open. Each warmed session is single-use: once
+  empty session while the ribbon is open. Each warmed session is single-use: once
   a prompt is sent, the session id is discarded so selected text cannot carry
   into later requests.
 - Fallback path: runs the original one-shot command,
@@ -236,5 +259,5 @@ Additionally, the app registers a URL scheme is NOT required — skip it.
 ## Quality bar
 
 - `swift build` and `swift test` pass with zero warnings if feasible.
-- No force-unwraps in flow code; errors surface in the panel, never crash.
+- No force-unwraps in flow code; errors surface in the ribbon, never crash.
 - Keep it small: this is a lightweight utility, not a framework.

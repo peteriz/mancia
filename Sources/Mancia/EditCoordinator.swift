@@ -1,24 +1,24 @@
 import AppKit
 
-/// Orchestrates a cyclical edit session: capture selection → show panel →
+/// Orchestrates a cyclical edit session: capture selection → show the ribbon →
 /// run provider → apply inline → navigate between iterations or run further
-/// actions, until the user closes the session. Owns the panel and the
-/// in-flight task. The panel stays visible throughout — synthetic keystrokes
+/// actions, until the user closes the session. Owns the ribbon and the
+/// in-flight task. The ribbon stays visible throughout — synthetic keystrokes
 /// are posted to the target app's pid, so they can't be swallowed by it.
 @MainActor
 final class EditCoordinator {
     private let provider: LLMProvider
     private let settings: AppSettings
     private let model = PanelModel()
-    /// Both surfaces, built on first use. Kept rather than rebuilt per session
-    /// so switching back and forth doesn't tear down and re-create a window
+    /// The ribbon, built on first use and kept for the app's lifetime so
+    /// re-opening a session doesn't tear down and re-create a window
     /// mid-animation.
-    private lazy var floatingPanel: EditPanel = wired(EditPanel(model: model))
-    private lazy var ribbon: RibbonWindow = wired(RibbonWindow(model: model))
-    /// The surface this session is running on, chosen at `start()` and held
-    /// for the life of the session so a setting flipped mid-edit can't send
-    /// `close()` to the wrong window.
-    private var presentation: (any EditPresentation)?
+    private lazy var ribbon: RibbonWindow = {
+        let ribbon = RibbonWindow(model: model)
+        ribbon.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        ribbon.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        return ribbon
+    }()
 
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
@@ -47,7 +47,7 @@ final class EditCoordinator {
     /// A completed whole-document result awaiting explicit confirmation before
     /// it overwrites the document (`.confirm` phase).
     private var pendingApply: (output: String, baseline: String)?
-    /// Wired by AppDelegate; invoked by the panel's ⌘, shortcut.
+    /// Wired by AppDelegate; invoked by the ribbon's ⌘, shortcut.
     var onOpenSettings: (() -> Void)?
 
     init(provider: LLMProvider, settings: AppSettings) {
@@ -65,23 +65,15 @@ final class EditCoordinator {
         model.onCancel = { [weak self] in self?.cancel() }
     }
 
-    /// Wire a surface's callbacks. Identical for both: the session machine does
-    /// not care which one it is driving.
-    private func wired<Surface: EditPresentation>(_ surface: Surface) -> Surface {
-        surface.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
-        surface.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
-        return surface
-    }
-
     /// Entry point from hotkey or menu. Starts a fresh session. Ignores
     /// re-triggers while a session is already active, so overlapping capture
     /// sequences can't clobber each other's pasteboard/keystroke state.
     ///
-    /// The panel appears immediately (perceived latency ≈ 0); the selection is
+    /// The ribbon appears immediately (perceived latency ≈ 0); the selection is
     /// captured in the background. If the user fires Improve/Enter before the
     /// capture completes, the action is queued and runs the moment text is ready.
     func start() {
-        guard !sessionActive else { presentation?.focus(); return }
+        guard !sessionActive else { ribbon.focus(); return }
         guard ensureAccessibility() else { return }
         sessionActive = true
         currentTask?.cancel()
@@ -99,10 +91,8 @@ final class EditCoordinator {
         // the status line reads "Reading selection…" until it resolves.
         model.reset(hasSelection: true, charCount: 0)
         model.capturing = true
-        let presentation: any EditPresentation = settings.ribbonEnabled ? ribbon : floatingPanel
-        self.presentation = presentation
-        presentation.show()
-        presentation.focus()
+        ribbon.show()
+        ribbon.focus()
         warmProvider()
         currentTask = Task {
             let result = await SelectionCapture.captureSelection()
@@ -158,13 +148,13 @@ final class EditCoordinator {
             model.runningTitle = action.progressLabel
             model.phase = .running
             guard let resolved = await resolveInput() else {
-                presentation?.focus()
+                ribbon.focus()
                 if !Task.isCancelled, model.phase == .running { fail("There is no text to edit.") }
                 return
             }
             // Input capture may have activated the target app; retake key
             // status so Esc reaches the panel while the provider runs.
-            presentation?.focus()
+            ribbon.focus()
             let prompt: String
             do {
                 try PromptGuard.validate(action: action, text: resolved.text, note: note)
@@ -226,7 +216,7 @@ final class EditCoordinator {
         syncIterationState()
         model.instruction = ""
         model.phase = .applied
-        presentation?.focus()
+        ribbon.focus()
         scheduleAutoCloseIfHybrid()
     }
 
@@ -240,7 +230,7 @@ final class EditCoordinator {
         model.pendingResultCharCount = output.count
         model.pendingResultPreview = output
         model.phase = .confirm
-        presentation?.focus()
+        ribbon.focus()
     }
 
     /// Apply the pending whole-document replacement after the user confirmed.
@@ -348,7 +338,7 @@ final class EditCoordinator {
                 await SelectionCapture.undo(in: capture)
                 await SelectionCapture.apply(text: text, to: capture, entireDocument: false)
             }
-            presentation?.focus()
+            ribbon.focus()
         }
     }
 
@@ -376,7 +366,7 @@ final class EditCoordinator {
             pendingAction = nil
             pendingNote = nil
             model.phase = .idle
-            presentation?.focus()
+            ribbon.focus()
             return
         }
         currentTask?.cancel()
@@ -387,13 +377,13 @@ final class EditCoordinator {
         pendingApply = nil
         model.pendingResultPreview = ""
         model.phase = versions.count > 1 ? .applied : .idle
-        presentation?.focus()
+        ribbon.focus()
     }
 
     /// Retake key status for the panel if a session is on screen — used when
     /// the Settings window closes after stealing key from the panel (⌘,).
     func refocusPanel() {
-        presentation?.focus()
+        ribbon.focus()
     }
 
     /// Close the session (Esc / Done), keeping the document as shown.
@@ -404,7 +394,7 @@ final class EditCoordinator {
         autoCloseTask = nil
         pendingApply = nil
         sessionActive = false
-        presentation?.close()
+        ribbon.close()
         warmProviderAfterClose()
     }
 
@@ -467,7 +457,7 @@ final class EditCoordinator {
     private func fail(_ message: String) {
         model.errorText = message
         model.phase = .error
-        presentation?.focus()
+        ribbon.focus()
     }
 
     // MARK: - Accessibility
