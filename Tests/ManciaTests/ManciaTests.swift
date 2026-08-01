@@ -1203,6 +1203,79 @@ func presetRunCarriesFieldText() {
     #expect(calls.last?.1 == "keep the bullet list")
 }
 
+// MARK: - Ribbon command row
+
+@Test("The Action cell names Improve until the user types, then names the instruction")
+@MainActor
+func resolvedActionTitleTracksTyping() {
+    let model = PanelModel()
+
+    #expect(model.resolvedActionTitle == "Improve", "an empty Direction runs Improve, and must say so")
+
+    model.instruction = "translate to French"
+    #expect(model.resolvedActionTitle == "Your instruction")
+
+    // Whitespace is not an instruction, and the cell must not claim it is.
+    model.instruction = "   \n "
+    #expect(model.resolvedActionTitle == "Improve")
+}
+
+@Test("A pinned preset names itself in the Action cell whatever the Direction says")
+@MainActor
+func resolvedActionTitlePrefersThePin() {
+    let model = PanelModel()
+    model.pinnedPreset = .improve
+    #expect(model.resolvedActionTitle == "Improve")
+
+    model.instruction = "keep the bullet list"
+    #expect(
+        model.resolvedActionTitle == "Improve",
+        "a pin outranks typing — the typed text becomes guidance, not the action")
+}
+
+@Test("The primary path runs a pinned preset, with the Direction as guidance")
+@MainActor
+func primaryPathRunsThePinnedPreset() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    model.pinnedPreset = .improve
+    model.instruction = "  keep the bullet list  "
+    model.runPrimary()
+
+    #expect(calls.last?.0 == .improve, "the pin selects the action, not the typed text")
+    #expect(calls.last?.1 == "keep the bullet list", "the typed text rides along as guidance")
+}
+
+@Test("Unpinning hands the action back to the Direction field")
+@MainActor
+func unpinningRestoresInstructionRouting() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    model.pinnedPreset = .improve
+    model.pinnedPreset = nil
+    model.instruction = "make it formal"
+    model.runPrimary()
+
+    #expect(calls.last?.0 == .custom("make it formal"))
+    #expect(calls.last?.1 == nil)
+}
+
+@Test("A new session drops the pin, so a preset cannot leak into the next edit")
+@MainActor
+func resetClearsThePin() {
+    let model = PanelModel()
+    model.pinnedPreset = .improve
+
+    model.reset(hasSelection: true, charCount: 12)
+
+    #expect(model.pinnedPreset == nil)
+    #expect(model.resolvedActionTitle == "Improve")
+}
+
 // MARK: - Ribbon placement
 
 /// A 1440×900 display at the origin, with a 25pt menu-bar strip reserved at the

@@ -22,6 +22,10 @@ final class PanelModel {
     /// The status line reads "Reading selection…" until this clears.
     var capturing = false
     var instruction = ""
+    /// A preset the user pinned from the Action cell, which then runs instead
+    /// of the instruction-derived action. `nil` — the default — means the
+    /// action is derived from the Direction field, as it always has been.
+    var pinnedPreset: PanelPreset?
     var runningTitle = ""
     var errorText = ""
     /// Size of the document and the pending result while awaiting confirmation
@@ -58,6 +62,7 @@ final class PanelModel {
         scope = hasSelection ? .selection : .document
         capturing = false
         instruction = ""
+        pinnedPreset = nil
         runningTitle = ""
         errorText = ""
         pendingOriginalCharCount = 0
@@ -67,9 +72,28 @@ final class PanelModel {
         sessionSeq &+= 1
     }
 
-    /// The primary path, shared by Return and the field's run button. Runs
-    /// `Improve` when the field is empty, otherwise the typed instruction.
+    /// True when the user has typed something to act on, as opposed to leaving
+    /// the field empty and meaning "improve this".
+    var hasCustomInstruction: Bool {
+        !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The action the primary control will run right now, as the ribbon's
+    /// Action cell shows it. Pure — no side effects, safe to read during
+    /// layout.
+    var resolvedActionTitle: String {
+        if let pinnedPreset { return pinnedPreset.title }
+        return hasCustomInstruction ? "Your instruction" : EditAction.improve.title
+    }
+
+    /// The primary path, shared by Return and the field's run button. Runs a
+    /// pinned preset if there is one; otherwise `Improve` when the field is
+    /// empty and the typed instruction when it is not.
     func runPrimary() {
+        if let pinnedPreset {
+            runPreset(pinnedPreset)
+            return
+        }
         let trimmed = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             onPerform?(.improve, nil)

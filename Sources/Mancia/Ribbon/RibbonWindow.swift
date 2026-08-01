@@ -241,6 +241,11 @@ final class RibbonWindow {
     private func makePanel() -> KeyablePanel {
         let hosting = NSHostingView(
             rootView: content(width: RibbonPlacement.minimumWidth, anchor: .screen))
+        // The lane *is* the window: no title bar strip to sit below, and no
+        // 28pt of transparent window above the ink. Without this the titled
+        // panel's safe area pushes the content down and the lane stops
+        // touching the menu bar.
+        hosting.safeAreaRegions = []
         self.hosting = hosting
 
         let panel = KeyablePanel(
