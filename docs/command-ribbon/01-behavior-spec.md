@@ -1,5 +1,13 @@
 # 01 — Behavior specification
 
+> **Superseded in part.** The lane shipped, then a design review of the
+> running app removed the per-cell captions ("Target", "Action",
+> "Direction") and folded status and iteration in beside Run. The row is one
+> line, not two; each control names itself with an icon and its own value.
+> See `docs/ARCHITECTURE.md` and `docs/SPEC.md` for what the lane does today.
+> Everything else here — the cells, the states, the keyboard model and the
+> copy — still holds.
+
 ## The shape
 
 The ribbon is a horizontal lane that opens at the top of the screen and reads

@@ -159,6 +159,14 @@ final class PanelModel {
         return hasCustomInstruction ? "Your instruction" : EditAction.improve.title
     }
 
+    /// The icon for `resolvedActionTitle`. The Action cell lost its caption, so
+    /// the glyph is now what marks it as the *action* rather than another
+    /// menu — the words alone no longer say which cell they belong to.
+    var resolvedActionSymbol: String {
+        if let pinnedPreset { return pinnedPreset.action.symbol }
+        return hasCustomInstruction ? EditAction.custom("").symbol : EditAction.improve.symbol
+    }
+
     /// The primary path, shared by Return and the field's run button. Runs a
     /// pinned preset if there is one; otherwise `Improve` when the field is
     /// empty and the typed instruction when it is not.

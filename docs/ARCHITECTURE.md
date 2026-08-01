@@ -39,7 +39,8 @@ Sources/Mancia/
 │   │                             at the host's foot when either would cover the selection
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
-│   ├── RibbonView.swift          The lane: Target / Action / Direction / Run, status strip
+│   ├── RibbonView.swift          The lane: one row of Target / Action / Direction / Run,
+│   │                             with status and iteration beside Run and an error row
 │   ├── RibbonReviewView.swift    The whole-document review gate
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
 │   └── RibbonPalette.swift       The lane's dark-register color tokens
@@ -103,11 +104,15 @@ wired to call `coordinator.start()`.
    Either way the lane **parks at the foot of its host** if its resting frame
    would cover the selected text. A window sitting flush under the menu bar —
    a new TextEdit document, say — puts its first lines exactly where the lane
-   hangs, and a 56pt lane growing to ~91pt cannot hide behind a 28pt title
-   bar. Parking is decided once and held for the session, so a lane that grew
-   into the selection does not leap back when the review region closes. A bare
-   caret is not a selection: with nothing selected the target is the whole
-   document and there is no line to keep clear.
+   hangs, and a 48pt lane growing to ~195pt cannot hide behind a 28pt title
+   bar. The park decision is made against `projectedHeight`, the tallest
+   ordinary state, not against the height the lane currently measures: it is
+   decided once and held for the session, so deciding it on a resting row
+   would let a lane that cleared the selection at open bury it the moment the
+   review gate arrived. Holding it also stops a lane that grew into the
+   selection leaping back when the review region closes. A bare caret is not a
+   selection: with nothing selected the target is the whole document and there
+   is no line to keep clear.
 
    The lane's **width is imposed by placement** (the host's width, clamped to
    a maximum and centered) and only its **height comes from content**, so the
@@ -116,9 +121,15 @@ wired to call `coordinator.start()`.
    through Accessibility; every failure path returns `nil` and placement
    degrades to the screen rather than failing the session.
 
-   The lane is a cyclical **edit session**: Target, Action, Direction and Run
-   are always visible, dimmed and disabled while a request runs; a status
-   strip cycles `PanelModel.phase` through
+   The lane is a cyclical **edit session**. Target, Action, Direction and Run
+   sit on a **single row**, dimmed and disabled while a request runs. Each
+   control names itself — an icon and a value in a chip, a prompt inside the
+   field — rather than carrying a caption above it, which is what lets the row
+   be one line rather than two. Live status is a dot and one word **beside
+   Run**, and iteration history a counter beside that, both riding in width
+   the Direction field gives up by capping at a comfortable measure. Only a
+   failure still earns a **row of its own**, because it carries a message plus
+   Details, Copy and Retry. `PanelModel.phase` cycles
    `.idle → .running → .confirm → .applied/.error` and back until the user
    closes it. The lane **stays visible throughout**: all synthetic keystrokes
    are posted directly to the target app's process (`CGEvent.postToPid`), so
@@ -126,6 +137,12 @@ wired to call `coordinator.start()`.
    After each keystroke burst (which activates the target app) the coordinator
    calls `ribbon.focus()` to retake key status so Esc and typing reach the
    lane again.
+
+   Tab, ⇧Tab and the focus **ring both read `PanelModel.focusedCell`**, not the
+   view's `@FocusState`. Tab arrives at the window rather than at a view, and
+   SwiftUI grants `@FocusState` to the Direction field but refuses it to the
+   three `.focusable()` cells, so the model is the only place that knows which
+   stop the keyboard is on.
 4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
    Return or the Run control, giving `.improve` on an empty Direction field
    and `.custom(text)` on a typed one) or picks a preset from the Action cell

@@ -1367,6 +1367,25 @@ func resolvedActionTitleTracksTyping() {
     #expect(model.resolvedActionTitle == "Improve")
 }
 
+/// The Action chip lost its caption, so its glyph is now what identifies the
+/// cell. It has to track the same resolution the title does or the two halves
+/// of one control would disagree.
+@Test("The Action cell's glyph follows the same resolution as its title")
+@MainActor
+func resolvedActionSymbolTracksTheTitle() {
+    let model = PanelModel()
+
+    #expect(model.resolvedActionSymbol == EditAction.improve.symbol)
+
+    model.instruction = "translate to French"
+    #expect(model.resolvedActionSymbol == EditAction.custom("").symbol)
+
+    model.pinnedPreset = .improve
+    #expect(
+        model.resolvedActionSymbol == EditAction.improve.symbol,
+        "a pin outranks the typed instruction, exactly as the title does")
+}
+
 @Test("A pinned preset names itself in the Action cell whatever the Direction says")
 @MainActor
 func resolvedActionTitlePrefersThePin() {
@@ -1513,7 +1532,9 @@ func placementSplitViewSpansTheHostHalf() {
 
 @Test("A narrow host clamps to the minimum width and centers on the host")
 func placementNarrowHostClampsToMinimumWidth() {
-    let host = CGRect(x: 100, y: 200, width: 320, height: 400)
+    // Kept clear of the screen edges: a lane wider than its host overhangs, and
+    // overhanging past the display is what `clamp` exists to stop.
+    let host = CGRect(x: 300, y: 200, width: 320, height: 400)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -1521,8 +1542,23 @@ func placementNarrowHostClampsToMinimumWidth() {
 
     #expect(
         resolved.frame.width == RibbonPlacement.minimumWidth,
-        "below the minimum the four cells cannot hold their labels")
+        "below the minimum the row's controls cannot hold their labels")
     #expect(resolved.frame.midX == host.midX, "a lane wider than its host centers on it")
+}
+
+/// The minimum is a floor on legibility, not on position: a lane wider than its
+/// host, next to a host jammed against the edge of the display, still has to
+/// stay on the display.
+@Test("A minimum-width lane over a host at the screen edge stays on the screen")
+func placementNarrowHostAtTheEdgeStaysOnScreen() {
+    let host = CGRect(x: 0, y: 200, width: 320, height: 400)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.frame.width == RibbonPlacement.minimumWidth)
+    #expect(resolved.frame.minX == ribbonScreen.minX, "centering would put it off the left edge")
 }
 
 @Test("A failed host-window probe falls back to the screen, clearance intact")
@@ -1711,6 +1747,26 @@ func placementParkIsStickyForTheSession() {
 
     #expect(resolved.parked)
     #expect(resolved.frame.minY == ribbonVisible.minY)
+}
+
+/// The lane opens as a bare command row and only grows once there is something
+/// to report, so the resting height is the wrong thing to decide against: it
+/// would clear the selection at open and bury it the moment a result arrived.
+@Test("The park decision is made against the height the lane will reach, not the one it opens at")
+func placementParksForTheHeightItWillGrowTo() {
+    // Clear of a 48pt resting lane (827…875), inside a grown one (675…875).
+    let belowTheRestingLane = CGRect(x: 20, y: 760, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 48,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: belowTheRestingLane))
+
+    #expect(
+        !CGRect(x: 0, y: 827, width: 1440, height: 48).intersects(belowTheRestingLane),
+        "the premise: the resting lane clears this selection on its own")
+    #expect(resolved.parked, "but the review gate would not, and the choice is made once")
+    #expect(resolved.anchor == .screenBottom)
 }
 
 @Test("A window-anchored lane dodges too, and keeps floating over its host")

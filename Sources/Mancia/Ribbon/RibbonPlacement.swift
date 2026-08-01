@@ -103,20 +103,40 @@ enum RibbonPlacement {
     /// level — is what keeps the lane reachable.
     static let revealClearance: CGFloat = 28
 
-    /// Never let the lane get narrower than this; below it the four cells
-    /// cannot hold their labels.
-    static let minimumWidth: CGFloat = 480
+    /// Never let the lane get narrower than this; below it the row's controls
+    /// cannot hold their labels. Measured rather than guessed: at rest the two
+    /// menus, the field at its minimum and Run come to a little over 500pt, and
+    /// a running lane adds a Cancel and a status word on top of that.
+    static let minimumWidth: CGFloat = 600
 
     /// …and never let it get wider than this. On a 5K or ultrawide display a
     /// full-width lane is thousands of points of mostly empty ink with `Run` a
     /// long way from the Direction field the user just typed in. Capping and
     /// centering keeps the command sentence readable as a sentence, and the
     /// lane is still top-centered, so it still opens in one predictable place.
-    static let maximumWidth: CGFloat = 1200
+    ///
+    /// Once the cell captions went and every control sized to its content, a
+    /// 1200pt lane was mostly gap — and the only cell able to absorb it was the
+    /// Direction field, which is precisely the one that should not be a third
+    /// of the screen wide.
+    static let maximumWidth: CGFloat = 900
 
     /// Breathing room left between the lane's edge and the selection it is
     /// dodging, so a cleared selection does not sit flush against the lane.
     static let selectionClearance: CGFloat = 8
+
+    /// The height the park decision is made against, whatever the lane
+    /// currently measures.
+    ///
+    /// The lane opens as a single command row and grows later — a status word
+    /// costs it nothing, but a review gate takes it to about 195pt, measured.
+    /// The decision to park is taken once, at open, and then held for the
+    /// session, so taking it against the resting height would let a lane that
+    /// cleared the selection at open bury it the moment a result came back.
+    /// Deciding against the tallest ordinary state instead means the lane
+    /// commits early and stays put, which is the whole reason the choice is
+    /// sticky.
+    static let projectedHeight: CGFloat = 200
 
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
@@ -146,7 +166,17 @@ enum RibbonPlacement {
             CGRect(x: x, y: host.minY + footClearance, width: width, height: height),
             to: context.screenFrame)
 
-        let parked = shouldPark(top: top, foot: foot, in: context)
+        // Decided against the lane's tallest ordinary state, not the height it
+        // happens to be right now — see `projectedHeight`.
+        let tall = max(height, projectedHeight)
+        let parked = shouldPark(
+            top: clamp(
+                CGRect(x: x, y: host.maxY - clearance - tall, width: width, height: tall),
+                to: context.screenFrame),
+            foot: clamp(
+                CGRect(x: x, y: host.minY + footClearance, width: width, height: tall),
+                to: context.screenFrame),
+            in: context)
         let anchor: Anchor = menuBarReservesStrip
             ? (parked ? .screenBottom : .screen)
             : .hostWindow

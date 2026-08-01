@@ -1,5 +1,14 @@
 # 03 — Visual specification
 
+> **Superseded in part.** The lane shipped, then a design review of the
+> running app removed the per-cell captions ("Target", "Action",
+> "Direction") and folded status and iteration in beside Run. The row is one
+> line, not two; each control names itself with an icon and its own value.
+> See `docs/ARCHITECTURE.md` and `docs/SPEC.md` for what the lane does today.
+> Everything else here — the cells, the states, the keyboard model and the
+> copy — still holds. The lane's maximum width is 900pt, not the 1200pt Q1
+> settled on.
+
 The ribbon keeps Mancia's identity exactly: cream and ink surfaces, one
 vermilion action, green and warm red reserved for status. Every value below
 comes from `Sources/Mancia/Panel/Palette.swift`, with three contrast

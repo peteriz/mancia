@@ -28,13 +28,27 @@ struct RibbonView: View {
 
     /// Mirrors `model.focusedCell`. The model is the source of truth because
     /// Tab arrives at the window rather than at a view.
+    ///
+    /// It is a mirror, not the ring's input. SwiftUI grants `@FocusState` to
+    /// the Direction field and refuses it to the three `.focusable()` cells, so
+    /// Tab left the ring stuck on the field while the model — and therefore
+    /// Return, which the window routes by `focusedCell` — had already moved on.
+    /// The ring reads the model, which is the stop the keyboard is actually on.
     @FocusState private var focus: PanelModel.Cell?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The command row's fixed height. Everything below it — the status strip,
-    /// the review region — is added by later phases and grows the lane
-    /// downward.
-    private let rowHeight: CGFloat = 56
+    /// The height of every control on the command row, and so the height the
+    /// row rests at once its padding is added.
+    private let controlHeight: CGFloat = 32
+    /// The command row's resting height. It grows when the Direction field
+    /// wraps, and everything below it — the failure strip, the review
+    /// region — is added by later phases and grows the lane further downward.
+    private let rowHeight: CGFloat = 48
+    /// Room for the widest thing each menu can say — "Selection · 12345" and
+    /// "Your instruction" — so neither cell resizes as its value changes and
+    /// drags the rest of the row sideways.
+    private let targetMinWidth: CGFloat = 132
+    private let actionMinWidth: CGFloat = 158
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,6 +77,9 @@ struct RibbonView: View {
         .onChange(of: model.phase) { announcePhase(); relayout(); adopt(model.focusedCell) }
         .onChange(of: model.capturing) { relayout() }
         .onChange(of: model.versionCount) { relayout() }
+        // The Direction field wraps to four lines, so what the user types is a
+        // height input like any other.
+        .onChange(of: model.instruction) { relayout() }
         .onChange(of: model.previewExpanded) { relayout() }
         .onChange(of: model.errorDetailsExpanded) { relayout() }
         .onChange(of: model.errorText) { relayout() }
@@ -94,87 +111,111 @@ struct RibbonView: View {
 
     // MARK: - Command row
 
+    /// One line, read left to right: **Target · Action · Direction**, then the
+    /// trailing cluster — iteration history, live status, Run.
+    ///
+    /// Each cell used to carry a caption above its value. They were the widest
+    /// thing on the lane and said the least: "Selection · 22", "Improve" and a
+    /// prompted field all name themselves, so the captions only repeated the
+    /// answer in smaller type. Dropping them collapsed the row from two lines
+    /// to one and let every control size to its own content instead of to a
+    /// fixed width chosen to fit a label.
     private var commandRow: some View {
-        HStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 8) {
             Group {
                 targetCell
-                    .frame(width: 150, alignment: .leading)
-                    .padding(.leading, 16)
-                    .padding(.trailing, 12)
-
-                divider
-
                 actionCell
-                    .frame(width: 170, alignment: .leading)
-                    .padding(.horizontal, 12)
-
-                divider
-
                 directionCell
-                    .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
             }
             .opacity(locked ? 0.5 : 1)
             .disabled(locked)
 
-            divider
+            // The field stops at its cap and this takes the rest. The slack is
+            // what the version counter and the status word grow into when a run
+            // starts, so the field gives up far less width than it otherwise
+            // would — and what the user typed is much less likely to rewrap
+            // underneath them.
+            Spacer(minLength: 0)
 
-            runControl
-                .padding(.horizontal, 12)
+            trailingCluster
         }
-        .frame(height: rowHeight)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(minHeight: rowHeight, alignment: .top)
         .animation(.easeInOut(duration: 0.2), value: model.phase)
-    }
-
-    /// Stops short of the row's edges: a full-bleed divider makes the lane read
-    /// as a table rather than as a sentence.
-    private var divider: some View {
-        Rectangle()
-            .fill(RibbonPalette.laneEdge)
-            .frame(width: 1, height: rowHeight - 20)
     }
 
     // MARK: - Cells
 
     /// What the edit will touch. A menu while there is a selection to choose
-    /// between; a static label when the whole document is the only option.
+    /// between; a static chip when the whole document is the only option.
+    ///
+    /// The chip is terse — an icon, one word and the character count — because
+    /// it is the least interesting cell on a lane the user came to type in. The
+    /// menu it opens keeps the unabbreviated wording, where there is room for
+    /// it and the choice has to be unambiguous.
+    @ViewBuilder
     private var targetCell: some View {
-        cell("Target") {
-            if model.capturing {
-                value(Text("Reading…"))
-            } else if model.hasSelection {
-                Menu {
-                    Button("Selection · \(model.selectionCharCount)") {
-                        model.setScope(.selection)
-                        model.returnFocusToDirection()
-                    }
-                    Button("Entire document") {
-                        model.setScope(.document)
-                        model.returnFocusToDirection()
-                    }
-                } label: {
-                    menuLabel(targetText)
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .focusable()
-                .focused($focus, equals: .target)
-                .ribbonFocusRing(focus == .target)
-                .accessibilityLabel("Target")
-                .accessibilityIdentifier("Scope")
-            } else {
-                value(Text("Entire document"))
+        if model.capturing {
+            chip {
+                chipLabel("ellipsis", "Reading…", chevron: false, minWidth: targetMinWidth)
             }
+            .accessibilityLabel("Target, reading selection")
+            .accessibilityIdentifier("Target")
+        } else if model.hasSelection {
+            Menu {
+                Button("Selection · \(model.selectionCharCount)") {
+                    model.setScope(.selection)
+                    model.returnFocusToDirection()
+                }
+                Button("Entire document") {
+                    model.setScope(.document)
+                    model.returnFocusToDirection()
+                }
+            } label: {
+                targetLabel
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            // The fill hangs off the menu, not off its label: a `Text` wrapped
+            // in a background is rendered as an image, and an image-backed
+            // control has no accessible name left to override.
+            .background(controlShape.fill(RibbonPalette.control))
+            .focusable()
+            .focused($focus, equals: .target)
+            .ribbonFocusRing(model.focusedCell == .target, radius: 8, inset: 0)
+            .accessibilityLabel("Target")
+            .accessibilityValue(targetSpokenValue)
+            .accessibilityIdentifier("Scope")
+        } else {
+            chip {
+                chipLabel("doc.text", "Document", chevron: false, minWidth: targetMinWidth)
+            }
+            .accessibilityLabel("Target")
+            .accessibilityValue("Entire document")
+            .accessibilityIdentifier("Target")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("Target")
     }
 
-    private var targetText: String {
+    @ViewBuilder
+    private var targetLabel: some View {
         switch model.scope {
-        case .selection: return "Selection · \(model.selectionCharCount)"
+        case .selection:
+            chipLabel(
+                "selection.pin.in.out", "Selection", detail: "\(model.selectionCharCount)",
+                minWidth: targetMinWidth)
+        case .document:
+            chipLabel("doc.text", "Document", minWidth: targetMinWidth)
+        }
+    }
+
+    /// VoiceOver hears the count and the unabbreviated noun; the chip shows the
+    /// short form.
+    private var targetSpokenValue: String {
+        switch model.scope {
+        case .selection: return "Selection, \(model.selectionCharCount) characters"
         case .document: return "Entire document"
         }
     }
@@ -183,49 +224,117 @@ struct RibbonView: View {
     /// explicitly; `Your instruction` unpins and hands the decision back to the
     /// Direction field.
     private var actionCell: some View {
-        cell("Action") {
-            Menu {
-                ForEach(PanelPreset.all) { preset in
-                    Button {
-                        model.pinnedPreset = preset
-                        model.returnFocusToDirection()
-                    } label: {
-                        Label(preset.title, systemImage: preset.action.symbol)
-                    }
-                }
-                Divider()
-                Button("Your instruction") {
-                    model.pinnedPreset = nil
+        Menu {
+            ForEach(PanelPreset.all) { preset in
+                Button {
+                    model.pinnedPreset = preset
                     model.returnFocusToDirection()
+                } label: {
+                    Label(preset.title, systemImage: preset.action.symbol)
                 }
-            } label: {
-                menuLabel(model.resolvedActionTitle)
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .focusable()
-            .focused($focus, equals: .action)
-            .ribbonFocusRing(focus == .action)
-            .accessibilityLabel("Action")
-            .accessibilityIdentifier("Action")
+            Divider()
+            Button("Your instruction") {
+                model.pinnedPreset = nil
+                model.returnFocusToDirection()
+            }
+        } label: {
+            chipLabel(
+                model.resolvedActionSymbol, model.resolvedActionTitle,
+                minWidth: actionMinWidth)
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .background(controlShape.fill(RibbonPalette.control))
+        .focusable()
+        .focused($focus, equals: .action)
+        .ribbonFocusRing(model.focusedCell == .action, radius: 8, inset: 0)
+        .accessibilityLabel("Action")
+        .accessibilityValue(model.resolvedActionTitle)
+        .accessibilityIdentifier("Action")
     }
 
     /// The instruction field. Optional by design — an empty Direction is a
-    /// valid Improve, which is what the Action cell is there to say out loud.
+    /// valid Improve, which is what the Action chip is there to say out loud.
+    ///
+    /// It is the one cell that takes the lane's slack, and the only one that
+    /// grows: past a line it wraps and pushes the lane downward, to four lines
+    /// and then a scroller. The cap is roughly the 70-character measure that
+    /// reads comfortably — past that the field was simply absorbing the lane,
+    /// which is what made it look like the most important thing on a surface
+    /// where it is optional. A caption above it would have been a third name
+    /// for a control that already carries a prompt inside it and lights its
+    /// border when it has focus.
     private var directionCell: some View {
-        cell("Direction") {
-            TextField("", text: $model.instruction, prompt: placeholder)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(RibbonPalette.text)
-                .focused($focus, equals: .direction)
-                .ribbonFocusRing(focus == .direction, inset: -2)
-                .onSubmit { model.runPrimary() }
-                .accessibilityLabel("Direction")
-                .accessibilityIdentifier("CustomInstruction")
+        TextField("", text: $model.instruction, prompt: placeholder, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...4)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(RibbonPalette.text)
+            .focused($focus, equals: .direction)
+            .onSubmit { model.runPrimary() }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(minWidth: 140, maxWidth: 460, alignment: .leading)
+            .frame(minHeight: controlHeight, alignment: .topLeading)
+            .background(controlShape.fill(RibbonPalette.control))
+            // Past four lines the field scrolls, and without this the line
+            // sliding out of view draws over the field's own top edge.
+            .clipShape(controlShape)
+            .overlay(controlShape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
+            .ribbonFocusRing(model.focusedCell == .direction, radius: 8, inset: 0)
+            .accessibilityLabel("Direction")
+            .accessibilityIdentifier("CustomInstruction")
+    }
+
+    // MARK: - Trailing cluster
+
+    /// Iteration history, live status and Run, in that order.
+    ///
+    /// Status used to own a 34pt strip of its own: a dot, one word, and the
+    /// rest of the lane empty. Both it and the version counter now ride beside
+    /// the control they are about, in the width the Direction field gave back.
+    /// Only a failure still earns a row — it carries a message too long for
+    /// this cluster and three recoveries to offer.
+    private var trailingCluster: some View {
+        HStack(spacing: 10) {
+            secondaryAction
+            inlineStatus
+            runControl
+        }
+        .frame(height: controlHeight)
+    }
+
+    /// The slot the version counter and Cancel share. They never co-occur: one
+    /// belongs to a finished run, the other to a running one.
+    @ViewBuilder
+    private var secondaryAction: some View {
+        switch model.phase {
+        case .running:
+            GhostButton("Cancel", tint: RibbonPalette.caption) { model.onCancelRun?() }
+                .accessibilityIdentifier("Cancel")
+        case .applied where model.versionCount > 1:
+            VersionNav(
+                model: model, tint: RibbonPalette.caption,
+                faint: RibbonPalette.caption.opacity(0.45))
+        default:
+            EmptyView()
+        }
+    }
+
+    /// A resting lane reports nothing: the command row already says everything
+    /// there is to know. While capturing, the Target chip carries the word.
+    @ViewBuilder
+    private var inlineStatus: some View {
+        switch model.phase {
+        case .running:
+            statusLabel("\(runningLabel)…", dot: RibbonPalette.caption)
+        case .applied:
+            statusLabel("Improved", dot: RibbonPalette.applied, tint: RibbonPalette.applied)
+        default:
+            EmptyView()
         }
     }
 
@@ -240,23 +349,23 @@ struct RibbonView: View {
             Text("Run ↵")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(RibbonPalette.onAction)
-                .frame(minWidth: 84, minHeight: 32)
+                .frame(minWidth: 72, minHeight: controlHeight)
         }
         .buttonStyle(.plain)
         // The fill and the running border hang off the button rather than off
         // its label: a `Text` wrapped in a background is rendered as an image,
         // and an image-backed button has no accessible name to override.
-        .background(runShape.fill(RibbonPalette.action))
+        .background(controlShape.fill(RibbonPalette.action))
         .opacity(locked ? 0.5 : 1)
         .overlay {
             if model.phase == .running {
-                SwooshBorder(shape: runShape, tint: RibbonPalette.action, animated: !reduceMotion)
+                SwooshBorder(shape: controlShape, tint: RibbonPalette.action, animated: !reduceMotion)
             }
         }
-        .contentShape(runShape)
+        .contentShape(controlShape)
         .focusable()
         .focused($focus, equals: .run)
-        .ribbonFocusRing(focus == .run, radius: 8, inset: -3)
+        .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: -3)
         .disabled(locked)
         .help(model.resolvedActionTitle)
         // The visible glyph is a keyboard hint, not a word.
@@ -265,39 +374,64 @@ struct RibbonView: View {
         .accessibilityIdentifier("Run")
     }
 
-    private var runShape: RoundedRectangle {
+    // MARK: - Control chrome
+
+    /// One radius for every control on the lane.
+    private var controlShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
     }
 
-    // MARK: - Cell chrome
-
-    /// Caption over value, the shape every cell shares.
-    private func cell(_ caption: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(caption)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.4)
-                .foregroundStyle(RibbonPalette.caption)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// A non-interactive control-shaped surface, for the states where the
+    /// Target cell has nothing to offer a menu.
+    ///
+    /// `fixedSize` matches what `.fixedSize()` does for the menu branch: the
+    /// label carries a trailing spacer so its `minWidth` reservation pushes
+    /// left, and without the clamp that spacer would let the chip swallow every
+    /// point of slack the row has.
+    private func chip(@ViewBuilder content: () -> some View) -> some View {
+        content()
+            .fixedSize()
+            .background(controlShape.fill(RibbonPalette.control))
+            .accessibilityElement(children: .combine)
     }
 
-    private func value(_ text: Text) -> some View {
-        text
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(RibbonPalette.text)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-
-    private func menuLabel(_ title: String) -> some View {
-        HStack(spacing: 4) {
-            value(Text(title))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+    /// Icon, value and — when the control opens a menu — a disclosure chevron.
+    /// The icon does the work the caption used to: it says which cell this is
+    /// before the value says what it holds.
+    ///
+    /// `minWidth` reserves room for the widest thing a cell can say. Without it
+    /// the row shuffles sideways mid-use — the Action chip alone grows by some
+    /// 50pt the instant the user types a first character, dragging the field
+    /// they are typing in along with it.
+    private func chipLabel(
+        _ symbol: String, _ title: String, detail: String? = nil, chevron: Bool = true,
+        minWidth: CGFloat = 0
+    ) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(RibbonPalette.caption)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(RibbonPalette.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(RibbonPalette.caption)
+            }
+            Spacer(minLength: 0)
+            if chevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(RibbonPalette.caption)
+            }
         }
+        .padding(.horizontal, 10)
+        .frame(minWidth: minWidth, alignment: .leading)
+        .frame(height: controlHeight)
         .contentShape(Rectangle())
     }
 
@@ -309,39 +443,16 @@ struct RibbonView: View {
 // MARK: - Status strip
 
 extension RibbonView {
-    /// One line under the command row naming what the session is doing and
-    /// carrying that phase's secondary actions. Hidden at rest, because a
-    /// resting lane has nothing to report that the command row does not already
-    /// say.
+    /// The one phase that still earns a row of its own.
+    ///
+    /// Every other status — reading, working, done — is a dot and a word, and
+    /// those now ride in the command row beside the control they describe. A
+    /// failure cannot: it carries a provider message too long for that cluster
+    /// and three recoveries to offer, and it is the one state where taking the
+    /// user's attention is the point.
     @ViewBuilder
     fileprivate var statusStrip: some View {
-        switch model.phase {
-        case .idle:
-            if model.capturing {
-                strip { statusLabel("Reading selection…", dot: RibbonPalette.caption) }
-            }
-        case .running:
-            strip {
-                statusLabel("\(runningLabel)…", dot: RibbonPalette.caption)
-                Spacer(minLength: 8)
-                GhostButton("Cancel", tint: RibbonPalette.caption) { model.onCancelRun?() }
-                    .accessibilityIdentifier("Cancel")
-            }
-        case .confirm:
-            // The review region below carries the question, the delta and the
-            // decision; a strip repeating them would be noise.
-            EmptyView()
-        case .applied:
-            strip {
-                statusLabel("Improved", dot: RibbonPalette.applied, tint: RibbonPalette.applied)
-                Spacer(minLength: 8)
-                if model.versionCount > 1 {
-                    VersionNav(
-                        model: model, tint: RibbonPalette.caption,
-                        faint: RibbonPalette.caption.opacity(0.45))
-                }
-            }
-        case .error:
+        if model.phase == .error {
             VStack(alignment: .leading, spacing: 0) {
                 strip {
                     statusLabel(errorLabel, dot: RibbonPalette.error, tint: RibbonPalette.error)

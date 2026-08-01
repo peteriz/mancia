@@ -6,13 +6,15 @@
 > behavior. Notably:
 >
 > - **The floating panel is gone.** The edit session now runs in the
->   **command ribbon**: a full-width lane that opens in one predictable place
+>   **command ribbon**: a lane that opens in one predictable place
 >   — flush under the menu bar, or under the frontmost window's title bar when
 >   the menu bar is not reserving a strip, dropping to the foot of the host
->   when either would cover the selection — rather than chasing the caret. Its
->   cells are Target, Action, Direction and Run. The bullets that follow
->   describe the panel that preceded it; the behavior they record carried over
->   to the lane, the placement and the ~360 pt command row did not.
+>   when either would cover the selection — rather than chasing the caret. It
+>   takes the host window's width, clamped to a readable maximum and centered.
+>   Its cells are Target, Action, Direction and Run, on one row. The bullets
+>   that follow describe the panel that preceded it; the behavior they record
+>   carried over to the lane, the placement and the ~360 pt command row did
+>   not.
 > - The panel was a single command row (~360 pt wide): a free-form
 >   instruction field whose trailing controls are a **preset dropdown**
 >   (`PanelPreset`) and an accent **run** button. Return and the run button take
@@ -114,17 +116,24 @@ Mancia/
    `KeyablePanel` with `.nonactivatingPanel` style and floating level, so the
    target app keeps focus until the user interacts. Esc closes it.
 4. Ribbon UI (SwiftUI, a single lane whose width comes from placement and
-   whose height comes from content):
-   - **Target** — "Selection · N" or "Entire document". If nothing was
-     selected, default to Entire document.
-   - **Action** — Improve by default, or a named preset.
+   whose height comes from content). Target, Action, Direction and Run share
+   **one row**; each control names itself with an icon and a value rather than
+   a caption above it.
+   - **Target** — a chip reading "Selection · N" or "Document", opening a menu
+     with the unabbreviated wording. If nothing was selected, default to
+     Entire document and drop the menu.
+   - **Action** — Improve by default, or a named preset, or "Your instruction"
+     once the Direction field has anything in it.
    - **Direction** — free-form instruction field ("Optional instruction…",
-     ⏎ submits).
+     ⏎ submits). It wraps to four lines and then scrolls, growing the lane;
+     it caps at a readable measure rather than absorbing the whole row.
    - **Run** — the accent control; ⏎ takes the same path.
-   - While running: a light travels the Run control's border, running verb +
-     Cancel in the status strip.
-   - Applied state: inline replacement is already pasted; show version
-     navigation. Esc dismisses.
+   - While running: a light travels the Run control's border, and a dot plus
+     the running verb sits beside Run, with Cancel to its left.
+   - Applied state: inline replacement is already pasted; the version counter
+     and the result word sit beside Run. Esc dismisses.
+   - Only a failure opens a **second row**, which carries the message and
+     Details / Copy / Retry.
 5. **Execution** (`EditCoordinator`):
    - If scope is Entire document: activate target app, post ⌘A, then capture
      via ⌘C as above (this yields the document text).
