@@ -17,21 +17,29 @@ enum Palette {
     // MARK: - Text
 
     static let text = dynamic(light: 0x1A1611, dark: 0xF3ECDE)
-    static let textSecondary = dynamic(light: 0x857866, dark: 0x9E9483)
-    /// Placeholder / faint glyphs inside the field.
-    static let textFaint = dynamic(light: 0xA2957F, dark: 0x8B7F6D)
+    /// Captions and status lines. The light value is deep enough to clear
+    /// 4.5:1 on `surface` (5.20:1); the earlier 0x857866 was 3.76:1.
+    static let textSecondary = dynamic(light: 0x6E6250, dark: 0x9E9483)
+    /// Placeholder / faint glyphs inside the field. Placeholders are body text
+    /// and need 4.5:1 like any other; the light value gives 4.76:1, where the
+    /// earlier 0xA2957F gave 2.57:1.
+    static let textFaint = dynamic(light: 0x756850, dark: 0x8B7F6D)
 
     // MARK: - Accent
 
     /// The single accent — drives the Improve primary and the live status dot.
-    static let accent = dynamic(light: 0xD8513A, dark: 0xFF6A4D)
+    /// The light value carries white text on the run button at 5.14:1; the
+    /// earlier 0xD8513A was 4.07:1 and failed AA.
+    static let accent = dynamic(light: 0xC2412C, dark: 0xFF6A4D)
     /// Text/glyph color that sits on top of the accent fill.
     static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x25120C)
 
     // MARK: - Status
 
-    /// Applied / success moment.
-    static let applied = dynamic(light: 0x3E9E57, dark: 0x5BC57C)
+    /// Applied / success moment. The light value reaches 4.60:1, where the
+    /// earlier 0x3E9E57 was 2.94:1 — below even the 3:1 floor for the 7pt
+    /// status dot it fills.
+    static let applied = dynamic(light: 0x2F7A44, dark: 0x5BC57C)
     /// Error moment (kept warm so it does not clash with the palette).
     static let error = dynamic(light: 0xC0392B, dark: 0xF0917A)
     static let errorDot = dynamic(light: 0xD8513A, dark: 0xE4553B)
@@ -45,13 +53,25 @@ enum Palette {
         })
     }
 
-    private static func nsColor(_ hex: Int) -> NSColor {
+    /// The one place a `0xRRGGBB` literal becomes a color. Internal rather
+    /// than private so surfaces that pin a fixed register — see
+    /// `RibbonPalette` — reuse this conversion instead of copying it.
+    static func nsColor(_ hex: Int) -> NSColor {
         NSColor(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
             green: CGFloat((hex >> 8) & 0xFF) / 255,
             blue: CGFloat(hex & 0xFF) / 255,
             alpha: 1
         )
+    }
+}
+
+extension Color {
+    /// A fixed sRGB color from a `0xRRGGBB` literal, for surfaces that do not
+    /// follow system appearance. Appearance-adaptive colors belong in
+    /// `Palette` instead.
+    init(hex: Int) {
+        self.init(nsColor: Palette.nsColor(hex))
     }
 }
 
