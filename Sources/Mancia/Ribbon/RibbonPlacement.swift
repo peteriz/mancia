@@ -9,7 +9,18 @@ import CoreGraphics
 ///
 /// > If the frontmost window's screen reserves no menu-bar strip, anchor to
 /// > the host window's top edge, inset below the reveal area. Otherwise anchor
-/// > to the screen, directly below the menu bar.
+/// > to the screen, directly below the menu bar. Either way, if that would
+/// > cover the text the user selected, park at the foot of the host instead.
+///
+/// That last clause corrects a rule this direction shipped with. The original
+/// held that a window's position never affects placement, on the grounds that
+/// the band under the menu bar belongs to the host's title bar. The arithmetic
+/// does not support it: a title bar is 28pt and the lane is 56pt, growing to
+/// ~91pt once the review region opens, so a lane hanging from the menu bar
+/// covers 28–63pt of *content* in any window sitting flush below the menu bar
+/// — which is where a great many windows sit, including a new TextEdit
+/// document. Rather than let the lane bury the sentence it was invoked on, it
+/// moves out of the way.
 ///
 /// The primary detection signal is a measurement rather than a capability
 /// query: `screenFrame.maxY - visibleFrame.maxY`. `visibleFrame` excludes the
@@ -39,30 +50,51 @@ enum RibbonPlacement {
         /// owns a full-screen Space, or the menu bar is set to auto-hide. It
         /// overrides the measured gap, which a notched display leaves ambiguous.
         var menuBarHidden: Bool
+        /// The selected text's bounds in AppKit screen coordinates, as captured
+        /// *before* the lane took focus. `nil` for a caret with no selection,
+        /// for a host that cannot report bounds, and once the lane itself owns
+        /// the focused element — which is why `RibbonWindow` snapshots it in
+        /// `show()` rather than re-reading it per resolution.
+        var selectionRect: CGRect?
+        /// Keeps a lane that has already parked at the foot of its host there
+        /// for the rest of the session. The review region opening can push the
+        /// lane's underside past a selection it previously cleared; without
+        /// this the lane would leap the height of the screen mid-run, and leap
+        /// back when the region closed.
+        var preferBottom: Bool
 
         init(
             screenFrame: CGRect,
             visibleFrame: CGRect,
             hostWindowFrame: CGRect? = nil,
             safeAreaTop: CGFloat = 0,
-            menuBarHidden: Bool = false
+            menuBarHidden: Bool = false,
+            selectionRect: CGRect? = nil,
+            preferBottom: Bool = false
         ) {
             self.screenFrame = screenFrame
             self.visibleFrame = visibleFrame
             self.hostWindowFrame = hostWindowFrame
             self.safeAreaTop = safeAreaTop
             self.menuBarHidden = menuBarHidden
+            self.selectionRect = selectionRect
+            self.preferBottom = preferBottom
         }
     }
 
-    /// Which edge the lane hangs from. Drives the corner treatment: a
-    /// screen-anchored lane is flush to the top edge and rounds only its bottom
-    /// corners; a window-anchored lane floats and rounds all four.
-    enum Anchor: Equatable { case screen, hostWindow }
+    /// Which edge the lane hangs from. Drives the corner treatment: a lane
+    /// flush against the top of the screen rounds only its bottom corners, one
+    /// flush against the bottom rounds only its top corners, and a
+    /// window-anchored lane floats and rounds all four.
+    enum Anchor: Equatable { case screen, screenBottom, hostWindow }
 
     struct Resolution: Equatable {
         var frame: CGRect
         var anchor: Anchor
+        /// Whether the lane moved to the foot of its host to clear the
+        /// selection. `RibbonWindow` feeds this back as `preferBottom` and
+        /// reverses the entrance and exit slide.
+        var parked: Bool = false
     }
 
     /// Minimum clearance left above a window-anchored lane so the auto-revealing
@@ -82,11 +114,14 @@ enum RibbonPlacement {
     /// lane is still top-centered, so it still opens in one predictable place.
     static let maximumWidth: CGFloat = 1200
 
+    /// Breathing room left between the lane's edge and the selection it is
+    /// dodging, so a cleared selection does not sit flush against the lane.
+    static let selectionClearance: CGFloat = 8
+
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
         let menuBarReservesStrip = topGap > 1 && !context.menuBarHidden
 
-        let anchor: Anchor = menuBarReservesStrip ? .screen : .hostWindow
         let host = menuBarReservesStrip
             ? context.visibleFrame
             : (context.hostWindowFrame ?? context.screenFrame)
@@ -94,15 +129,48 @@ enum RibbonPlacement {
         let clearance = menuBarReservesStrip
             ? 0
             : max(revealClearance, context.safeAreaTop + 4)
+        // A screen-anchored lane parks flush on the visible frame's floor,
+        // which already excludes the Dock. A window-anchored one is floating
+        // over its host, so it keeps the same inset it uses at the top.
+        let footClearance = menuBarReservesStrip ? 0 : revealClearance
 
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
         let width = max(minimumWidth, min(host.width, maximumWidth))
         let x = host.minX + (host.width - width) / 2   // centered on the host
-        let y = host.maxY - clearance - height
 
-        let frame = CGRect(x: x, y: y, width: width, height: height)
-        return Resolution(frame: clamp(frame, to: context.screenFrame), anchor: anchor)
+        let top = clamp(
+            CGRect(x: x, y: host.maxY - clearance - height, width: width, height: height),
+            to: context.screenFrame)
+        let foot = clamp(
+            CGRect(x: x, y: host.minY + footClearance, width: width, height: height),
+            to: context.screenFrame)
+
+        let parked = shouldPark(top: top, foot: foot, in: context)
+        let anchor: Anchor = menuBarReservesStrip
+            ? (parked ? .screenBottom : .screen)
+            : .hostWindow
+        return Resolution(frame: parked ? foot : top, anchor: anchor, parked: parked)
+    }
+
+    /// The lane gives up its resting place only when staying would cover the
+    /// selection *and* moving would not. A selection tall enough to be hit at
+    /// both ends of the screen — a whole-screen host with everything selected
+    /// — leaves nowhere to hide, and there the predictable position is worth
+    /// more than a move that buys nothing.
+    private static func shouldPark(top: CGRect, foot: CGRect, in context: Context) -> Bool {
+        if context.preferBottom { return true }
+        guard let selection = avoidedSelection(in: context) else { return false }
+        return top.intersects(selection) && !foot.intersects(selection)
+    }
+
+    /// A caret is not a selection. With nothing selected the target is the
+    /// whole document, so there is no particular line the lane must keep
+    /// visible, and parking on every invocation with the caret near the top of
+    /// a window would be noise.
+    private static func avoidedSelection(in context: Context) -> CGRect? {
+        guard let rect = context.selectionRect, rect.width > 0, rect.height > 0 else { return nil }
+        return rect.insetBy(dx: 0, dy: -selectionClearance)
     }
 
     /// Keep the lane on the display. Both axes clamp against the *screen*

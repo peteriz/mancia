@@ -1626,3 +1626,104 @@ func placementFallsBackToTheScreenWithNoHostWindow() {
     #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
             "with no host to hang from, the screen edge stands in — inset all the same")
 }
+
+// MARK: - Ribbon placement: dodging the selection
+
+/// A selection on the first line of a window sitting flush under the menu bar.
+/// In AppKit coordinates that is just below `ribbonVisible.maxY` (875), which
+/// is exactly where a 56pt lane hanging from the menu bar lands: 819…875.
+private let selectionUnderTheMenuBar = CGRect(x: 20, y: 840, width: 260, height: 14)
+
+@Test("A lane that would cover the selection parks at the foot of the screen")
+func placementParksToClearTheSelection() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: selectionUnderTheMenuBar))
+
+    #expect(resolved.parked, "the resting lane covers the selected line")
+    #expect(resolved.anchor == .screenBottom, "a parked lane rounds its top corners instead")
+    #expect(resolved.frame.minY == ribbonVisible.minY, "flush on the visible frame's floor, above the Dock")
+    #expect(!resolved.frame.intersects(selectionUnderTheMenuBar), "which is the whole point")
+}
+
+@Test("A selection the lane already clears leaves it at its resting position")
+func placementStaysPutWhenTheSelectionIsClear() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: CGRect(x: 20, y: 400, width: 260, height: 14)))
+
+    #expect(!resolved.parked)
+    #expect(resolved.anchor == .screen)
+    #expect(resolved.frame.maxY == ribbonVisible.maxY)
+}
+
+@Test("A caret is not a selection, so it never moves the lane")
+func placementIgnoresACaret() {
+    let caret = CGRect(x: 20, y: 840, width: 0, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: caret))
+
+    #expect(!resolved.parked, "with nothing selected the target is the whole document")
+    #expect(resolved.anchor == .screen)
+}
+
+@Test("A selection with nowhere to hide keeps the predictable position")
+func placementKeepsItsPlaceWhenBothEndsAreCovered() {
+    // Everything on screen selected: parking would cover it just as thoroughly.
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: ribbonVisible))
+
+    #expect(!resolved.parked, "a move that buys nothing is worse than staying where the user expects")
+    #expect(resolved.anchor == .screen)
+}
+
+@Test("Clearance counts: a selection just below the lane still displaces it")
+func placementAppliesSelectionClearance() {
+    // Two points clear of the lane's underside, inside the 8pt clearance.
+    let snug = CGRect(x: 20, y: 819 - 14 - 2, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: snug))
+
+    #expect(resolved.parked, "the selection must not sit flush against the lane")
+}
+
+@Test("A parked lane stays parked when the review region grows it")
+func placementParkIsStickyForTheSession() {
+    // The taller lane no longer reaches the selection, but going back up would
+    // mean leaping the height of the screen mid-session.
+    let resolved = RibbonPlacement.resolve(
+        height: 91,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: CGRect(x: 20, y: 400, width: 260, height: 14),
+            preferBottom: true))
+
+    #expect(resolved.parked)
+    #expect(resolved.frame.minY == ribbonVisible.minY)
+}
+
+@Test("A window-anchored lane dodges too, and keeps floating over its host")
+func placementParksWithinAFullScreenHost() {
+    let host = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true,
+            selectionRect: CGRect(x: 20, y: 830, width: 260, height: 14)))
+
+    #expect(resolved.parked)
+    #expect(resolved.anchor == .hostWindow, "it is still floating, so it still rounds all four corners")
+    #expect(resolved.frame.minY == host.minY + RibbonPlacement.revealClearance)
+}

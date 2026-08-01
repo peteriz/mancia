@@ -19,6 +19,14 @@ final class RibbonWindow {
     /// lane is transient, and chasing a dragged window would be worse than
     /// staying put.
     private var hostWindow: HostWindowProbe.HostWindow?
+    /// The selection's bounds, read once in `show()` — before the lane takes
+    /// focus, after which the system-wide focused element is the Direction
+    /// field and the rect would describe the lane itself.
+    private var selectionRect: CGRect?
+    /// Set once the lane has moved to the foot of its host, and held for the
+    /// rest of the session so a growing review region cannot make it leap back
+    /// and forth. Cleared by `show()`.
+    private var parkedAtBottom = false
     private var screenObserver: (any NSObjectProtocol)?
     /// Bumped on every `show()`, so an exit animation still in flight when a
     /// new session opens cannot order the new lane out.
@@ -54,6 +62,8 @@ final class RibbonWindow {
         let panel = panel ?? makePanel()
         self.panel = panel
         hostWindow = HostWindowProbe.frontmostWindow()
+        selectionRect = SelectionCapture.selectionScreenRect()
+        parkedAtBottom = false
         let resolution = resolveFrame()
         observeScreenChanges()
         present(panel, at: resolution.frame)
@@ -73,7 +83,7 @@ final class RibbonWindow {
             context.timingFunction = Motion.curve
             if !reduced {
                 panel.animator().setFrame(
-                    resting.offsetBy(dx: 0, dy: resting.height), display: true)
+                    resting.offsetBy(dx: 0, dy: hiddenOffset(for: resting)), display: true)
             }
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
@@ -129,10 +139,11 @@ final class RibbonWindow {
                 panel.animator().alphaValue = 1
             }
         } else {
-            // Start a lane's height above its home and slide down into it. The
-            // lane sits below `.mainMenu`, so it genuinely emerges from behind
-            // the menu bar rather than over it.
-            panel.setFrame(frame.offsetBy(dx: 0, dy: frame.height), display: false)
+            // Start a lane's height off its home edge and slide into it. The
+            // lane sits below `.mainMenu`, so hanging from the menu bar it
+            // genuinely emerges from behind the menu bar rather than over it;
+            // parked at the foot of the screen it rises from below instead.
+            panel.setFrame(frame.offsetBy(dx: 0, dy: hiddenOffset(for: frame)), display: false)
             panel.alphaValue = 0
             panel.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
@@ -149,6 +160,12 @@ final class RibbonWindow {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
+    /// How far off screen the lane starts and ends its slide: up behind the
+    /// menu bar at its resting position, down past the bottom edge when parked.
+    private func hiddenOffset(for frame: CGRect) -> CGFloat {
+        parkedAtBottom ? -frame.height : frame.height
+    }
+
     // MARK: - Placement
 
     /// Resolve the lane's frame in two passes: the width falls out of the
@@ -161,6 +178,7 @@ final class RibbonWindow {
         let widthProbe = RibbonPlacement.resolve(height: 0, in: context)
         let height = measuredHeight(width: widthProbe.frame.width, anchor: widthProbe.anchor)
         let resolution = RibbonPlacement.resolve(height: height, in: context)
+        parkedAtBottom = resolution.parked
         hosting?.rootView = content(width: resolution.frame.width, anchor: resolution.anchor)
         return resolution
     }
@@ -209,7 +227,9 @@ final class RibbonWindow {
             visibleFrame: screen.visibleFrame,
             hostWindowFrame: hostWindow?.frame,
             safeAreaTop: screen.safeAreaInsets.top,
-            menuBarHidden: menuBarHidden
+            menuBarHidden: menuBarHidden,
+            selectionRect: selectionRect,
+            preferBottom: parkedAtBottom
         )
     }
 

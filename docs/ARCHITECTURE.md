@@ -35,7 +35,8 @@ Sources/Mancia/
 │   ├── RibbonWindow.swift        Hosts the lane: measures the view at the resolved width,
 │   │                             sets the frame, animates entry/exit, tracks screen changes
 │   ├── RibbonPlacement.swift     Pure placement resolver — screen-anchored under the menu
-│   │                             bar, or host-anchored under the host's title bar
+│   │                             bar, host-anchored under the host's title bar, or parked
+│   │                             at the host's foot when either would cover the selection
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
 │   ├── RibbonView.swift          The lane: Target / Action / Direction / Run, status strip
@@ -98,6 +99,15 @@ wired to call `coordinator.start()`.
      not: full-screen Spaces and auto-hidden menu bars both leave the lane
      nowhere safe to sit, and on a notched display the top of the screen is
      not addressable at all.
+
+   Either way the lane **parks at the foot of its host** if its resting frame
+   would cover the selected text. A window sitting flush under the menu bar —
+   a new TextEdit document, say — puts its first lines exactly where the lane
+   hangs, and a 56pt lane growing to ~91pt cannot hide behind a 28pt title
+   bar. Parking is decided once and held for the session, so a lane that grew
+   into the selection does not leap back when the review region closes. A bare
+   caret is not a selection: with nothing selected the target is the whole
+   document and there is no line to keep clear.
 
    The lane's **width is imposed by placement** (the host's width, clamped to
    a maximum and centered) and only its **height comes from content**, so the

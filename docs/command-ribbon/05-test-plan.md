@@ -116,6 +116,18 @@ re-grant Accessibility after each `make app` (`CLAUDE.md`).
 | P9 | Unplug a display while the lane is open | Lane repositions, stays on screen |
 | P10 | MacBook Pro notched display, full-screen | Clearance clears the camera housing |
 
+> **Superseding P2.** P2's expectation — that the lane covers the title bar and
+> not the text — turned out to be unachievable: a title bar is 28pt and the
+> lane is 56pt, growing to ~91pt with the review region open, so a lane hanging
+> from the menu bar always reaches into the content of a window sitting flush
+> below it. The rule now parks the lane at the foot of its host when the
+> resting frame would cover the selection. Two rows replace P2:
+>
+> | # | Scenario | Expect |
+> |---|---|---|
+> | P2a ▲ | Window flush under the menu bar, select its first line | Lane parks at the foot of the screen; the selected line stays visible |
+> | P2b | Same window, select a line well down the page | Lane stays flush under the menu bar |
+
 ### Editing behavior — parity with the panel
 
 The point of these is that the ribbon changed presentation only.
