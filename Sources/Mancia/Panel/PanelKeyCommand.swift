@@ -15,6 +15,8 @@ enum PanelKeyCommand: Equatable {
     case openSettings
     /// ⌘⏎ — run the primary action, same as Return.
     case submit
+    /// ⌘1 / ⌘2 — aim the edit at the selection or at the whole document.
+    case targetSelection, targetDocument
 
     /// Pure mapping from a key event's characters + modifiers, kept separate
     /// from NSEvent so it is unit-testable.
@@ -31,6 +33,35 @@ enum PanelKeyCommand: Equatable {
         case ("w", [.command]): return .closePanel
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
+        case ("1", [.command]): return .targetSelection
+        case ("2", [.command]): return .targetDocument
+        default: return nil
+        }
+    }
+
+    /// Tab and ⇧Tab, which move focus between the ribbon's cells.
+    ///
+    /// Resolved from the key code, and separately from the ⌘-shortcuts above,
+    /// because neither is a key equivalent: a bare Tab has no modifier to mark
+    /// it as a command, so both arrive through `sendEvent` rather than
+    /// `performKeyEquivalent`.
+    enum FocusMove: Equatable { case next, previous }
+
+    /// Return / keypad Enter, unmodified — the lane's primary key.
+    ///
+    /// Also not a key equivalent, and the Direction field is the only cell that
+    /// answers it on its own (through `onSubmit`), so every other focus stop
+    /// needs the window to run it.
+    static func isPrimaryReturn(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard keyCode == 36 || keyCode == 76 else { return false }
+        return modifiers.intersection([.command, .shift, .option, .control]).isEmpty
+    }
+
+    static func focusMove(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> FocusMove? {
+        guard keyCode == 48 else { return nil }
+        switch modifiers.intersection([.command, .shift, .option, .control]) {
+        case []: return .next
+        case [.shift]: return .previous
         default: return nil
         }
     }

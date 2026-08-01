@@ -304,7 +304,31 @@ final class RibbonWindow {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
-        panel.onKeyDown = { [weak self] event in self?.onKeyDown?(event) ?? false }
+        panel.onKeyDown = { [weak self] event in
+            guard let self else { return false }
+            // Tab is not a key equivalent, so it never reaches
+            // `performKeyEquivalent`; the lane claims it here instead.
+            if let move = PanelKeyCommand.focusMove(
+                keyCode: event.keyCode, modifiers: event.modifierFlags)
+            {
+                model.moveFocus(move)
+                return true
+            }
+            if onKeyDown?(event) == true { return true }
+            // Return is the lane's primary key from every focus stop. The
+            // Direction field answers its own through `onSubmit`, so it is
+            // excluded here or the action would run twice.
+            if PanelKeyCommand.isPrimaryReturn(
+                keyCode: event.keyCode, modifiers: event.modifierFlags),
+                model.focusedCell != .direction,
+                model.phase != .running, model.phase != .confirm
+            {
+                model.runPrimary()
+                return true
+            }
+            return false
+        }
+        panel.onTargetScope = { [weak self] scope in self?.model.setScope(scope) }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }

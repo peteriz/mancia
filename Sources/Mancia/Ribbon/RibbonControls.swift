@@ -208,3 +208,28 @@ struct SwooshBorder<S: InsettableShape>: View {
         )
     }
 }
+
+// MARK: - Focus ring
+
+extension View {
+    /// The lane's focus ring.
+    ///
+    /// A firmer neutral edge, never the accent: vermilion appears exactly once
+    /// per surface and spending it on focus would empty it of meaning. Drawn
+    /// outside the control so it never reflows the cell it belongs to.
+    ///
+    /// The system effect is switched off with it — left on, AppKit draws its
+    /// blue ring over the top, which is the system accent by another name and
+    /// reads as a second highlight colour on a surface that allows one.
+    func ribbonFocusRing(
+        _ focused: Bool, radius: CGFloat = 6, inset: CGFloat = -4
+    ) -> some View {
+        focusEffectDisabled()
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(RibbonPalette.text.opacity(focused ? 0.35 : 0), lineWidth: 2)
+                    .padding(inset)
+                    .allowsHitTesting(false)
+            )
+    }
+}

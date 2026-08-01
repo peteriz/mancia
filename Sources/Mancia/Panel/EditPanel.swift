@@ -85,6 +85,7 @@ final class EditPanel {
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
         panel.onKeyDown = { [weak self] event in self?.onKeyDown?(event) ?? false }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        panel.onTargetScope = { [weak self] scope in self?.model.setScope(scope) }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }
             // Mirror the Return key: inert while a request runs or a

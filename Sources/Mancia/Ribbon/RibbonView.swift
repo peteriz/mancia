@@ -26,7 +26,9 @@ struct RibbonView: View {
     /// Tell the window the lane wants to be a different height.
     var onLayoutChange: () -> Void = {}
 
-    @FocusState private var fieldFocused: Bool
+    /// Mirrors `model.focusedCell`. The model is the source of truth because
+    /// Tab arrives at the window rather than at a view.
+    @FocusState private var focus: PanelModel.Cell?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The command row's fixed height. Everything below it — the status strip,
@@ -48,10 +50,12 @@ struct RibbonView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
         .onExitCommand { model.onCancel?() }
-        .onAppear { fieldFocused = true }
-        .onChange(of: model.sessionSeq) { fieldFocused = true }
-        .onChange(of: model.focusSeq) { fieldFocused = true }
-        .onChange(of: model.phase) { announcePhase(); relayout() }
+        .onAppear { focus = model.focusedCell }
+        .onChange(of: model.sessionSeq) { focusDirection() }
+        .onChange(of: model.focusSeq) { focusDirection() }
+        .onChange(of: model.focusedCell) { adopt(model.focusedCell) }
+        .onChange(of: focus) { if let focus, isLive { model.focusedCell = focus } }
+        .onChange(of: model.phase) { announcePhase(); relayout(); adopt(model.focusedCell) }
         .onChange(of: model.capturing) { relayout() }
         .onChange(of: model.versionCount) { relayout() }
         .onChange(of: model.previewExpanded) { relayout() }
@@ -131,8 +135,8 @@ struct RibbonView: View {
                 value(Text("Reading…"))
             } else if model.hasSelection {
                 Menu {
-                    Button("Selection · \(model.selectionCharCount)") { model.scope = .selection }
-                    Button("Entire document") { model.scope = .document }
+                    Button("Selection · \(model.selectionCharCount)") { model.setScope(.selection) }
+                    Button("Entire document") { model.setScope(.document) }
                 } label: {
                     menuLabel(targetText)
                 }
@@ -140,6 +144,9 @@ struct RibbonView: View {
                 .buttonStyle(.plain)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .focusable()
+                .focused($focus, equals: .target)
+                .ribbonFocusRing(focus == .target)
                 .accessibilityLabel("Target")
                 .accessibilityIdentifier("Scope")
             } else {
@@ -179,6 +186,9 @@ struct RibbonView: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
+            .focusable()
+            .focused($focus, equals: .action)
+            .ribbonFocusRing(focus == .action)
             .accessibilityLabel("Action")
             .accessibilityIdentifier("Action")
         }
@@ -192,7 +202,8 @@ struct RibbonView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(RibbonPalette.text)
-                .focused($fieldFocused)
+                .focused($focus, equals: .direction)
+                .ribbonFocusRing(focus == .direction, inset: -2)
                 .onSubmit { model.runPrimary() }
                 .accessibilityLabel("Direction")
                 .accessibilityIdentifier("CustomInstruction")
@@ -222,6 +233,9 @@ struct RibbonView: View {
                 .contentShape(runShape)
         }
         .buttonStyle(.plain)
+        .focusable()
+        .focused($focus, equals: .run)
+        .ribbonFocusRing(focus == .run, radius: 8, inset: -3)
         .disabled(locked)
         .help(model.resolvedActionTitle)
         .accessibilityLabel("Run")
@@ -423,5 +437,27 @@ extension RibbonView {
     fileprivate func relayout() {
         guard isLive else { return }
         onLayoutChange()
+    }
+
+    // MARK: - Focus
+
+    /// Put focus back in Direction — on open, and whenever the lane retakes
+    /// key status.
+    fileprivate func focusDirection() {
+        model.focusedCell = .direction
+        adopt(.direction)
+    }
+
+    /// Take the model's focus and hand it to SwiftUI, one turn later.
+    ///
+    /// Deferred because the cell may still be disabled in the update that
+    /// changed the phase; SwiftUI drops focus on a disabled control, so
+    /// claiming it in the same turn would be undone immediately.
+    fileprivate func adopt(_ cell: PanelModel.Cell) {
+        guard isLive else { return }
+        Task { @MainActor in
+            guard model.focusedCell == cell else { return }
+            focus = cell
+        }
     }
 }

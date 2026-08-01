@@ -13,6 +13,8 @@ import Observation
 final class PanelModel {
     enum Phase: Equatable { case idle, running, confirm, applied, error }
     enum Scope: Equatable { case selection, document }
+    /// The ribbon's focusable cells, listed in Tab order.
+    enum Cell: Hashable, CaseIterable { case target, action, direction, run }
 
     var phase: Phase = .idle
     var scope: Scope = .selection
@@ -54,6 +56,12 @@ final class PanelModel {
     /// Bumped whenever the panel retakes key status (e.g. after the Settings
     /// window closes) so the view puts focus back in the field.
     var focusSeq = 0
+    /// Which cell holds keyboard focus.
+    ///
+    /// Lives on the model because Tab is not a key equivalent: it arrives at
+    /// the window, which has no way to reach a view-local `@FocusState`. The
+    /// view mirrors this into one, in both directions.
+    var focusedCell: Cell = .direction
 
     // Wired by EditCoordinator.
     /// Run an action, optionally with guidance the user typed alongside it.
@@ -85,7 +93,33 @@ final class PanelModel {
         errorDetailsExpanded = false
         versionCount = 0
         currentIndex = 0
+        focusedCell = .direction
         sessionSeq &+= 1
+    }
+
+    /// ⌘1 / ⌘2, and the Target menu. Aiming at the selection is inert when
+    /// there is no selection to aim at.
+    func setScope(_ scope: Scope) {
+        guard scope == .document || hasSelection else { return }
+        self.scope = scope
+    }
+
+    /// Tab / ⇧Tab, wrapping at both ends.
+    func moveFocus(_ move: PanelKeyCommand.FocusMove) {
+        let cells = focusableCells
+        let step = move == .next ? 1 : cells.count - 1
+        guard let current = cells.firstIndex(of: focusedCell) else {
+            focusedCell = cells[0]
+            return
+        }
+        focusedCell = cells[(current + step) % cells.count]
+    }
+
+    /// Target drops out of the ring while it is a static label — there is no
+    /// selection to choose, so there is nothing there to operate.
+    var focusableCells: [Cell] {
+        guard hasSelection, !capturing else { return Cell.allCases.filter { $0 != .target } }
+        return Cell.allCases
     }
 
     /// True when the user has typed something to act on, as opposed to leaving

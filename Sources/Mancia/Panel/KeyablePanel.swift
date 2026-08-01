@@ -12,6 +12,8 @@ final class KeyablePanel: NSPanel {
     var onKeyDown: ((NSEvent) -> Bool)?
     var onOpenSettings: (() -> Void)?
     var onSubmit: (() -> Void)?
+    /// ⌘1 / ⌘2 — aim the edit at the selection or at the whole document.
+    var onTargetScope: ((PanelModel.Scope) -> Void)?
 
     override var canBecomeKey: Bool { true }
 
@@ -45,6 +47,8 @@ final class KeyablePanel: NSPanel {
         case .closePanel: onCancel?()
         case .openSettings: onOpenSettings?()
         case .submit: onSubmit?()
+        case .targetSelection: onTargetScope?(.selection)
+        case .targetDocument: onTargetScope?(.document)
         }
         // Always consume a recognized shortcut, like a menu item would —
         // a no-op (e.g. nothing to undo) should not fall through and beep.

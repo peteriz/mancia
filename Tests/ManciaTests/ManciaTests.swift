@@ -1035,6 +1035,8 @@ func panelKeyCommandsResolve() {
         ("w", .command, .closePanel),
         (",", .command, .openSettings),
         ("\r", .command, .submit),
+        ("1", .command, .targetSelection),
+        ("2", .command, .targetDocument),
     ]
     for c in cases {
         #expect(
@@ -1054,6 +1056,86 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "1", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "3", modifiers: .command) == nil)
+}
+
+@Test("Tab and shift-Tab resolve to focus moves")
+func panelKeyCommandsResolveFocusMoves() {
+    let tab: UInt16 = 48
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: []) == .next)
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: .shift) == .previous)
+    // Tab with a command modifier belongs to the system app switcher.
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: .command) == nil)
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: [.shift, .option]) == nil)
+    // Any other key, including Return, is not a focus move.
+    #expect(PanelKeyCommand.focusMove(keyCode: 36, modifiers: []) == nil)
+}
+
+@Test("Return and keypad Enter are the primary key, unmodified")
+func panelKeyCommandsResolvePrimaryReturn() {
+    #expect(PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: []))
+    #expect(PanelKeyCommand.isPrimaryReturn(keyCode: 76, modifiers: []))
+    // ⌘⏎ has its own route through `performKeyEquivalent`.
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: .command))
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: .shift))
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 48, modifiers: []))
+}
+
+// MARK: - Ribbon keyboard model
+
+@MainActor
+@Test("Tab cycles the ribbon's cells in order and wraps")
+func ribbonFocusCycles() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 12)
+    #expect(model.focusedCell == .direction)
+
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .run)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .target)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action)
+
+    model.moveFocus(.previous)
+    #expect(model.focusedCell == .target)
+    model.moveFocus(.previous)
+    #expect(model.focusedCell == .run)
+}
+
+@MainActor
+@Test("Target leaves the focus ring when there is no selection")
+func ribbonFocusSkipsStaticTarget() {
+    let model = PanelModel()
+    model.reset(hasSelection: false, charCount: 0)
+    #expect(model.focusableCells == [.action, .direction, .run])
+
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .run)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action)
+
+    // Capturing hides the menu the same way, so the cell drops out too.
+    model.reset(hasSelection: true, charCount: 8)
+    model.capturing = true
+    #expect(model.focusableCells == [.action, .direction, .run])
+}
+
+@MainActor
+@Test("Command-1 is inert without a selection")
+func ribbonTargetShortcutsSetScope() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.setScope(.document)
+    #expect(model.scope == .document)
+    model.setScope(.selection)
+    #expect(model.scope == .selection)
+
+    model.reset(hasSelection: false, charCount: 0)
+    #expect(model.scope == .document)
+    model.setScope(.selection)
+    #expect(model.scope == .document, "aiming at a selection that isn't there does nothing")
 }
 
 // MARK: - Shortcut recorder (native replacement for KeyboardShortcuts.Recorder)
