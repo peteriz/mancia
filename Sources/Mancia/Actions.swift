@@ -2,10 +2,15 @@ import Foundation
 
 /// A text-editing action the user can invoke from the panel.
 ///
-/// `improve` is the panel's single hero action — a proofread + rewrite blend.
-/// The other cases remain available through the debug CLI and prompt tests.
+/// `improve` is the panel's default action — a proofread + rewrite blend.
+/// `sharpen`, `planFirst`, and `tighten` are the agent-prompt presets offered
+/// beside it in the dropdown. The remaining cases stay available through the
+/// debug CLI and prompt tests.
 enum EditAction: Equatable, Sendable {
     case improve
+    case sharpen
+    case planFirst
+    case tighten
     case rewrite
     case summarize
     case fixGrammar
@@ -15,6 +20,9 @@ enum EditAction: Equatable, Sendable {
     var title: String {
         switch self {
         case .improve: return "Improve"
+        case .sharpen: return "Sharpen"
+        case .planFirst: return "Plan first"
+        case .tighten: return "Tighten"
         case .rewrite: return "Rewrite"
         case .summarize: return "Summarize"
         case .fixGrammar: return "Proofread"
@@ -33,6 +41,9 @@ enum EditAction: Equatable, Sendable {
     var symbol: String {
         switch self {
         case .improve: return "wand.and.rays"
+        case .sharpen: return "target"
+        case .planFirst: return "checklist"
+        case .tighten: return "arrow.down.right.and.arrow.up.left"
         case .rewrite: return "pencil.and.outline"
         case .summarize: return "text.line.first.and.arrowtriangle.forward"
         case .fixGrammar: return "text.badge.checkmark"
@@ -44,6 +55,9 @@ enum EditAction: Equatable, Sendable {
     var progressLabel: String {
         switch self {
         case .improve: return "Improving"
+        case .sharpen: return "Sharpening"
+        case .planFirst: return "Planning"
+        case .tighten: return "Tightening"
         case .rewrite: return "Rewriting"
         case .summarize: return "Summarizing"
         case .fixGrammar: return "Proofreading"
@@ -58,6 +72,9 @@ enum EditAction: Equatable, Sendable {
         }
         switch raw {
         case "improve": return .improve
+        case "sharpen": return .sharpen
+        case "plan-first", "planFirst": return .planFirst
+        case "tighten": return .tighten
         case "rewrite": return .rewrite
         case "summarize": return .summarize
         case "fix-grammar", "fixGrammar": return .fixGrammar
@@ -119,6 +136,48 @@ enum PromptBuilder {
         ]
     )
 
+    /// Restructures a message into the shape coding agents follow best: goal
+    /// first, constraints explicit, concrete anchors intact. It reorganizes what
+    /// is there rather than generating new material — which keeps the output
+    /// roughly input-sized, and so keeps the edit fast.
+    static let sharpenTemplate = PromptTemplate(
+        task: "Restructure the text into a clear, action-oriented instruction for an AI coding agent.",
+        requirements: [
+            "State the goal first, in direct imperative voice.",
+            "Pull constraints, requirements, and success criteria into short explicit lines.",
+            "Keep every file name, path, command, identifier, number, and error message exactly as written.",
+            "Do not add requirements, assumptions, or details that are not in the text, and do not remove any.",
+            "Fix spelling, grammar, and awkward phrasing along the way.",
+        ]
+    )
+
+    /// Reframes an implementation request as an investigate-then-plan request.
+    /// The compactness requirement matters: without it the model tends to answer
+    /// with a plan instead of rewriting the ask into one.
+    static let planFirstTemplate = PromptTemplate(
+        task:
+            "Rewrite the text as a request for the agent to investigate and propose a plan before making any changes.",
+        requirements: [
+            "Keep the original goal, constraints, and every concrete detail (files, paths, commands, names, numbers) intact.",
+            "Frame the ask as: explore the relevant code, then present a step-by-step plan and any open questions, and wait for approval before implementing.",
+            "Do not invent steps, files, or requirements that are not implied by the text.",
+            "Do not answer the request or produce the plan yourself — rewrite the request so the agent will.",
+            "Keep it compact: a short planning preamble plus the cleaned-up request, not a document.",
+        ]
+    )
+
+    /// Compresses to the shortest faithful version. Distinct from `summarize`,
+    /// which deliberately drops supporting detail — here every requirement must
+    /// survive, and only filler is cut.
+    static let tightenTemplate = PromptTemplate(
+        task: "Rewrite the text as the shortest version that preserves every requirement.",
+        requirements: [
+            "Keep every constraint, file name, path, command, identifier, number, and acceptance criterion.",
+            "Cut filler, hedging, repetition, and politeness; use direct imperative phrasing.",
+            "Do not drop or weaken any requirement, and do not add anything.",
+        ]
+    )
+
     /// Build the prompt for an action.
     ///
     /// - Parameter note: optional guidance the user typed alongside a preset,
@@ -142,6 +201,9 @@ enum PromptBuilder {
         let base: PromptTemplate
         switch action {
         case .improve: base = improveTemplate
+        case .sharpen: base = sharpenTemplate
+        case .planFirst: base = planFirstTemplate
+        case .tighten: base = tightenTemplate
         case .rewrite: base = rewriteTemplate
         case .summarize: base = summarizeTemplate
         case .fixGrammar: base = proofreadTemplate
