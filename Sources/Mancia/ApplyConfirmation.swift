@@ -25,4 +25,16 @@ enum ApplyConfirmation {
     static func summary(originalCharacters: Int, resultCharacters: Int) -> String {
         "\(originalCharacters) → \(resultCharacters) chars"
     }
+
+    /// The same size change, spelled out for the ribbon's review region, which
+    /// has room for it. Grouped thousands, because here the number is being
+    /// read as a magnitude rather than glanced at.
+    ///
+    /// Grouping is left to `IntegerFormatStyle` rather than hand-rolled, since
+    /// the separator and the grouping size both vary by locale.
+    static func detailedSummary(originalCharacters: Int, resultCharacters: Int) -> String {
+        let original = originalCharacters.formatted(.number.grouping(.automatic))
+        let result = resultCharacters.formatted(.number.grouping(.automatic))
+        return "\(original) → \(result) characters"
+    }
 }

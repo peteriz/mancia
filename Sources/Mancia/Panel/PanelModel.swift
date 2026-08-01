@@ -32,6 +32,19 @@ final class PanelModel {
     /// of a whole-document replacement (`.confirm` phase).
     var pendingOriginalCharCount = 0
     var pendingResultCharCount = 0
+    /// The pending result itself, so the review region can show what is about
+    /// to overwrite the document. Cleared as soon as the decision is made —
+    /// this is the user's text and there is no reason to hold it longer.
+    var pendingResultPreview = ""
+    /// Whether the review region's result preview and the error strip's detail
+    /// are disclosed.
+    ///
+    /// View state that lives on the model on purpose: the ribbon is rendered by
+    /// two hosting views — one on screen, one off screen that measures the
+    /// height the window is sized to — and a `@State` flag would leave the two
+    /// disagreeing about how tall the lane is.
+    var previewExpanded = false
+    var errorDetailsExpanded = false
     /// Iteration history: number of versions (original + one per applied
     /// result) and which version the document currently shows.
     var versionCount = 0
@@ -67,6 +80,9 @@ final class PanelModel {
         errorText = ""
         pendingOriginalCharCount = 0
         pendingResultCharCount = 0
+        pendingResultPreview = ""
+        previewExpanded = false
+        errorDetailsExpanded = false
         versionCount = 0
         currentIndex = 0
         sessionSeq &+= 1

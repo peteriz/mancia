@@ -281,6 +281,24 @@ func confirmationSummary() {
     #expect(ApplyConfirmation.summary(originalCharacters: 0, resultCharacters: 0) == "0 → 0 chars")
 }
 
+@Test("The review region's summary is spelled out and grouped")
+func detailedConfirmationSummary() {
+    let summary = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716)
+
+    #expect(summary.hasSuffix(" characters"), "the review region has room for the whole word")
+    #expect(summary.contains("→"))
+    // Grouping is locale-dependent — a US separator would be wrong under a
+    // German locale — so assert the digits survive rather than the separator.
+    #expect(summary.filter(\.isNumber) == "38423716")
+    #expect(
+        summary.count > "3842 → 3716 characters".count,
+        "a four-digit count should have gained a grouping separator on each side")
+
+    let small = ApplyConfirmation.detailedSummary(originalCharacters: 0, resultCharacters: 12)
+    #expect(small == "0 → 12 characters", "short counts get no separator in any locale")
+}
+
 @MainActor
 @Test("Whole-document confirmation defaults on and persists")
 func confirmSettingDefaultsOnAndPersists() {

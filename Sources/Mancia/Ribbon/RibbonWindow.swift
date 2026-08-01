@@ -13,8 +13,6 @@ final class RibbonWindow {
     private let model: PanelModel
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?
-    private lazy var measurer = NSHostingView(
-        rootView: content(width: RibbonPlacement.minimumWidth, anchor: .screen))
     /// The host window's frame, captured once per `show()`. Deliberately not
     /// re-read on every reposition: the lane is transient, and chasing a
     /// dragged window would be worse than staying put.
@@ -167,17 +165,37 @@ final class RibbonWindow {
 
     /// Lay the lane out at `width` off screen and report the height it wants.
     ///
-    /// Measuring on a detached view rather than the live one is deliberate:
-    /// forcing layout on a view inside a window trips AppKit's layer-tree
-    /// re-entrancy assertion when a reposition lands during display, and a
-    /// windowless host has no safe-area inset to subtract either.
+    /// A throwaway host each time, rather than one kept around and re-rooted.
+    /// Two reasons, both learned the hard way: forcing layout on the *live*
+    /// view trips AppKit's layer-tree re-entrancy assertion when a reposition
+    /// lands during display, and a *reused* host answers `fittingSize` from
+    /// the layout it last completed, so a height change measured in the same
+    /// run-loop turn comes back as the height the lane is leaving. A fresh
+    /// host has nothing to be stale about. It costs one view per height
+    /// change, of which there are a handful per session.
     private func measuredHeight(width: CGFloat, anchor: RibbonPlacement.Anchor) -> CGFloat {
-        measurer.rootView = content(width: width, anchor: anchor)
-        return max(1, measurer.fittingSize.height)
+        let host = NSHostingView(rootView: measurementContent(width: width, anchor: anchor))
+        host.safeAreaRegions = []
+        return max(1, host.fittingSize.height)
     }
 
     private func content(width: CGFloat, anchor: RibbonPlacement.Anchor) -> RibbonView {
-        RibbonView(model: model, width: width, anchor: anchor)
+        RibbonView(
+            model: model, width: width, anchor: anchor,
+            // Deferred a turn on purpose: the callback fires from inside
+            // SwiftUI's update, and measuring before that update has settled
+            // reports the height the lane is leaving, not the one it wants.
+            onLayoutChange: { [weak self] in
+                Task { @MainActor in self?.reposition() }
+            })
+    }
+
+    /// The off-screen copy used only for sizing. It must not ask for a resize
+    /// while it is being measured, or the measurement would recurse.
+    private func measurementContent(
+        width: CGFloat, anchor: RibbonPlacement.Anchor
+    ) -> RibbonView {
+        RibbonView(model: model, width: width, anchor: anchor, isLive: false)
     }
 
     private func currentContext() -> RibbonPlacement.Context {
@@ -246,6 +264,11 @@ final class RibbonWindow {
         // panel's safe area pushes the content down and the lane stops
         // touching the menu bar.
         hosting.safeAreaRegions = []
+        // The lane's height is placement's decision, not the hosting view's.
+        // Left to itself NSHostingView resizes the window to fit its content,
+        // which grows the lane *upward* from a fixed origin and races the
+        // reposition that would have anchored it to the top edge.
+        hosting.sizingOptions = []
         self.hosting = hosting
 
         let panel = KeyablePanel(

@@ -230,6 +230,7 @@ final class EditCoordinator {
         pendingApply = (output, baseline)
         model.pendingOriginalCharCount = baseline.count
         model.pendingResultCharCount = output.count
+        model.pendingResultPreview = output
         model.phase = .confirm
         panel.focus()
     }
@@ -241,6 +242,7 @@ final class EditCoordinator {
     private func confirmApply() {
         guard model.phase == .confirm, let capture, let pending = pendingApply else { return }
         pendingApply = nil
+        model.pendingResultPreview = ""
         model.runningTitle = "Replacing document"
         model.phase = .running
         currentTask?.cancel()
@@ -375,6 +377,7 @@ final class EditCoordinator {
         autoCloseTask = nil
         // Discard any result awaiting confirmation and return to a resting state.
         pendingApply = nil
+        model.pendingResultPreview = ""
         model.phase = versions.count > 1 ? .applied : .idle
         panel.focus()
     }
