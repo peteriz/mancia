@@ -318,18 +318,18 @@ func confirmSettingDefaultsOnAndPersists() {
 }
 
 @MainActor
-@Test("The ribbon is off until it is switched on")
-func ribbonSettingDefaultsOff() {
+@Test("The ribbon is the default presentation")
+func ribbonSettingDefaultsOn() {
     let suite = "mancia-test-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
     defer { defaults.removePersistentDomain(forName: suite) }
 
     let first = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(first.ribbonEnabled == false, "absent key means the panel, for now")
+    #expect(first.ribbonEnabled == true, "absent key means the ribbon")
 
-    first.ribbonEnabled = true
+    first.ribbonEnabled = false
     let second = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(second.ribbonEnabled == true)
+    #expect(second.ribbonEnabled == false)
 }
 
 @MainActor
@@ -1167,6 +1167,53 @@ func ribbonTargetShortcutsSetScope() {
     #expect(model.scope == .document, "aiming at a selection that isn't there does nothing")
 }
 
+@MainActor
+@Test("A fresh session asks the view to refocus the field")
+func ribbonResetRefocusesTheField() {
+    let model = PanelModel()
+    model.focusedCell = .run
+    let before = model.sessionSeq
+
+    model.reset(hasSelection: true, charCount: 30)
+
+    #expect(model.focusedCell == .direction)
+    #expect(
+        model.sessionSeq == before &+ 1,
+        "the lane's hosting view outlives a session, so the bump is what re-asserts focus")
+}
+
+@MainActor
+@Test("Choosing from a menu hands focus back to Direction")
+func ribbonMenuChoiceReturnsFocus() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.focusedCell = .action
+    let before = model.focusSeq
+
+    model.returnFocusToDirection()
+
+    #expect(model.focusedCell == .direction)
+    #expect(
+        model.focusSeq == before &+ 1,
+        "the bump is what makes the view adopt focus even when the cell already matched")
+}
+
+@MainActor
+@Test("A retry collapses what the previous attempt disclosed")
+func ribbonRunCollapsesDisclosures() {
+    let model = PanelModel()
+    model.phase = .error
+    model.errorDetailsExpanded = true
+    model.previewExpanded = true
+
+    model.phase = .running
+
+    #expect(model.errorDetailsExpanded == false)
+    #expect(
+        model.previewExpanded == false,
+        "a stale disclosure desyncs the flag from the height the lane was measured at")
+}
+
 // MARK: - Shortcut recorder (native replacement for KeyboardShortcuts.Recorder)
 
 @Test("Modifier symbols render in canonical ⌃⌥⇧⌘ order")
@@ -1575,4 +1622,36 @@ func placementTreatsASubPixelGapAsHidden() {
         in: .init(screenFrame: ribbonScreen, visibleFrame: visible, hostWindowFrame: ribbonScreen))
 
     #expect(resolved.anchor == .hostWindow, "the threshold is the rule's hinge; half a point is not a menu bar")
+}
+
+@Test("A notched display's reserved strip still yields to a full-screen host")
+func placementPrefersTheHostWhenTheMenuBarIsHidden() {
+    // Measured on a 14" MacBook Pro: the notch keeps `visibleFrame` short of
+    // `frame` even in a full-screen Space, so geometry alone reads as "menu bar
+    // present" and the lane would cover the host's first line.
+    let notched = CGRect(x: 0, y: 0, width: 1470, height: 956)
+    let visible = CGRect(x: 0, y: 0, width: 1470, height: 923)
+    let host = CGRect(x: 0, y: 0, width: 1470, height: 923)
+
+    let covered = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: notched, visibleFrame: visible,
+        hostWindowFrame: host, safeAreaTop: 32))
+    #expect(covered.anchor == .screen, "the measurement on its own cannot tell")
+
+    let resolved = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: notched, visibleFrame: visible,
+        hostWindowFrame: host, safeAreaTop: 32, menuBarHidden: true))
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == host.maxY - 36, "clears the camera housing by 4pt")
+}
+
+@Test("A hidden menu bar does not override a host the probe never resolved")
+func placementFallsBackToTheScreenWithNoHostWindow() {
+    let resolved = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+        hostWindowFrame: nil, safeAreaTop: 0, menuBarHidden: true))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
+            "with no host to hang from, the screen edge stands in — inset all the same")
 }

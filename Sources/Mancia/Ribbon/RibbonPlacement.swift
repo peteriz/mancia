@@ -11,12 +11,18 @@ import CoreGraphics
 /// > the host window's top edge, inset below the reveal area. Otherwise anchor
 /// > to the screen, directly below the menu bar.
 ///
-/// The detection signal is a measurement rather than a capability query:
-/// `screenFrame.maxY - visibleFrame.maxY`. `visibleFrame` excludes the menu bar
-/// at the top and the Dock at the bottom or sides, so the *top* gap isolates
-/// the menu-bar strip exactly. That one number covers both a full-screen Space
-/// and the "automatically hide and show the menu bar" preference, which is why
-/// it is preferred to an `AXFullScreen` read or a defaults lookup.
+/// The primary detection signal is a measurement rather than a capability
+/// query: `screenFrame.maxY - visibleFrame.maxY`. `visibleFrame` excludes the
+/// menu bar at the top and the Dock at the bottom or sides, so the *top* gap
+/// isolates the menu-bar strip.
+///
+/// On a notched display that measurement is not enough on its own. There the
+/// top strip is permanently unavailable to ordinary windows, so `visibleFrame`
+/// stops short of `frame` whether or not a menu bar is drawn — measured on a
+/// 14" MacBook Pro, the gap is 33pt with the menu bar shown, 32pt with it
+/// auto-hidden, and still 33pt while another app owns a full-screen Space.
+/// Geometry alone therefore cannot separate the two states, so `menuBarHidden`
+/// carries the answer explicitly; see `RibbonWindow.currentContext()`.
 enum RibbonPlacement {
     /// Everything the rule needs, all injectable.
     struct Context: Equatable {
@@ -29,17 +35,23 @@ enum RibbonPlacement {
         var hostWindowFrame: CGRect?
         /// The screen's top safe-area inset — non-zero on notched displays.
         var safeAreaTop: CGFloat
+        /// `true` when no menu bar is drawn over the host: the frontmost window
+        /// owns a full-screen Space, or the menu bar is set to auto-hide. It
+        /// overrides the measured gap, which a notched display leaves ambiguous.
+        var menuBarHidden: Bool
 
         init(
             screenFrame: CGRect,
             visibleFrame: CGRect,
             hostWindowFrame: CGRect? = nil,
-            safeAreaTop: CGFloat = 0
+            safeAreaTop: CGFloat = 0,
+            menuBarHidden: Bool = false
         ) {
             self.screenFrame = screenFrame
             self.visibleFrame = visibleFrame
             self.hostWindowFrame = hostWindowFrame
             self.safeAreaTop = safeAreaTop
+            self.menuBarHidden = menuBarHidden
         }
     }
 
@@ -72,7 +84,7 @@ enum RibbonPlacement {
 
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
-        let menuBarReservesStrip = topGap > 1
+        let menuBarReservesStrip = topGap > 1 && !context.menuBarHidden
 
         let anchor: Anchor = menuBarReservesStrip ? .screen : .hostWindow
         let host = menuBarReservesStrip

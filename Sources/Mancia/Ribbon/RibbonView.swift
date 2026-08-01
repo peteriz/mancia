@@ -50,6 +50,11 @@ struct RibbonView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
         .onExitCommand { model.onCancel?() }
+        // Without this, SwiftUI picks its own initial focus when the lane
+        // becomes key — the Action menu, in practice — and it does so *after*
+        // `focusDirection` has run, so the model's choice loses the race and
+        // the first thing typed goes nowhere.
+        .defaultFocus($focus, .direction)
         .onAppear { focus = model.focusedCell }
         .onChange(of: model.sessionSeq) { focusDirection() }
         .onChange(of: model.focusSeq) { focusDirection() }
@@ -135,8 +140,14 @@ struct RibbonView: View {
                 value(Text("Reading…"))
             } else if model.hasSelection {
                 Menu {
-                    Button("Selection · \(model.selectionCharCount)") { model.setScope(.selection) }
-                    Button("Entire document") { model.setScope(.document) }
+                    Button("Selection · \(model.selectionCharCount)") {
+                        model.setScope(.selection)
+                        model.returnFocusToDirection()
+                    }
+                    Button("Entire document") {
+                        model.setScope(.document)
+                        model.returnFocusToDirection()
+                    }
                 } label: {
                     menuLabel(targetText)
                 }
@@ -173,12 +184,16 @@ struct RibbonView: View {
                 ForEach(PanelPreset.all) { preset in
                     Button {
                         model.pinnedPreset = preset
+                        model.returnFocusToDirection()
                     } label: {
                         Label(preset.title, systemImage: preset.action.symbol)
                     }
                 }
                 Divider()
-                Button("Your instruction") { model.pinnedPreset = nil }
+                Button("Your instruction") {
+                    model.pinnedPreset = nil
+                    model.returnFocusToDirection()
+                }
             } label: {
                 menuLabel(model.resolvedActionTitle)
             }
@@ -222,23 +237,27 @@ struct RibbonView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(RibbonPalette.onAction)
                 .frame(minWidth: 84, minHeight: 32)
-                .background(runShape.fill(RibbonPalette.action))
-                .opacity(locked ? 0.5 : 1)
-                .overlay {
-                    if model.phase == .running {
-                        SwooshBorder(
-                            shape: runShape, tint: RibbonPalette.action, animated: !reduceMotion)
-                    }
-                }
-                .contentShape(runShape)
         }
         .buttonStyle(.plain)
+        // The fill and the running border hang off the button rather than off
+        // its label: a `Text` wrapped in a background is rendered as an image,
+        // and an image-backed button has no accessible name to override.
+        .background(runShape.fill(RibbonPalette.action))
+        .opacity(locked ? 0.5 : 1)
+        .overlay {
+            if model.phase == .running {
+                SwooshBorder(shape: runShape, tint: RibbonPalette.action, animated: !reduceMotion)
+            }
+        }
+        .contentShape(runShape)
         .focusable()
         .focused($focus, equals: .run)
         .ribbonFocusRing(focus == .run, radius: 8, inset: -3)
         .disabled(locked)
         .help(model.resolvedActionTitle)
+        // The visible glyph is a keyboard hint, not a word.
         .accessibilityLabel("Run")
+        .accessibilityValue(model.resolvedActionTitle)
         .accessibilityIdentifier("Run")
     }
 

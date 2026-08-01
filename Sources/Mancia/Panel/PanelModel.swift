@@ -16,7 +16,19 @@ final class PanelModel {
     /// The ribbon's focusable cells, listed in Tab order.
     enum Cell: Hashable, CaseIterable { case target, action, direction, run }
 
-    var phase: Phase = .idle
+    var phase: Phase = .idle {
+        didSet {
+            // A new run invalidates whatever the last one disclosed: the old
+            // result preview and the old failure's detail both belong to a
+            // decision that has been superseded. Collapsing them here also
+            // keeps the flags in step with the height the lane is resized to,
+            // which is measured from a phase change.
+            if phase == .running, oldValue != .running {
+                previewExpanded = false
+                errorDetailsExpanded = false
+            }
+        }
+    }
     var scope: Scope = .selection
     var hasSelection = true
     var selectionCharCount = 0
@@ -102,6 +114,17 @@ final class PanelModel {
     func setScope(_ scope: Scope) {
         guard scope == .document || hasSelection else { return }
         self.scope = scope
+    }
+
+    /// Hand keyboard focus back to Direction.
+    ///
+    /// A menu keeps focus after a choice is made, which strands anything the
+    /// user types next — they picked an action and immediately started typing
+    /// the guidance to go with it. Every menu choice therefore returns focus to
+    /// the field that guidance belongs in.
+    func returnFocusToDirection() {
+        focusedCell = .direction
+        focusSeq &+= 1
     }
 
     /// Tab / ⇧Tab, wrapping at both ends.

@@ -9,14 +9,15 @@ import SwiftUI
 /// imposed by placement** and only its **height comes from content**, so the
 /// view is measured at the resolved width before the frame is set.
 @MainActor
-final class RibbonWindow {
+final class RibbonWindow: EditPresentation {
     private let model: PanelModel
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?
-    /// The host window's frame, captured once per `show()`. Deliberately not
-    /// re-read on every reposition: the lane is transient, and chasing a
-    /// dragged window would be worse than staying put.
-    private var hostWindowFrame: CGRect?
+    /// What the Accessibility probe learned about the host window, captured
+    /// once per `show()`. Deliberately not re-read on every reposition: the
+    /// lane is transient, and chasing a dragged window would be worse than
+    /// staying put.
+    private var hostWindow: HostWindowProbe.HostWindow?
     private var screenObserver: (any NSObjectProtocol)?
     /// Bumped on every `show()`, so an exit animation still in flight when a
     /// new session opens cannot order the new lane out.
@@ -51,7 +52,7 @@ final class RibbonWindow {
         presentationSeq &+= 1
         let panel = panel ?? makePanel()
         self.panel = panel
-        hostWindowFrame = HostWindowProbe.frontmostWindowFrame()
+        hostWindow = HostWindowProbe.frontmostWindow()
         let resolution = resolveFrame()
         observeScreenChanges()
         present(panel, at: resolution.frame)
@@ -205,16 +206,27 @@ final class RibbonWindow {
         return .init(
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
-            hostWindowFrame: hostWindowFrame,
-            safeAreaTop: screen.safeAreaInsets.top
+            hostWindowFrame: hostWindow?.frame,
+            safeAreaTop: screen.safeAreaInsets.top,
+            menuBarHidden: menuBarHidden
         )
+    }
+
+    /// Is the host running without a menu bar over it? Two ways that happens,
+    /// and neither is legible in `NSScreen` geometry on a notched display: the
+    /// host owns a full-screen Space, or the menu bar is set to auto-hide.
+    /// `_HIHideMenuBar` is the global-domain key behind Control Center's
+    /// "Automatically hide and show the menu bar".
+    private var menuBarHidden: Bool {
+        if hostWindow?.isFullScreen == true { return true }
+        return UserDefaults.standard.bool(forKey: "_HIHideMenuBar")
     }
 
     /// The screen holding the frontmost host window — deliberately not
     /// `NSScreen.main`, which is the screen with the key window and for a
     /// menu-bar app is regularly the wrong one.
     private func targetScreen() -> NSScreen? {
-        if let host = hostWindowFrame {
+        if let host = hostWindow?.frame {
             let overlapping = NSScreen.screens.max {
                 overlap($0.frame, host) < overlap($1.frame, host)
             }

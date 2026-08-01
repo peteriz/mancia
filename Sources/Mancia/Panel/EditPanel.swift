@@ -4,7 +4,7 @@ import SwiftUI
 /// A non-activating floating panel that hosts the SwiftUI edit UI near the
 /// cursor, so the target app keeps focus until the user interacts.
 @MainActor
-final class EditPanel {
+final class EditPanel: EditPresentation {
     private let model: PanelModel
     private var panel: NSPanel?
     /// Invoked on any key press routed to the panel. Returns whether the event
@@ -28,12 +28,20 @@ final class EditPanel {
         case centered
     }
 
-    /// Show the panel at the given placement, clamped on screen.
-    func show(placement: Placement = .nearMouse) {
+    /// Show the panel beside the caret, clamped on screen.
+    func show() {
         let panel = panel ?? makePanel()
         self.panel = panel
-        position(panel, placement: placement)
+        position(panel, placement: instantPlacement())
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Placement decided instantly from the Accessibility caret rect (a fast,
+    /// non-polling query), so the panel never jumps after the capture
+    /// completes.
+    private func instantPlacement() -> Placement {
+        if let rect = SelectionCapture.selectionScreenRect() { return .near(rect) }
+        return .nearMouse
     }
 
     /// Dismiss the panel. While shown it stays visible permanently — synthetic
