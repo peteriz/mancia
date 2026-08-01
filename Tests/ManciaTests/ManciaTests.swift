@@ -1202,3 +1202,150 @@ func presetRunCarriesFieldText() {
     #expect(calls.last?.0 == .improve)
     #expect(calls.last?.1 == "keep the bullet list")
 }
+
+// MARK: - Ribbon placement
+
+/// A 1440×900 display at the origin, with a 25pt menu-bar strip reserved at the
+/// top and a 60pt Dock at the bottom — the ordinary windowed case.
+private let ribbonScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
+
+@Test("A reserved menu-bar strip anchors the lane flush under the menu bar")
+func placementAnchorsUnderTheMenuBar() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+
+    #expect(resolved.anchor == .screen, "a 25pt top gap means the menu bar reserves a strip")
+    #expect(resolved.frame.maxY == ribbonVisible.maxY, "the lane hangs from the bottom of the menu bar")
+    #expect(resolved.frame.width == ribbonVisible.width)
+    #expect(resolved.frame.minX == ribbonVisible.minX)
+}
+
+@Test("A zoomed host window changes nothing about placement")
+func placementIgnoresAZoomedHost() {
+    let plain = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+    let zoomed = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            hostWindowFrame: ribbonVisible))
+
+    #expect(plain == zoomed, "while a menu-bar strip exists the host window is not consulted at all")
+}
+
+@Test("A full-screen Space anchors to the window, inset below the reveal area")
+func placementFullScreenInsetsBelowTheRevealArea() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: ribbonScreen))
+
+    #expect(resolved.anchor == .hostWindow, "no reserved strip means the menu bar is auto-hidden")
+    #expect(
+        resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
+        "the revealing menu bar must slide in above the lane, not over it")
+    #expect(resolved.frame.width == ribbonScreen.width)
+}
+
+@Test("An auto-hidden menu bar anchors to the host window's top edge")
+func placementAutoHiddenMenuBarFollowsTheHostWindow() {
+    let host = CGRect(x: 200, y: 120, width: 900, height: 600)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == host.maxY - RibbonPlacement.revealClearance)
+    #expect(resolved.frame.minX == host.minX)
+    #expect(resolved.frame.width == host.width)
+}
+
+@Test("A notched display widens the clearance past the camera housing")
+func placementNotchWidensTheClearance() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: ribbonScreen, safeAreaTop: 37))
+
+    #expect(
+        resolved.frame.maxY == ribbonScreen.maxY - 41,
+        "clearance is the safe-area inset plus 4, once that exceeds the 28pt default")
+}
+
+@Test("Split View spans the focused half, not the whole screen")
+func placementSplitViewSpansTheHostHalf() {
+    let leftHalf = CGRect(x: 0, y: 0, width: 720, height: 900)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: leftHalf))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.width == leftHalf.width)
+    #expect(resolved.frame.minX == leftHalf.minX)
+}
+
+@Test("A narrow host clamps to the minimum width and centers on the host")
+func placementNarrowHostClampsToMinimumWidth() {
+    let host = CGRect(x: 100, y: 200, width: 320, height: 400)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(
+        resolved.frame.width == RibbonPlacement.minimumWidth,
+        "below the minimum the four cells cannot hold their labels")
+    #expect(resolved.frame.midX == host.midX, "a lane wider than its host centers on it")
+}
+
+@Test("A failed host-window probe falls back to the screen, clearance intact")
+func placementFallsBackToTheScreenWhenTheProbeFails() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: nil))
+
+    #expect(resolved.anchor == .hostWindow, "the anchor follows the menu bar, not the probe")
+    #expect(resolved.frame.width == ribbonScreen.width)
+    #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance)
+    #expect(resolved.frame.minX == ribbonScreen.minX)
+}
+
+@Test("A host on a secondary display keeps the lane on that display")
+func placementStaysOnTheHostDisplay() {
+    let second = CGRect(x: 1440, y: 0, width: 1440, height: 900)
+    let secondVisible = CGRect(x: 1440, y: 0, width: 1440, height: 875)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: second, visibleFrame: secondVisible))
+
+    #expect(resolved.frame.minX == second.minX, "the lane must never land back on the primary display")
+    #expect(resolved.frame.maxY == secondVisible.maxY)
+}
+
+@Test("A lane taller than the display still starts on screen")
+func placementClampsAnOversizedLane() {
+    let resolved = RibbonPlacement.resolve(
+        height: 2000,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+
+    #expect(
+        resolved.frame.minY >= ribbonScreen.minY,
+        "the review region's buttons sit at the lane's bottom edge and must stay reachable")
+}
+
+@Test("A sub-pixel top gap counts as no reserved strip")
+func placementTreatsASubPixelGapAsHidden() {
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 899.5)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: visible, hostWindowFrame: ribbonScreen))
+
+    #expect(resolved.anchor == .hostWindow, "the threshold is the rule's hinge; half a point is not a menu bar")
+}
