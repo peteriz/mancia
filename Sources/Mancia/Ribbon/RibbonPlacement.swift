@@ -63,6 +63,13 @@ enum RibbonPlacement {
     /// cannot hold their labels.
     static let minimumWidth: CGFloat = 480
 
+    /// …and never let it get wider than this. On a 5K or ultrawide display a
+    /// full-width lane is thousands of points of mostly empty ink with `Run` a
+    /// long way from the Direction field the user just typed in. Capping and
+    /// centering keeps the command sentence readable as a sentence, and the
+    /// lane is still top-centered, so it still opens in one predictable place.
+    static let maximumWidth: CGFloat = 1200
+
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
         let menuBarReservesStrip = topGap > 1
@@ -76,8 +83,10 @@ enum RibbonPlacement {
             ? 0
             : max(revealClearance, context.safeAreaTop + 4)
 
-        let width = max(minimumWidth, host.width)
-        let x = host.minX + (host.width - width) / 2   // centered if clamped wider
+        // The minimum wins over the maximum: a lane too narrow to lay out is a
+        // worse failure than one wider than its host, which merely overhangs.
+        let width = max(minimumWidth, min(host.width, maximumWidth))
+        let x = host.minX + (host.width - width) / 2   // centered on the host
         let y = host.maxY - clearance - height
 
         let frame = CGRect(x: x, y: y, width: width, height: height)

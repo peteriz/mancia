@@ -1216,10 +1216,10 @@ func placementAnchorsUnderTheMenuBar() {
         height: 56,
         in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
 
-    #expect(resolved.anchor == .screen, "a 25pt top gap means the menu bar reserves a strip")
+    #expect(resolved.anchor == .screen, "a 33pt top gap means the menu bar reserves a strip")
     #expect(resolved.frame.maxY == ribbonVisible.maxY, "the lane hangs from the bottom of the menu bar")
-    #expect(resolved.frame.width == ribbonVisible.width)
-    #expect(resolved.frame.minX == ribbonVisible.minX)
+    #expect(resolved.frame.width == RibbonPlacement.maximumWidth, "1440 is wider than the cap")
+    #expect(resolved.frame.midX == ribbonVisible.midX, "a capped lane centers on the space it was given")
 }
 
 @Test("A zoomed host window changes nothing about placement")
@@ -1248,7 +1248,7 @@ func placementFullScreenInsetsBelowTheRevealArea() {
     #expect(
         resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
         "the revealing menu bar must slide in above the lane, not over it")
-    #expect(resolved.frame.width == ribbonScreen.width)
+    #expect(resolved.frame.midX == ribbonScreen.midX)
 }
 
 @Test("An auto-hidden menu bar anchors to the host window's top edge")
@@ -1312,9 +1312,8 @@ func placementFallsBackToTheScreenWhenTheProbeFails() {
         in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: nil))
 
     #expect(resolved.anchor == .hostWindow, "the anchor follows the menu bar, not the probe")
-    #expect(resolved.frame.width == ribbonScreen.width)
+    #expect(resolved.frame.midX == ribbonScreen.midX, "with no host window the screen is the host")
     #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance)
-    #expect(resolved.frame.minX == ribbonScreen.minX)
 }
 
 @Test("A host on a secondary display keeps the lane on that display")
@@ -1325,7 +1324,8 @@ func placementStaysOnTheHostDisplay() {
         height: 56,
         in: .init(screenFrame: second, visibleFrame: secondVisible))
 
-    #expect(resolved.frame.minX == second.minX, "the lane must never land back on the primary display")
+    #expect(resolved.frame.minX >= second.minX, "the lane must never land back on the primary display")
+    #expect(resolved.frame.maxX <= second.maxX)
     #expect(resolved.frame.maxY == secondVisible.maxY)
 }
 
@@ -1338,6 +1338,31 @@ func placementClampsAnOversizedLane() {
     #expect(
         resolved.frame.minY >= ribbonScreen.minY,
         "the review region's buttons sit at the lane's bottom edge and must stay reachable")
+}
+
+@Test("An ultrawide display caps the lane's width and centers it")
+func placementCapsTheLaneOnWideDisplays() {
+    let ultrawide = CGRect(x: 0, y: 0, width: 5120, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 5120, height: 1407)
+    let resolved = RibbonPlacement.resolve(
+        height: 56, in: .init(screenFrame: ultrawide, visibleFrame: visible))
+
+    #expect(
+        resolved.frame.width == RibbonPlacement.maximumWidth,
+        "5000pt of mostly empty ink would put Run a long way from the field the user typed in")
+    #expect(resolved.frame.midX == visible.midX, "the lane stays top-centered, so it still opens in one place")
+    #expect(resolved.frame.maxY == visible.maxY, "capping the width must not move the lane off the menu bar")
+}
+
+@Test("A host narrower than the cap still spans it exactly")
+func placementSpansAHostNarrowerThanTheCap() {
+    let host = CGRect(x: 40, y: 0, width: 900, height: 700)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.frame.width == host.width, "the cap is a ceiling, not a fixed width")
+    #expect(resolved.frame.minX == host.minX)
 }
 
 @Test("A sub-pixel top gap counts as no reserved strip")
