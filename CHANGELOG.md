@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-02
+
 ### Changed
 
 - The running signal on Run reads at a glance: the travelling light keeps a
@@ -16,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   angle, which holds one speed the whole way around a control wider than it is
   tall, and the lap is quicker — 1.6s to 0.925s. Reduce Motion keeps the ember
   and drops the movement.
+- README leads with a ribbon image that is now reproducible: `make shot`
+  renders the shipping `RibbonView` off screen, so the hero can be redrawn
+  after any change to the lane rather than re-shot by hand.
 
 ## [0.2.0] - 2026-08-02
 
@@ -80,7 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/peteriz/mancia/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/peteriz/mancia/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/peteriz/mancia/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/peteriz/mancia/releases/tag/0.1.0
