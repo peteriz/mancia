@@ -111,6 +111,42 @@ above the SwiftUI tree, so the `disabled` that greys the cells out while a
 request runs is invisible to them. `PanelModel.isLocked` is what actually holds
 them off, and the mutating entry points check it themselves.
 
+## Q7 — what bounds the selection-fit test, raised in review of #33
+
+**Raised by the reviewer:** with a menu bar present `host` is `visibleFrame`, so
+the `floor` and `ceiling` that `choose()` measures against are the screen's, not
+the host window's. A selection near the foot of a *short* window therefore
+"fits below" on the screen, and the lane is placed outside its own host.
+
+**Kept as it is: the screen is the right bound.** The lane is a floating
+overlay and is not clipped to its host. Bounding the fit by the window would
+send it back to the resting anchor under the menu bar precisely when the
+selection sits near the window's foot — which is the long trek the
+selection-anchored rule was added to remove. Spilling a little past a short
+window's bottom edge keeps the lane 8pt from the words; retreating to the menu
+bar does not.
+
+**The growth case is guarded, and was checked rather than assumed.** The worry
+worth taking seriously is `projectedHeight`: a review gate opening later could
+grow the lane down into the selection. Probed with a 250pt host window high on a
+1440×900 display and a selection near its foot —
+
+```
+h=50   belowChosen=yes  frame.y=562..612  coversSelection=no
+h=200  belowChosen=yes  frame.y=412..612  coversSelection=no
+h=260  belowChosen=yes  frame.y=352..612  coversSelection=no
+```
+
+— the lane never covers the selection, even 60pt past the projected height,
+because `choose()` reserves `projectedHeight` before picking `.belowSelection`
+and the clamp floor (`screen.minY`) sits a further ~60pt below `floor`
+(`visibleFrame.minY`).
+
+**Consequence worth knowing:** this is a deliberate choice that reads like an
+oversight, so the reasoning lives in a comment in `choose()`. Doc 02 gives no
+ruling either way — it predates the selection-anchored rule and defines only the
+resting anchors.
+
 ## Reference material
 
 - **The design review:** `../mancia-design-review.html` — open the ribbon tab.
