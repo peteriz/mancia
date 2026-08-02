@@ -132,8 +132,11 @@ Mancia/
      ⏎ submits). It wraps to four lines and then scrolls, growing the lane;
      it caps at a readable measure rather than absorbing the whole row.
    - **Run** — the accent control; ⏎ takes the same path.
-   - While running: a light travels the Run control's border, and a dot plus
-     the running verb sits beside Run, with Cancel to its left.
+   - While running: a light travels the Run control's border over a steady
+     ember — a bright head over the accent fill, trailing a vermilion glow that
+     spills onto the lane so the signal carries from across the row — and a dot
+     plus the running verb sits beside Run, with Cancel to its left. Reduce
+     Motion keeps the ember and drops the movement.
    - Applied state: inline replacement is already pasted; the version counter
      and the result word sit beside Run. Esc dismisses.
    - Only a failure opens a **second row**, which carries the message and
