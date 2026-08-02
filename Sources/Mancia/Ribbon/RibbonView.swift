@@ -264,15 +264,16 @@ struct RibbonView: View {
     /// for a control that already carries a prompt inside it and lights its
     /// border when it has focus.
     private var directionCell: some View {
-        TextField("", text: $model.instruction, prompt: placeholder, axis: .vertical)
+        TextField("", text: $model.instruction, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(1...4)
-            .font(.system(size: 13, weight: .medium))
+            .font(directionFont)
             .foregroundStyle(RibbonPalette.text)
             .focused($focus, equals: .direction)
             .onSubmit { model.runPrimary() }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
+            .overlay(alignment: .topLeading) { placeholder }
             .frame(minWidth: 140, maxWidth: 460, alignment: .leading)
             .frame(minHeight: controlHeight, alignment: .topLeading)
             .background(controlShape.fill(RibbonPalette.control))
@@ -284,6 +285,8 @@ struct RibbonView: View {
             .accessibilityLabel("Direction")
             .accessibilityIdentifier("CustomInstruction")
     }
+
+    private var directionFont: Font { .system(size: 13, weight: .medium) }
 
     // MARK: - Trailing cluster
 
@@ -337,22 +340,25 @@ struct RibbonView: View {
     /// The lane's one vermilion control, and the only one on this surface.
     ///
     /// While a request runs the comet rides this border — the panel wore it on
-    /// its instruction field, but here Run is what the user is waiting on. The
-    /// fill and label dim with the rest of the row; the comet does not, or the
-    /// working signal would be the faintest thing on the lane.
+    /// its instruction field, but here Run is what the user is waiting on.
+    /// Going inert softens the fill only. Dark ink on a bright fill does not
+    /// survive being dimmed: both ends walk toward the lane together and the
+    /// label's contrast collapses to about 2.5:1, which is how the one word on
+    /// the lane's one accent control became the least readable thing on it.
     private var runControl: some View {
         Button { model.runPrimary() } label: {
-            Text("Run ↵")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(RibbonPalette.onAction)
+            // Hidden, not absent: the button still takes its size from the
+            // real label, so the two cannot drift apart. What is drawn is the
+            // overlay below.
+            runLabel
+                .hidden()
                 .frame(minWidth: 72, minHeight: controlHeight)
         }
         .buttonStyle(.plain)
         // The fill and the running border hang off the button rather than off
         // its label: a `Text` wrapped in a background is rendered as an image,
         // and an image-backed button has no accessible name to override.
-        .background(controlShape.fill(RibbonPalette.action))
-        .opacity(locked ? 0.5 : 1)
+        .background(controlShape.fill(locked ? RibbonPalette.actionInert : RibbonPalette.action))
         .overlay {
             if model.phase == .running {
                 SwooshBorder(shape: controlShape, tint: RibbonPalette.action, animated: !reduceMotion)
@@ -363,11 +369,23 @@ struct RibbonView: View {
         .focused($focus, equals: .run)
         .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: -3)
         .disabled(locked)
+        // Drawn *after* `disabled`, and so outside the subtree it dims.
+        // SwiftUI fades a disabled button's label whatever style it wears, and
+        // that fade is the collapse described above; the softened fill is the
+        // signal instead. `disabled` still owns the behaviour — no hit
+        // testing, out of the focus chain, dimmed to VoiceOver.
+        .overlay { runLabel.allowsHitTesting(false) }
         .help(model.resolvedActionTitle)
         // The visible glyph is a keyboard hint, not a word.
         .accessibilityLabel("Run")
         .accessibilityValue(model.resolvedActionTitle)
         .accessibilityIdentifier("Run")
+    }
+
+    private var runLabel: some View {
+        Text("Run ↵")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(RibbonPalette.onAction)
     }
 
     // MARK: - Control chrome
@@ -431,8 +449,26 @@ struct RibbonView: View {
         .contentShape(Rectangle())
     }
 
-    private var placeholder: Text {
-        Text("Optional instruction…").foregroundColor(RibbonPalette.caption)
+    /// The field's own prompt, drawn rather than handed to `TextField`.
+    ///
+    /// SwiftUI resolves a `prompt`'s colour from the system placeholder
+    /// register and ignores any foreground style put on the `Text`. The lane
+    /// keeps a fixed dark register whatever the system appearance is, so in
+    /// Light Mode that register resolved to near-black on the field's
+    /// near-black fill — the prompt was there and unreadable. Drawing it makes
+    /// the colour ours, and the 5.13:1 against `control` that `RibbonPalette`
+    /// documents true rather than aspirational.
+    @ViewBuilder
+    private var placeholder: some View {
+        if model.instruction.isEmpty {
+            Text("Optional instruction…")
+                .font(directionFont)
+                .foregroundStyle(RibbonPalette.caption)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
 

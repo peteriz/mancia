@@ -24,6 +24,17 @@ enum RibbonPalette {
     static let text = Color(hex: 0xF3ECDE)
     static let caption = Color(hex: 0x9E9483)
     static let action = Color(hex: 0xFF6A4D)
+    /// Run's fill while the lane is inert — a request running, or a
+    /// confirmation waiting. `action` at 80% over the lane, precomputed.
+    ///
+    /// Run used to go inert by dimming whole, fill and label together. Dark
+    /// ink on a bright fill does not survive that: both ends walk toward the
+    /// lane and the label's contrast collapses from 6.34:1 to 2.52:1, which is
+    /// how the one word on the lane's one accent control became the least
+    /// readable thing on it. Softening the fill alone and leaving the label at
+    /// full strength keeps 4.54:1, and the comet riding the border is what
+    /// says the button is busy.
+    static let actionInert = Color(hex: 0xD35A42)
     static let onAction = Color(hex: 0x25120C)
     static let applied = Color(hex: 0x5BC57C)
     static let error = Color(hex: 0xF0917A)
