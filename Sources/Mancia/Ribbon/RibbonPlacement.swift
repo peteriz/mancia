@@ -208,6 +208,16 @@ enum RibbonPlacement {
             // Judged at the lane's tallest ordinary state — see `projectedHeight`.
             let tall = max(height, projectedHeight)
 
+            // Deliberately measured against the screen band, not the host
+            // window, even though `host` is the window in the no-menu-bar case.
+            // The lane is a floating overlay; it is not clipped to its host, and
+            // a short window high on a large display has plenty of room beneath
+            // it. Bounding the fit by the window would send the lane back to the
+            // resting anchor at the top of the screen precisely when the
+            // selection is near the window's foot — the long trek this rule
+            // exists to remove. Spilling past a short host's bottom edge keeps
+            // the lane 8pt from the words; retreating to the menu bar does not.
+            //
             // Under the selection: the closest place to the text that is also
             // out of its way, and where growth heads away from it.
             if selection.minY <= ceiling, selection.minY - tall >= floor {

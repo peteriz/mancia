@@ -30,7 +30,7 @@ struct GhostButton: View {
                 .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.4), lineWidth: 1))
                 // The label is 15pt tall; the spec's 28pt minimum hit target is
                 // reached by the shape, not by the ink.
-                .frame(minHeight: 26)
+                .frame(minHeight: 28)
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
@@ -66,7 +66,7 @@ struct AccentButton: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 3)
                 .background(Capsule(style: .continuous).fill(fill))
-                .frame(minHeight: 26)
+                .frame(minHeight: 28)
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
@@ -82,9 +82,17 @@ struct VersionNav: View {
     var faint: Color = Palette.textFaint
 
     var body: some View {
-        HStack(spacing: 6) {
+        // No spacing: the 28pt frames around the 10pt chevrons already carry
+        // ~9pt of clear space on each side, which is the gap the counter needs.
+        HStack(spacing: 0) {
             Button { model.onNavigate?(model.currentIndex - 1) } label: {
-                Image(systemName: "chevron.backward").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 10, weight: .semibold))
+                    // A 10pt glyph is not a target. The spec's 28×28 minimum is
+                    // the frame around it, and `contentShape` is what makes the
+                    // empty part of that frame answer the mouse.
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(model.currentIndex == 0 ? faint : tint)
@@ -99,7 +107,10 @@ struct VersionNav: View {
                 .accessibilityIdentifier("IterCounter")
 
             Button { model.onNavigate?(model.currentIndex + 1) } label: {
-                Image(systemName: "chevron.forward").font(.system(size: 10, weight: .semibold))
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(model.currentIndex >= model.versionCount - 1 ? faint : tint)

@@ -24,7 +24,9 @@ Select text in a Mac app that supports standard copy and paste, press a global s
 
 - Works in frontmost apps and text fields that support standard Copy, Select All, and Paste.
 - Uses a configurable global shortcut.
-- Opens a command ribbon in one predictable place at the top of the screen.
+- Opens a command ribbon against the text you selected — just below it, or just
+  above when there is no room below. With nothing selected it opens in a
+  predictable place at the top instead.
 - Edits the current selection, or attempts to edit all copyable text when nothing is selected.
 - Offers one-tap **Improve**, a free-form instruction field, and a preset
   dropdown that takes your typed text as extra guidance.
@@ -119,6 +121,7 @@ With no selection, Mancia uses Select All to capture the text it can copy. By de
 | <kbd>Return</kbd> or <kbd>Command</kbd> + <kbd>Return</kbd> | Run the edit |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move between the ribbon's cells |
 | <kbd>Command</kbd> + <kbd>1</kbd>…<kbd>4</kbd> | Pick the action: Improve, Sharpen, Plan first, Tighten |
+| <kbd>Command</kbd> + <kbd>0</kbd> | Unpin the action and go back to using your instruction |
 | <kbd>Command</kbd> + <kbd>T</kbd> | Switch the target between the selection and the whole document |
 | <kbd>Left</kbd> / <kbd>Right</kbd> | Switch versions |
 | <kbd>Command</kbd> + <kbd>,</kbd> | Open Settings |

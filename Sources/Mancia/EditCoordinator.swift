@@ -393,6 +393,10 @@ final class EditCoordinator {
         autoCloseTask?.cancel()
         autoCloseTask = nil
         pendingApply = nil
+        // The review gate's preview is the whole generated document. Esc is a
+        // decision like any other, so it discards the text on the same beat
+        // confirming or declining does — not at the next session's `reset`.
+        model.pendingResultPreview = ""
         sessionActive = false
         ribbon.close()
         warmProviderAfterClose()

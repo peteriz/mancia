@@ -19,6 +19,14 @@ enum PanelKeyCommand: Equatable {
     /// Action menu would. Carries the index rather than the preset so this
     /// stays a pure mapping from keys, with the catalog resolved by the model.
     case selectPreset(Int)
+    /// ⌘0 — unpin, handing the action back to the Direction field.
+    ///
+    /// The menu's `Your instruction` row does this with the mouse, but SwiftUI's
+    /// `Menu` under `.buttonStyle(.plain)` opens for neither Space nor Return,
+    /// so without a key of its own a pinned preset would be permanent for the
+    /// rest of a keyboard-only session. Zero because it reads as "none of the
+    /// four", and it sits next to them on the row.
+    case clearPreset
     /// ⌘T — swap the target between the selection and the whole document.
     ///
     /// The digits it used to share with the presets are worth more to them:
@@ -44,6 +52,7 @@ enum PanelKeyCommand: Equatable {
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
         case ("t", [.command]): return .toggleTarget
+        case ("0", [.command]): return .clearPreset
         case ("1", [.command]): return .selectPreset(0)
         case ("2", [.command]): return .selectPreset(1)
         case ("3", [.command]): return .selectPreset(2)

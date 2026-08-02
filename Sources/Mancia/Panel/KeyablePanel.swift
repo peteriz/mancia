@@ -16,6 +16,8 @@ final class KeyablePanel: NSPanel {
     var onToggleTarget: (() -> Void)?
     /// ⌘1…⌘4 — pin the nth preset in the Action menu.
     var onSelectPreset: ((Int) -> Void)?
+    /// ⌘0 — unpin, handing the action back to the Direction field.
+    var onClearPreset: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
 
@@ -51,6 +53,7 @@ final class KeyablePanel: NSPanel {
         case .submit: onSubmit?()
         case .toggleTarget: onToggleTarget?()
         case .selectPreset(let index): onSelectPreset?(index)
+        case .clearPreset: onClearPreset?()
         }
         // Always consume a recognized shortcut, like a menu item would —
         // a no-op (e.g. nothing to undo) should not fall through and beep.

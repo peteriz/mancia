@@ -32,9 +32,17 @@ enum ApplyConfirmation {
     ///
     /// Grouping is left to `IntegerFormatStyle` rather than hand-rolled, since
     /// the separator and the grouping size both vary by locale.
-    static func detailedSummary(originalCharacters: Int, resultCharacters: Int) -> String {
-        let original = originalCharacters.formatted(.number.grouping(.automatic))
-        let result = resultCharacters.formatted(.number.grouping(.automatic))
-        return "\(original) → \(result) characters"
+    ///
+    /// The locale is a parameter so tests can pin one. Everything about the
+    /// output varies with it — the separator, whether a four-digit number is
+    /// grouped at all, and even the digits themselves, which are not `0`–`9` in
+    /// every locale — so an assertion against the machine's locale is an
+    /// assertion about the machine.
+    static func detailedSummary(
+        originalCharacters: Int, resultCharacters: Int,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let style = IntegerFormatStyle<Int>.number.grouping(.automatic).locale(locale)
+        return "\(originalCharacters.formatted(style)) → \(resultCharacters.formatted(style)) characters"
     }
 }

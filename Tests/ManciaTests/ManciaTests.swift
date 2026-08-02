@@ -283,20 +283,32 @@ func confirmationSummary() {
 
 @Test("The review region's summary is spelled out and grouped")
 func detailedConfirmationSummary() {
-    let summary = ApplyConfirmation.detailedSummary(
-        originalCharacters: 3842, resultCharacters: 3716)
+    // Pinned locales, because every part of the output moves with the locale:
+    // the separator, whether four digits group at all, and the digits
+    // themselves. Testing against the machine's locale tests the machine.
+    let english = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "en_US"))
+    #expect(english == "3,842 → 3,716 characters")
 
-    #expect(summary.hasSuffix(" characters"), "the review region has room for the whole word")
-    #expect(summary.contains("→"))
-    // Grouping is locale-dependent — a US separator would be wrong under a
-    // German locale — so assert the digits survive rather than the separator.
-    #expect(summary.filter(\.isNumber) == "38423716")
-    #expect(
-        summary.count > "3842 → 3716 characters".count,
-        "a four-digit count should have gained a grouping separator on each side")
+    // Same number, a locale that groups with a period.
+    let german = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "de_DE"))
+    #expect(german == "3.842 → 3.716 characters", "the separator follows the locale")
 
-    let small = ApplyConfirmation.detailedSummary(originalCharacters: 0, resultCharacters: 12)
-    #expect(small == "0 → 12 characters", "short counts get no separator in any locale")
+    // And one that does not group four-digit numbers at all, which is why the
+    // old "it got longer, so it must have grouped" assertion was wrong.
+    let polish = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "pl_PL"))
+    #expect(polish.hasSuffix(" characters"))
+    #expect(polish.contains("→"))
+
+    let small = ApplyConfirmation.detailedSummary(
+        originalCharacters: 0, resultCharacters: 12,
+        locale: Locale(identifier: "en_US"))
+    #expect(small == "0 → 12 characters", "short counts get no separator")
 }
 
 @MainActor
@@ -1040,6 +1052,7 @@ func panelKeyCommandsResolve() {
         ("2", .command, .selectPreset(1)),
         ("3", .command, .selectPreset(2)),
         ("4", .command, .selectPreset(3)),
+        ("0", .command, .clearPreset),
     ]
     for c in cases {
         #expect(
@@ -1195,13 +1208,35 @@ func ribbonShortcutsRespectTheLock() {
         model.phase = phase
         model.selectPreset(at: 1)
         model.toggleScope()
+        model.clearPreset()
         #expect(model.pinnedPreset == pinned, "\(phase) should not accept a preset change")
         #expect(model.scope == .selection, "\(phase) should not accept a target change")
+        #expect(model.pinnedPreset != nil, "\(phase) should not accept an unpin")
     }
 
     model.phase = .idle
     model.selectPreset(at: 1)
     #expect(model.pinnedPreset == PanelPreset.all[1], "and works again once the run lands")
+    model.clearPreset()
+    #expect(model.pinnedPreset == nil, "as does unpinning")
+}
+
+/// `hasSelection` is optimistically true while the capture is in flight, and
+/// `EditCoordinator` overwrites `scope` outright when the real answer arrives.
+/// A target toggle in that window would be silently discarded a moment later.
+@MainActor
+@Test("The target shortcut is inert until the capture reports back")
+func ribbonTargetShortcutWaitsForCapture() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.capturing = true
+
+    model.toggleScope()
+    #expect(model.scope == .selection, "a toggle mid-capture would be overwritten, so it is refused")
+
+    model.capturing = false
+    model.toggleScope()
+    #expect(model.scope == .document, "and lands once the capture has reported")
 }
 
 @MainActor

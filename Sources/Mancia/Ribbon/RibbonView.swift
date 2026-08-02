@@ -1,13 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// The command ribbon — a slim lane that opens in one predictable place at the
-/// top of the screen, rather than next to the caret.
+/// The command ribbon — a slim lane that opens against the text being edited:
+/// just under the selection, or just over it when the selection sits too near
+/// the foot of its window. With no selection to sit against, or no room beside
+/// one, it falls back to a predictable resting place at the top — under the
+/// menu bar, or under the frontmost window's title bar. See `RibbonPlacement`.
 ///
 /// The lane reads left to right as one sentence: **Target · Action · Direction
-/// · Run**. Each cell carries a caption above a value, so the resolved action
-/// is legible at all times; the panel this replaces left "an empty field means
-/// Improve" entirely implicit.
+/// · Run**, on a single row. The cells carry no captions: they were the first
+/// thing to go when the row was collapsed to one line, and the resolved action
+/// is spelled out in the Action chip itself instead — which is what the panel
+/// this replaces got wrong by leaving "an empty field means Improve" implicit.
 ///
 /// The lane's width is imposed by `RibbonPlacement`; its height comes from its
 /// content, which is the opposite of how the floating panel sizes itself.
@@ -235,8 +239,7 @@ struct RibbonView: View {
         Menu {
             ForEach(Array(PanelPreset.all.enumerated()), id: \.element.id) { index, preset in
                 Button {
-                    model.pinnedPreset = preset
-                    model.returnFocusToDirection()
+                    model.selectPreset(at: index)
                 } label: {
                     Label(preset.title, systemImage: preset.action.symbol)
                 }
@@ -247,10 +250,8 @@ struct RibbonView: View {
                 .keyboardShortcut(presetShortcut(index), modifiers: .command)
             }
             Divider()
-            Button("Your instruction") {
-                model.pinnedPreset = nil
-                model.returnFocusToDirection()
-            }
+            Button("Your instruction") { model.clearPreset() }
+                .keyboardShortcut("0", modifiers: .command)
         } label: {
             chipLabel(
                 model.resolvedActionSymbol, model.resolvedActionTitle,

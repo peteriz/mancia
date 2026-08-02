@@ -110,9 +110,13 @@ final class PanelModel {
     }
 
     /// ⌘T and the Target menu. Aiming at the selection is inert when there is
-    /// no selection to aim at.
+    /// no selection to aim at — and while the capture that will answer that
+    /// question is still running, where `hasSelection` is only an optimistic
+    /// guess and the coordinator overwrites `scope` the moment it lands. The
+    /// Target chip reads "Reading…" and offers no menu in that window; the
+    /// shortcut has to be just as inert, or it silently does nothing.
     func setScope(_ scope: Scope) {
-        guard !isLocked, scope == .document || hasSelection else { return }
+        guard !isLocked, !capturing, scope == .document || hasSelection else { return }
         self.scope = scope
     }
 
@@ -128,6 +132,14 @@ final class PanelModel {
     func selectPreset(at index: Int) {
         guard !isLocked, PanelPreset.all.indices.contains(index) else { return }
         pinnedPreset = PanelPreset.all[index]
+        returnFocusToDirection()
+    }
+
+    /// ⌘0, and the Action menu's `Your instruction`. Hands the action back to
+    /// the Direction field.
+    func clearPreset() {
+        guard !isLocked else { return }
+        pinnedPreset = nil
         returnFocusToDirection()
     }
 

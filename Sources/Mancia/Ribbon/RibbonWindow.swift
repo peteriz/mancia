@@ -249,18 +249,29 @@ final class RibbonWindow {
     /// The screen holding the frontmost host window — deliberately not
     /// `NSScreen.main`, which is the screen with the key window and for a
     /// menu-bar app is regularly the wrong one.
+    ///
+    /// The selection sits between the host and the mouse as a signal. It is the
+    /// weaker of the two rectangles — a caret gives a sliver, and some hosts
+    /// report nothing — but it is *about the text being edited*, whereas the
+    /// pointer is wherever the hand left it. On a second display that is the
+    /// difference between the lane opening over the words and opening over
+    /// whatever the mouse was last near.
     private func targetScreen() -> NSScreen? {
-        if let host = hostWindow?.frame {
-            let overlapping = NSScreen.screens.max {
-                overlap($0.frame, host) < overlap($1.frame, host)
-            }
-            if let overlapping, overlap(overlapping.frame, host) > 0 { return overlapping }
-        }
+        if let screen = screenOverlapping(hostWindow?.frame) { return screen }
+        if let screen = screenOverlapping(selectionRect) { return screen }
         let mouse = NSEvent.mouseLocation
         if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
             return underMouse
         }
         return NSScreen.main
+    }
+
+    /// The screen a rectangle covers most of, or `nil` when it touches none.
+    private func screenOverlapping(_ rect: CGRect?) -> NSScreen? {
+        guard let rect else { return nil }
+        let best = NSScreen.screens.max { overlap($0.frame, rect) < overlap($1.frame, rect) }
+        guard let best, overlap(best.frame, rect) > 0 else { return nil }
+        return best
     }
 
     private func overlap(_ a: CGRect, _ b: CGRect) -> CGFloat {
@@ -342,6 +353,12 @@ final class RibbonWindow {
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
         panel.onKeyDown = { [weak self] event in
             guard let self else { return false }
+            // The coordinator sees every key first, because its first act is to
+            // cancel the post-apply auto-close: a user reaching for any key is
+            // still working, and the lane must not close underneath them. Tab
+            // included — it used to be claimed above this and so kept the lane
+            // on its 1.2-second fuse while the user was tabbing through it.
+            if onKeyDown?(event) == true { return true }
             // Tab is not a key equivalent, so it never reaches
             // `performKeyEquivalent`; the lane claims it here instead.
             if let move = PanelKeyCommand.focusMove(
@@ -350,7 +367,6 @@ final class RibbonWindow {
                 model.moveFocus(move)
                 return true
             }
-            if onKeyDown?(event) == true { return true }
             // Return is the lane's primary key from every focus stop. The
             // Direction field answers its own through `onSubmit`, so it is
             // excluded here or the action would run twice.
@@ -366,6 +382,7 @@ final class RibbonWindow {
         }
         panel.onToggleTarget = { [weak self] in self?.model.toggleScope() }
         panel.onSelectPreset = { [weak self] index in self?.model.selectPreset(at: index) }
+        panel.onClearPreset = { [weak self] in self?.model.clearPreset() }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }
