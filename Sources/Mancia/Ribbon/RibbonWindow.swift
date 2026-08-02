@@ -19,9 +19,12 @@ final class RibbonWindow {
     /// lane is transient, and chasing a dragged window would be worse than
     /// staying put.
     private var hostWindow: HostWindowProbe.HostWindow?
-    /// The selection's bounds, read once in `show()` — before the lane takes
+    /// The selection's bounds, read in `show()` — before the lane takes
     /// focus, after which the system-wide focused element is the Direction
-    /// field and the rect would describe the lane itself.
+    /// field and the rect would describe the lane itself. Replaced
+    /// mid-session only on the coordinator's word, in the two moments the
+    /// target app briefly owns focus again: a fresh selection captured for a
+    /// new cycle, and a landed paste the lane was found covering.
     private var selectionRect: CGRect?
     /// The edge the lane currently hangs from, which decides both the side it
     /// slides in from and — fed back through `Context` — where it stays for
@@ -107,6 +110,15 @@ final class RibbonWindow {
         model.focusSeq &+= 1
     }
 
+    /// Whether the lane still holds key status.
+    ///
+    /// The lane takes key without activating Mancia, so the host app stays
+    /// the frontmost application throughout a session and losing key means
+    /// something specific: the user clicked back into the host — in this app,
+    /// almost always to select the next span. The post-apply auto-close beat
+    /// reads this before it fires.
+    var isKey: Bool { panel?.isKeyWindow ?? false }
+
     /// Re-resolve and re-apply the frame. Called when the lane's height changes
     /// — the review region opening or closing — and when the screen
     /// configuration changes underneath it.
@@ -127,6 +139,43 @@ final class RibbonWindow {
             panel.setFrame(resolution.frame, display: true)
         }
         panel.invalidateShadow()
+    }
+
+    /// A fresh selection captured mid-session: the user is now working
+    /// somewhere the lane's opening geometry never described, so the anchor
+    /// is re-decided against the new words — the same rule `show()` applies,
+    /// taken again at the moment the target moved. `nil` (a host that cannot
+    /// report bounds) changes nothing.
+    func noteSelectionMoved(_ rect: CGRect?) {
+        guard let panel, panel.isVisible, let rect, rect != selectionRect else { return }
+        selectionRect = rect
+        // The work moved, so re-read what it moved to. `show()`'s probe is
+        // deliberately not refreshed per reposition — chasing a dragged window
+        // would be worse than staying put — but a selection landing in another
+        // window, or in another app on another display, changes which host and
+        // which screen the lane has to be resolved against. A probe that
+        // cannot answer leaves the last good host in place rather than
+        // demoting the lane to the screen.
+        if let host = HostWindowProbe.frontmostWindow() { hostWindow = host }
+        currentAnchor = nil
+        reposition()
+    }
+
+    /// The one post-apply exception to "decided once and then held": a paste
+    /// can put words where the opening geometry never described them — a
+    /// longer result flows past the old selection's foot, and hosts scroll to
+    /// keep the caret visible. When the lane is found sitting on the text it
+    /// just wrote, the anchor is re-decided against where that text actually
+    /// is. A lane already clear of the words holds still: a move that buys no
+    /// visibility is churn.
+    func avoidUpdatedText(caretRect: CGRect?) {
+        guard let panel, panel.isVisible else { return }
+        let updated = RibbonPlacement.updatedTextRect(
+            previousSelection: selectionRect, caretAfterApply: caretRect)
+        guard RibbonPlacement.laneObstructs(panel.frame, updatedText: updated) else { return }
+        selectionRect = updated
+        currentAnchor = nil
+        reposition()
     }
 
     private func present(_ panel: NSPanel, at frame: CGRect) {

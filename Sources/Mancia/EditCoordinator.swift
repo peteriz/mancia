@@ -181,6 +181,7 @@ final class EditCoordinator {
                 // app's pid, so the panel stays visible throughout.
                 await applyResolved(output: output, strategy: resolved.strategy, capture: capture)
                 if Task.isCancelled { return }
+                dodgeAppliedText()
                 recordApplied(output: output, baseline: resolved.text)
             } catch is CancellationError {
                 if model.phase == .running { model.phase = previousPhase }
@@ -203,6 +204,15 @@ final class EditCoordinator {
             await SelectionCapture.undo(in: capture)
             await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
         }
+    }
+
+    /// Where the paste left the caret, read while the target app still owns
+    /// focus — once the lane retakes key the system-wide focused element is
+    /// the Direction field and the caret can no longer be read. The lane
+    /// steps off the updated text if it landed on it, so every apply path
+    /// calls this before refocusing the ribbon.
+    private func dodgeAppliedText() {
+        ribbon.avoidUpdatedText(caretRect: SelectionCapture.selectionScreenRect())
     }
 
     /// Record an applied result in the iteration history and move to the applied
@@ -247,6 +257,7 @@ final class EditCoordinator {
         currentTask = Task {
             await SelectionCapture.apply(text: pending.output, to: capture, entireDocument: true)
             if Task.isCancelled { return }
+            dodgeAppliedText()
             recordApplied(output: pending.output, baseline: pending.baseline)
         }
     }
@@ -265,15 +276,17 @@ final class EditCoordinator {
     ///   versions[currentIndex] (what the document shows), replaced via
     ///   undo-then-paste.
     private func resolveInput() async -> (text: String, strategy: ApplyStrategy)? {
+        // Ahead of both scope branches: a run belongs to the app the user is
+        // actually in, and neither branch can tell that the session's target
+        // went stale underneath it.
+        if let retargeted = await retargetToFrontmostApp() { return retargeted }
         guard let capture else { return nil }
         if model.scope == .document {
             if !model.hasSelection,
                let fresh = await SelectionCapture.captureFreshSelection(from: capture),
                !fresh.isEmpty,
                versions.isEmpty || fresh != versions[currentIndex] {
-                model.hasSelection = true
-                model.selectionCharCount = fresh.count
-                model.scope = .selection
+                adoptFreshSelection(fresh)
                 resetBaseline(to: fresh)
                 return (fresh, .liveSelection)
             }
@@ -290,6 +303,11 @@ final class EditCoordinator {
         }
         // Later cycle: check for a fresh user selection first.
         if let fresh = await SelectionCapture.captureFreshSelection(from: capture), !fresh.isEmpty {
+            // Unconditional, and ahead of the baseline check: even text
+            // identical to the last result can have been re-selected somewhere
+            // else, and the Target chip has to describe the span this run will
+            // actually send, not the one the session opened on.
+            adoptFreshSelection(fresh)
             if fresh != versions[currentIndex] {
                 // A genuinely new selection starts a new session baseline.
                 resetBaseline(to: fresh)
@@ -299,6 +317,61 @@ final class EditCoordinator {
         let text = versions[currentIndex]
         guard !text.isEmpty else { return nil }
         return (text, .undoThenPaste)
+    }
+
+    /// A freshly captured live selection becomes the session's target.
+    ///
+    /// Every place that promotes one — a document-scope session finding a
+    /// selection, a later selection-scope cycle finding a new one, and a
+    /// re-target to another app — has to say the same thing, or the Target
+    /// chip goes on describing the span the session opened on while the run
+    /// sends a different one. Callers own the baseline decision; this only
+    /// states what is now selected.
+    ///
+    /// The target app owns focus at every call site, which is what makes the
+    /// selection's bounds readable here.
+    private func adoptFreshSelection(_ text: String) {
+        model.hasSelection = true
+        model.selectionCharCount = text.count
+        model.scope = .selection
+        ribbon.noteSelectionMoved(SelectionCapture.selectionScreenRect())
+    }
+
+    /// The user moved to a different app and selected text there while the
+    /// lane was up.
+    ///
+    /// `capture` — and with it the pid every synthetic keystroke is posted to
+    /// — is frozen when the session starts, so without this the run would pull
+    /// the *original* app forward and edit whatever was still selected in it,
+    /// with nothing on screen saying so.
+    ///
+    /// Re-targeting always goes through `resetBaseline`, which clears the
+    /// version history. That history describes edits Mancia made in the old
+    /// app; replaying it through `.undoThenPaste` would post ⌘Z into an app
+    /// Mancia never pasted into and undo an edit of the user's own.
+    ///
+    /// Only a live selection re-targets. With nothing selected in the new app
+    /// there is no evidence about what the user wants edited, so the session
+    /// stays where it is rather than guessing at a whole-document rewrite.
+    private func retargetToFrontmostApp() async -> (text: String, strategy: ApplyStrategy)? {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication,
+              frontmost.processIdentifier != capture?.targetApp?.processIdentifier,
+              // Never re-target onto Mancia. The lane takes key without
+              // activating the app, so this is normally impossible — but ⌘,
+              // and the permission alert both make Mancia frontmost, and
+              // posting ⌘C to ourselves would capture nothing and strand the
+              // session on the wrong pid.
+              frontmost.processIdentifier != NSRunningApplication.current.processIdentifier
+        else { return nil }
+        // A full capture rather than a bare probe: the new app needs its own
+        // pasteboard snapshot to restore after the paste, and its own
+        // `targetApp` for every keystroke from here on.
+        let result = await SelectionCapture.captureSelection()
+        guard let text = result.text, !text.isEmpty else { return nil }
+        capture = result
+        adoptFreshSelection(text)
+        resetBaseline(to: text)
+        return (text, .liveSelection)
     }
 
     /// A fresh selection or manual edit becomes the new session baseline.
@@ -338,6 +411,7 @@ final class EditCoordinator {
                 await SelectionCapture.undo(in: capture)
                 await SelectionCapture.apply(text: text, to: capture, entireDocument: false)
             }
+            dodgeAppliedText()
             ribbon.focus()
         }
     }
@@ -426,6 +500,14 @@ final class EditCoordinator {
             try? await Task.sleep(for: .milliseconds(1200))
             if Task.isCancelled { return }
             guard model.phase == .applied else { return }
+            // A keypress is not the only sign the user is still working. The
+            // lane holds key without activating Mancia, so losing it during
+            // the beat means the user clicked back into the host app — in a
+            // session that has just applied an edit, almost always to select
+            // the next span. Closing under them would end the session they
+            // are still in, so the beat is abandoned rather than rescheduled;
+            // Esc and Done still close.
+            guard ribbon.isKey else { return }
             cancel()
         }
     }

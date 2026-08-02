@@ -33,7 +33,10 @@
 >   surface keeps an iteration history and shows `←` / `→` version navigation so
 >   you can move between the original and each generated version.
 > - After applying, the surface either flashes "Improved" and auto-closes or stays
->   open with the version strip, per the **post-apply behavior** setting.
+>   open with the version strip, per the **post-apply behavior** setting. The
+>   auto-close beat is abandoned by any sign the user is still working — a
+>   keypress, or the ribbon losing key because they clicked back into the host
+>   app to select the next span.
 > - The Copilot provider now prefers a warmed, single-use ACP session
 >   (`copilot --acp --stdio`) for lower latency; the original one-shot
 >   `copilot -p` invocation remains the fallback path.
@@ -142,6 +145,16 @@ Mancia/
    - Only a failure opens a **second row**, which carries the message and
      Details / Copy / Retry.
 5. **Execution** (`EditCoordinator`):
+   - Every cycle first checks that the session's target app is still the
+     frontmost one. If the user moved to a different app and selected text
+     there, the session re-targets to it: a fresh capture supplies the new
+     app's pid and pasteboard snapshot, and the version history resets, since
+     that history describes edits made in the old app and replaying it would
+     post ⌘Z somewhere Mancia never pasted. With nothing selected in the new
+     app the session stays where it is. Mancia itself is never a re-target.
+   - A selection captured mid-session — in either scope — becomes the target
+     the Target chip describes, so the chip always names the span the run will
+     actually send rather than the one the session opened on.
    - If scope is Entire document: activate target app, post ⌘A, then capture
      via ⌘C as above (this yields the document text).
    - Build the prompt from `EditAction` template + text, call the provider
@@ -150,6 +163,12 @@ Mancia/
    - Write result to pasteboard, `activate` the target app, wait ~150 ms,
      post ⌘V (for Entire document scope: ⌘A then ⌘V).
    - After ~1 s, restore the user's original pasteboard.
+   - While the target app still owns focus, read where the paste left the
+     caret. If the ribbon landed on the text it just wrote — a longer result
+     flowing past the old selection's foot, or a host that scrolled to keep
+     the caret visible — it re-decides its anchor against where that text
+     actually is and steps off it; a ribbon already clear of the words holds
+     still.
    - Keep the ribbon open for iteration navigation or another edit.
 
 ## Actions & prompts (`Actions.swift`)
