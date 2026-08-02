@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Headless entry points for CI/E2E: exercise the provider pipeline without UI.
@@ -16,6 +17,11 @@ enum DebugCLI {
         if let index = arguments.firstIndex(of: "--complete") {
             let actionArg = index + 1 < arguments.count ? arguments[index + 1] : ""
             run { await complete(actionArg: actionArg) }
+            return true
+        }
+        if let index = arguments.firstIndex(of: "--shoot") {
+            let path = index + 1 < arguments.count ? arguments[index + 1] : ""
+            run { shoot(path: path) }
             return true
         }
         return false
@@ -104,6 +110,32 @@ enum DebugCLI {
         do {
             let output = try await provider.complete(prompt)
             print(output)
+            exit(0)
+        } catch {
+            printErr("Error: \(error.localizedDescription)")
+            exit(1)
+        }
+    }
+
+    /// Redraw the README's hero image. Documentation upkeep rather than an app
+    /// feature, but it renders the shipping ribbon view, so it lives with the
+    /// code that would otherwise silently make the picture a lie.
+    @MainActor
+    private static func shoot(path: String) {
+        guard !path.isEmpty, !path.hasPrefix("-") else {
+            printErr("Usage: --shoot <output.png>")
+            exit(2)
+        }
+        // The renderer needs an app object for its off-screen window, but this
+        // process must never take focus or appear in the Dock.
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        // The document in the shot is a light-appearance surface regardless of
+        // how the machine running this is set.
+        app.appearance = NSAppearance(named: .aqua)
+        do {
+            try DocsShot.render(to: path)
+            print("Wrote \(path)")
             exit(0)
         } catch {
             printErr("Error: \(error.localizedDescription)")

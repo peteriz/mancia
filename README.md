@@ -1,8 +1,12 @@
 <p align="center">
-  <img src="docs/assets/mancia-logo.png" alt="Mancia logo" width="220">
+  <img src="docs/assets/mancia-logo.png" alt="Mancia logo" width="180">
 </p>
 
 <h1 align="center">Mancia</h1>
+
+<p align="center">
+  <b>Edit text with AI in any macOS app, without leaving the app you write in.</b>
+</p>
 
 <p align="center">
   <a href="https://github.com/peteriz/mancia/releases/latest"><img src="https://img.shields.io/github/v/release/peteriz/mancia?display_name=tag" alt="Latest release"></a>
@@ -12,171 +16,112 @@
   <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
 </p>
 
-**AI text editing across macOS, without leaving the app where you write.**
-
-Select text in a Mac app that supports standard copy and paste, press a global shortcut, and describe the change. Mancia uses GitHub Copilot CLI to rewrite the text in place—no chat window and no copy-paste loop.
+Select text anywhere on your Mac, press a shortcut, and say what you want
+changed. Mancia runs the edit through GitHub Copilot CLI and replaces the text
+in place — no chat window, no copy-paste round trip.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="The Mancia command ribbon: a dark lane with Target reading 'Selection · 44', Action reading 'Improve', an empty Direction field, and a Run button" width="760">
+  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. The Mancia command ribbon sits just below the selection, reading Selection · 204, Your instruction, the typed direction 'make it decisive, one sentence', and a Run button." width="880">
 </p>
 
-## What Mancia does
-
-- Works in frontmost apps and text fields that support standard Copy, Select All, and Paste.
-- Uses a configurable global shortcut.
-- Opens a command ribbon against the text you selected — just below it, or just
-  above when there is no room below. With nothing selected it opens in a
-  predictable place at the top instead.
-- Edits the current selection, or attempts to edit all copyable text when nothing is selected.
-- Offers one-tap **Improve**, a free-form instruction field, and a preset
-  dropdown that takes your typed text as extra guidance.
-- Replaces text in place and lets you move between original and generated versions.
-- Restores your clipboard after every capture and paste.
-- Follows your system light or dark appearance.
-- Stays in the menu bar without adding a Dock icon.
-
-## Requirements
-
-- macOS 14 or newer.
-- [Node.js 22 or newer](https://nodejs.org) when installing Copilot CLI with `npm`.
-- [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) installed and signed in.
-- A GitHub Copilot subscription.
-- macOS Accessibility permission for copying and replacing text.
-
-Install Copilot CLI, then run it and follow the `/login` prompt:
-
-```sh
-npm install -g @github/copilot
-copilot
-```
-
-> [!TIP]
-> If Mancia cannot find `copilot`, open **Settings** from the menu bar and enter its absolute path. Run `which copilot` in Terminal to find it.
-
-Mancia runs the local `copilot` command in non-interactive mode. It does not connect directly to an AI API.
+- Works in any app with standard **Copy**, **Select All** and **Paste**.
+- The ribbon opens **against the text you selected**, not in a corner of the screen.
+- One-tap **Improve**, three more presets, or a free-form instruction.
+- Step back and forth between versions until one is right.
+- Your clipboard is snapshotted and restored after every edit.
+- No telemetry, no Dock icon, no direct calls to any AI API.
 
 ## Install
 
-### Download a release
+Download the latest `.dmg` from
+[Releases](https://github.com/peteriz/mancia/releases/latest), open it, and drag
+Mancia to **Applications**.
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/peteriz/mancia/releases/latest), open it, and drag Mancia to **Applications**.
-
-> [!NOTE]
-> Mancia is not notarized yet. If macOS says it cannot open or verify the app, right-click Mancia in Finder, choose **Open**, then confirm. You can also allow it under **System Settings → Privacy & Security**.
-
-If macOS still blocks the app, remove its quarantine metadata:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Mancia.app
-```
-
-Only run this command for a copy of Mancia you downloaded from this repository and trust. You only need to approve each build once; apps you compile yourself open normally.
-
-### Build from source
-
-Mancia is a Swift Package Manager project and does not use an Xcode project. Building requires Xcode or Command Line Tools with Swift 6.
+Or build it — Mancia is a Swift Package, with no Xcode project:
 
 ```sh
 git clone https://github.com/peteriz/mancia.git
 cd mancia
-make app
-open build/Mancia.app
+make app && open build/Mancia.app
 ```
 
-Copy `build/Mancia.app` to `/Applications` for a permanent install.
+> [!NOTE]
+> Release builds are not notarized yet. If macOS refuses to open the app,
+> right-click it in Finder and choose **Open**, or run
+> `xattr -dr com.apple.quarantine /Applications/Mancia.app`. Apps you compile
+> yourself open normally.
 
-## First run
+## Set up
 
-Mancia needs Accessibility permission to copy selected text and paste the result into the frontmost app.
-
-1. Open Mancia.
-2. Trigger the shortcut or choose **Edit Selection…** from the menu bar.
-3. Enable Mancia under **System Settings → Privacy & Security → Accessibility** when prompted.
-
-Development builds use ad-hoc signing by default, so macOS may ask again after a rebuild. Contributors can use an existing, stable local signing identity:
+**1. GitHub Copilot CLI** does the actual editing, so install it and sign in.
+It needs [Node.js 22+](https://nodejs.org) and a Copilot subscription.
 
 ```sh
-CODESIGN_ID="<existing codesigning identity>" make app
+npm install -g @github/copilot
+copilot   # then follow the /login prompt
 ```
 
-## Usage
+> [!TIP]
+> If Mancia cannot find `copilot`, run `which copilot` and paste the absolute
+> path into **Settings**.
 
-1. Select text in an app that supports standard copy and paste.
-2. Press <kbd>Control</kbd> + <kbd>Option</kbd> + <kbd>Command</kbd> + <kbd>E</kbd>, the default shortcut.
-3. Press <kbd>Return</kbd> to **Improve**, or type a custom instruction in the
-   Direction field and submit it. The Action cell applies a preset, using
-   anything you typed as extra guidance.
-4. Review the result in the original app.
-5. Use the arrows to switch versions, run another edit, or press
-   <kbd>Esc</kbd> to dismiss the ribbon.
+**2. Accessibility permission** lets Mancia copy your selection and paste the
+result back. Trigger the shortcut once and approve Mancia under **System
+Settings → Privacy & Security → Accessibility**. Development builds are ad-hoc
+signed, so macOS asks again after each rebuild.
 
-Try instructions such as “Make this more concise,” “Rewrite in a friendlier tone,” or “Turn these notes into bullet points.”
+## Use it
 
-With no selection, Mancia uses Select All to capture the text it can copy. By default, it asks you to confirm **Replace document** before overwriting that text.
+1. Select text in any app.
+2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
+3. Press <kbd>Return</kbd> to **Improve**, or type an instruction first —
+   *“make it decisive, one sentence”*, *“rewrite in a friendlier tone”*,
+   *“turn these notes into bullets”*.
 
-### Ribbon shortcuts
+The result replaces the selection in place. With nothing selected, Mancia takes
+the whole document and asks before overwriting it.
 
-| Shortcut | Action |
+| Key | Does |
 | --- | --- |
-| <kbd>Return</kbd> or <kbd>Command</kbd> + <kbd>Return</kbd> | Run the edit |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move between the ribbon's cells |
-| <kbd>Command</kbd> + <kbd>1</kbd>…<kbd>4</kbd> | Pick the action: Improve, Sharpen, Plan first, Tighten |
-| <kbd>Command</kbd> + <kbd>0</kbd> | Unpin the action and go back to using your instruction |
-| <kbd>Command</kbd> + <kbd>T</kbd> | Switch the target between the selection and the whole document |
-| <kbd>Left</kbd> / <kbd>Right</kbd> | Switch versions |
-| <kbd>Command</kbd> + <kbd>,</kbd> | Open Settings |
-| <kbd>Escape</kbd> or <kbd>Command</kbd> + <kbd>W</kbd> | Close the ribbon |
+| <kbd>Return</kbd> | Run the edit |
+| <kbd>←</kbd> / <kbd>→</kbd> | Step between versions |
+| <kbd>Tab</kbd> | Move between the ribbon's cells |
+| <kbd>⌘1</kbd>…<kbd>⌘4</kbd> | Pick an action: Improve, Sharpen, Plan first, Tighten |
+| <kbd>⌘0</kbd> | Back to using your own instruction |
+| <kbd>⌘T</kbd> | Switch target: selection ↔ whole document |
+| <kbd>⌘,</kbd> | Settings |
+| <kbd>Esc</kbd> | Close the ribbon |
 
-Standard macOS editing shortcuts work in the Direction field, including copy, paste, undo, and redo.
+**Settings** (from the menu bar) changes the global shortcut, the Copilot model
+and reasoning effort, the CLI path, launch at login, and whether the ribbon
+closes after an edit.
 
-## Settings
+## Privacy
 
-Open **Settings** from the menu bar to:
+Mancia has no analytics or telemetry and never calls an AI API directly. It
+passes your selected text and instruction to the local `copilot` process, which
+may send them on to GitHub Copilot services. The pasteboard is used to read and
+replace text, then restored to what it held before.
 
-- Change the global shortcut.
-- Choose a Copilot model and reasoning effort when available.
-- Set or detect the Copilot CLI path.
-- Launch Mancia at login.
-- Choose whether the ribbon closes or stays open after an edit.
+Report a vulnerability through our [security policy](SECURITY.md).
 
-## Privacy and security
+## Contributing
 
-Mancia temporarily uses the pasteboard to read and replace text, then restores its previous contents.
-
-Mancia has no analytics or telemetry and does not call AI APIs directly. It sends captured text and your instruction to the local Copilot CLI process, which may send that content to GitHub Copilot services.
-
-See our [security policy](SECURITY.md) to report a vulnerability.
-
-## Development
-
-| Command | What it does |
-| --- | --- |
-| `make build` | Build a debug executable |
-| `make test` | Run unit tests |
-| `make app` | Assemble `build/Mancia.app` |
-| `make dmg` | Create `build/Mancia-<version>.dmg` |
-| `make run` | Build and open the app |
-| `make clean` | Remove build output |
-
-Provider-only checks:
+Contributions are welcome — read the [contributing guide](docs/CONTRIBUTING.md)
+and the [Code of Conduct](CODE_OF_CONDUCT.md) first, then
+[open an issue](https://github.com/peteriz/mancia/issues/new/choose) or a pull
+request.
 
 ```sh
-swift run Mancia --provider-check
-echo "some text" | swift run Mancia --complete rewrite
+make build   # debug build
+make test    # unit tests
+make run     # build the .app and launch it
 ```
 
-## Contributing and support
-
-Contributions are welcome. Read the [contributing guide](docs/CONTRIBUTING.md) before opening a pull request, and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-Found a bug or have an idea? [Open an issue](https://github.com/peteriz/mancia/issues/new/choose).
-
-Project references:
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Original implementation spec (historical)](docs/SPEC.md)
-- [Changelog](CHANGELOG.md)
+Copilot CLI is the only provider today; `Sources/Mancia/Providers` is the
+extension point for others. See [Architecture](docs/ARCHITECTURE.md) for how
+the pieces fit, and the [Changelog](CHANGELOG.md) for what has landed.
 
 ## License
 
-Mancia is available under the [MIT License](LICENSE).
+[MIT](LICENSE)
