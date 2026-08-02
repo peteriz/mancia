@@ -379,7 +379,20 @@ struct RibbonView: View {
         .background(controlShape.fill(locked ? RibbonPalette.actionInert : RibbonPalette.action))
         .overlay {
             if model.phase == .running {
-                SwooshBorder(shape: controlShape, tint: RibbonPalette.action, animated: !reduceMotion)
+                // The head is light, not vermilion: the comet is riding the
+                // one control on the lane already filled with the tint, and a
+                // vermilion head there had nothing to be brighter than. The
+                // tail and the halo stay vermilion, so the lane still spends
+                // its accent exactly once.
+                SwooshBorder(
+                    shape: controlShape,
+                    tint: RibbonPalette.action,
+                    animated: !reduceMotion,
+                    head: RibbonPalette.text,
+                    halo: 4,
+                    lineWidth: 2.5
+                )
+                .allowsHitTesting(false)
             }
         }
         .contentShape(controlShape)

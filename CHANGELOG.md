@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The running signal on Run reads at a glance: the travelling light keeps a
+  bright head over the accent fill, trails a vermilion glow onto the lane, and
+  sits over a steady ember so the state holds in every frame rather than only
+  where the light happens to be. It also travels by path length instead of by
+  angle, which holds one speed the whole way around a control wider than it is
+  tall, and the lap is quicker — 1.6s to 0.925s. Reduce Motion keeps the ember
+  and drops the movement.
+
 ## [0.2.0] - 2026-08-02
 
 ### Added
