@@ -118,7 +118,8 @@ With no selection, Mancia uses Select All to capture the text it can copy. By de
 | --- | --- |
 | <kbd>Return</kbd> or <kbd>Command</kbd> + <kbd>Return</kbd> | Run the edit |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move between the ribbon's cells |
-| <kbd>Command</kbd> + <kbd>1</kbd> / <kbd>Command</kbd> + <kbd>2</kbd> | Target the selection / the whole document |
+| <kbd>Command</kbd> + <kbd>1</kbd>…<kbd>4</kbd> | Pick the action: Improve, Sharpen, Plan first, Tighten |
+| <kbd>Command</kbd> + <kbd>T</kbd> | Switch the target between the selection and the whole document |
 | <kbd>Left</kbd> / <kbd>Right</kbd> | Switch versions |
 | <kbd>Command</kbd> + <kbd>,</kbd> | Open Settings |
 | <kbd>Escape</kbd> or <kbd>Command</kbd> + <kbd>W</kbd> | Close the ribbon |

@@ -168,6 +168,11 @@ struct RibbonView: View {
                     model.setScope(.document)
                     model.returnFocusToDirection()
                 }
+                Divider()
+                // A hint, not a binding. `KeyablePanel` resolves ⌘T above the
+                // SwiftUI tree and consumes it, so this item never fires; it is
+                // here because the menu is where someone looks for the key.
+                Text("⌘T switches")
             } label: {
                 targetLabel
             }
@@ -216,18 +221,30 @@ struct RibbonView: View {
         }
     }
 
+    /// ⌘1…⌘4, and nothing past the fourth preset — a catalog longer than that
+    /// has outgrown a digit row, and an unlabeled fifth key is worse than none.
+    /// `\0` is `KeyEquivalent`'s way of asking for no shortcut at all.
+    private func presetShortcut(_ index: Int) -> KeyEquivalent {
+        index < 4 ? KeyEquivalent(Character("\(index + 1)")) : KeyEquivalent("\0")
+    }
+
     /// The action that will actually run, spelled out. The menu pins a preset
     /// explicitly; `Your instruction` unpins and hands the decision back to the
     /// Direction field.
     private var actionCell: some View {
         Menu {
-            ForEach(PanelPreset.all) { preset in
+            ForEach(Array(PanelPreset.all.enumerated()), id: \.element.id) { index, preset in
                 Button {
                     model.pinnedPreset = preset
                     model.returnFocusToDirection()
                 } label: {
                     Label(preset.title, systemImage: preset.action.symbol)
                 }
+                // Renders the ⌘-digit beside the item. Only the first four get
+                // one, and it is a hint rather than a binding: `KeyablePanel`
+                // resolves these above the SwiftUI tree and consumes them, so
+                // the key works whether or not this menu has ever been opened.
+                .keyboardShortcut(presetShortcut(index), modifiers: .command)
             }
             Divider()
             Button("Your instruction") {

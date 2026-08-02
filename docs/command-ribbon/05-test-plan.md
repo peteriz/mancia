@@ -74,8 +74,11 @@ must not leak a pin across invocations.
 
 Extend the existing `PanelKeyCommand.resolve` coverage:
 
-- `("1", [.command])` → `.targetSelection`; `("2", [.command])` →
-  `.targetDocument`.
+- `("1", [.command])` → `.selectPreset(0)`, through `("4", [.command])` →
+  `.selectPreset(3)`; `("t", [.command])` → `.toggleTarget`. (Revised after the
+  plan shipped — see Q6 in `06-decisions-and-open-questions.md`.)
+- `("5", [.command])` → `nil`: a digit past the catalog must not fire the last
+  preset.
 - A regression guard that the existing mappings are untouched: ⌘A/C/V/X/Z,
   ⇧⌘Z, ⌘W, ⌘,, ⌘Return all still resolve as they do today.
 
@@ -154,7 +157,7 @@ The point of these is that the ribbon changed presentation only.
 | # | Scenario | Expect |
 |---|---|---|
 | K1 | Tab through the lane | Target → Action → Direction → Run, visible focus ring on each |
-| K2 | ⌘1 / ⌘2 | Target switches; ⌘1 inert with no selection |
+| K2 | ⌘1…⌘4, then ⌘T | Action pins Improve/Sharpen/Plan first/Tighten; ⌘T switches target and is inert with no selection. Neither leaks characters into Direction |
 | K3 | ⌘A/C/V/X/Z, ⇧⌘Z in Direction | Standard field editing; undo scoped to the field, never the document |
 | K4 | ⌘, then close Settings | Focus returns to Direction — the `focusSeq` path |
 | K5 | VoiceOver on, run a full cycle | Phases announced; every control labeled |

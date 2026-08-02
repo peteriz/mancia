@@ -109,12 +109,32 @@ final class PanelModel {
         sessionSeq &+= 1
     }
 
-    /// ⌘1 / ⌘2, and the Target menu. Aiming at the selection is inert when
-    /// there is no selection to aim at.
+    /// ⌘T and the Target menu. Aiming at the selection is inert when there is
+    /// no selection to aim at.
     func setScope(_ scope: Scope) {
-        guard scope == .document || hasSelection else { return }
+        guard !isLocked, scope == .document || hasSelection else { return }
         self.scope = scope
     }
+
+    /// ⌘T. Inert without a selection, where there is nothing to swap between.
+    func toggleScope() {
+        setScope(scope == .selection ? .document : .selection)
+    }
+
+    /// ⌘1…⌘4 — pin the nth preset, exactly as choosing it from the Action menu
+    /// does, focus hand-back included. Out-of-range indices are ignored rather
+    /// than clamped: a fifth preset shortcut should do nothing until there is a
+    /// fifth preset, not silently fire the fourth.
+    func selectPreset(at index: Int) {
+        guard !isLocked, PanelPreset.all.indices.contains(index) else { return }
+        pinnedPreset = PanelPreset.all[index]
+        returnFocusToDirection()
+    }
+
+    /// Whether the command cells are taking input. The keyboard has to honor
+    /// this itself: the shortcuts are resolved by the window, above the SwiftUI
+    /// tree, so they never see the `disabled` that greys the cells out.
+    var isLocked: Bool { phase == .running || phase == .confirm }
 
     /// Hand keyboard focus back to Direction.
     ///

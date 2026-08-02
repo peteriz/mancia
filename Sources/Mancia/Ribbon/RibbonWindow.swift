@@ -364,7 +364,8 @@ final class RibbonWindow {
             }
             return false
         }
-        panel.onTargetScope = { [weak self] scope in self?.model.setScope(scope) }
+        panel.onToggleTarget = { [weak self] in self?.model.toggleScope() }
+        panel.onSelectPreset = { [weak self] index in self?.model.selectPreset(at: index) }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }

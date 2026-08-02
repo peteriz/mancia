@@ -86,6 +86,31 @@ constrained by a Copilot-shaped API. If that turns out to be more than a small
 change, ship stage 8 with shortcut and Accessibility rows only and open a
 follow-up for the provider row rather than widening the stage.
 
+## Q6 — the digit shortcuts, revised after the plan shipped
+
+**Settled during the design review:** ⌘1 and ⌘2 set the target to the selection
+and to the whole document (doc 01, "Target"; stage 7 of the build plan).
+
+**Changed on request, after the presets landed:** ⌘1…⌘4 now pin the four
+presets — Improve, Sharpen, Plan first, Tighten — and the target moved to ⌘T,
+which switches between its two states.
+
+**Why the digits are worth more to the presets:** there are four of them and
+picking one is the frequent move, whereas the target is usually right already —
+the session opens aimed at whatever the user had selected. A two-state control
+is served just as well by one key.
+
+**Why ⌘T and not ⌘⇧1 / ⌘⇧2:** `charactersIgnoringModifiers` applies Shift, so a
+shifted digit arrives as a layout-dependent symbol (`!` on US, something else
+elsewhere) and the mapping would stop being a pure function of the character.
+`T` is stable across layouts, and Mancia has no Edit or File menu for it to
+collide with.
+
+**Consequence worth knowing:** these shortcuts are resolved by `KeyablePanel`,
+above the SwiftUI tree, so the `disabled` that greys the cells out while a
+request runs is invisible to them. `PanelModel.isLocked` is what actually holds
+them off, and the mutating entry points check it themselves.
+
 ## Reference material
 
 - **The design review:** `../mancia-design-review.html` — open the ribbon tab.

@@ -153,6 +153,12 @@ wired to call `coordinator.start()`.
    SwiftUI grants `@FocusState` to the Direction field but refuses it to the
    three `.focusable()` cells, so the model is the only place that knows which
    stop the keyboard is on.
+
+   ⌘1…⌘4 pin the nth entry of `PanelPreset.all` and ⌘T swaps the target, both
+   resolved by `PanelKeyCommand` and dispatched through `KeyablePanel`. Because
+   that happens above the SwiftUI tree, the `disabled` that greys the cells out
+   while a request runs is invisible to them — `PanelModel.isLocked` is what
+   actually holds them off, and the mutating entry points check it themselves.
 4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
    Return or the Run control, giving `.improve` on an empty Direction field
    and `.custom(text)` on a typed one) or picks a preset from the Action cell

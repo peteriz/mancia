@@ -176,13 +176,17 @@ confirms; error `Copy` puts the full text on `NSPasteboard.general`.
 `Sources/Mancia/Ribbon/RibbonView.swift`,
 `Sources/Mancia/EditCoordinator.swift`
 
-- `PanelKeyCommand` gains `.targetSelection` (⌘1) and `.targetDocument` (⌘2);
-  add cases to its `resolve` and tests. Follow the existing shape exactly —
-  this type is already unit-tested and the tests should extend, not change.
+- `PanelKeyCommand` gains `.selectPreset(Int)` (⌘1…⌘4) and `.toggleTarget`
+  (⌘T); add cases to its `resolve` and tests. Follow the existing shape exactly
+  — this type is already unit-tested and the tests should extend, not change.
+  (The digits were ⌘1/⌘2 = target as originally planned; revised on request
+  after the presets landed. See Q6 in doc 06.)
 - `RibbonWindow` routes them to the model.
 - Tab order Target → Action → Direction → Run via a `@FocusState` enum.
 - Focus lands in Direction on `sessionSeq` / `focusSeq` change, as today.
-- ⌘1 is inert when `hasSelection == false`.
+- ⌘T is inert when `hasSelection == false`, and both are inert while a request
+  is in flight — they are resolved above the SwiftUI tree, so they never see
+  the `disabled` on the cells.
 
 `EditCoordinator` change permitted here: **none expected.** ← / → version
 navigation already works through `handleKeyDown`

@@ -15,8 +15,18 @@ enum PanelKeyCommand: Equatable {
     case openSettings
     /// ⌘⏎ — run the primary action, same as Return.
     case submit
-    /// ⌘1 / ⌘2 — aim the edit at the selection or at the whole document.
-    case targetSelection, targetDocument
+    /// ⌘1…⌘4 — pin the nth preset in `PanelPreset.all`, as picking it from the
+    /// Action menu would. Carries the index rather than the preset so this
+    /// stays a pure mapping from keys, with the catalog resolved by the model.
+    case selectPreset(Int)
+    /// ⌘T — swap the target between the selection and the whole document.
+    ///
+    /// The digits it used to share with the presets are worth more to them:
+    /// there are four presets and picking one is the common move, whereas the
+    /// target is usually right already — the session opens aimed at whatever
+    /// the user had selected. A two-state control is served just as well by one
+    /// key, and `T` survives keyboard layouts that a shifted digit would not.
+    case toggleTarget
 
     /// Pure mapping from a key event's characters + modifiers, kept separate
     /// from NSEvent so it is unit-testable.
@@ -33,8 +43,11 @@ enum PanelKeyCommand: Equatable {
         case ("w", [.command]): return .closePanel
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
-        case ("1", [.command]): return .targetSelection
-        case ("2", [.command]): return .targetDocument
+        case ("t", [.command]): return .toggleTarget
+        case ("1", [.command]): return .selectPreset(0)
+        case ("2", [.command]): return .selectPreset(1)
+        case ("3", [.command]): return .selectPreset(2)
+        case ("4", [.command]): return .selectPreset(3)
         default: return nil
         }
     }

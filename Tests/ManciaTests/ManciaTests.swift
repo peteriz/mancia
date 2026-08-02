@@ -1035,8 +1035,11 @@ func panelKeyCommandsResolve() {
         ("w", .command, .closePanel),
         (",", .command, .openSettings),
         ("\r", .command, .submit),
-        ("1", .command, .targetSelection),
-        ("2", .command, .targetDocument),
+        ("t", .command, .toggleTarget),
+        ("1", .command, .selectPreset(0)),
+        ("2", .command, .selectPreset(1)),
+        ("3", .command, .selectPreset(2)),
+        ("4", .command, .selectPreset(3)),
     ]
     for c in cases {
         #expect(
@@ -1057,7 +1060,7 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
     #expect(PanelKeyCommand.resolve(characters: "1", modifiers: []) == nil)
-    #expect(PanelKeyCommand.resolve(characters: "3", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "5", modifiers: .command) == nil)
 }
 
 @Test("Tab and shift-Tab resolve to focus moves")
@@ -1123,19 +1126,82 @@ func ribbonFocusSkipsStaticTarget() {
 }
 
 @MainActor
-@Test("Command-1 is inert without a selection")
+@Test("Command-T swaps the target, and is inert without a selection")
 func ribbonTargetShortcutsSetScope() {
     let model = PanelModel()
     model.reset(hasSelection: true, charCount: 40)
-    model.setScope(.document)
+    model.toggleScope()
     #expect(model.scope == .document)
-    model.setScope(.selection)
+    model.toggleScope()
     #expect(model.scope == .selection)
 
     model.reset(hasSelection: false, charCount: 0)
     #expect(model.scope == .document)
-    model.setScope(.selection)
+    model.toggleScope()
     #expect(model.scope == .document, "aiming at a selection that isn't there does nothing")
+}
+
+@MainActor
+@Test("Command-1 through Command-4 pin the matching preset")
+func ribbonPresetShortcutsPin() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    #expect(model.pinnedPreset == nil, "a fresh session derives its action from the field")
+
+    for (index, preset) in PanelPreset.all.enumerated() {
+        model.selectPreset(at: index)
+        #expect(model.pinnedPreset == preset)
+        #expect(model.resolvedActionTitle == preset.title)
+    }
+}
+
+@MainActor
+@Test("A preset shortcut hands focus back to the Direction field")
+func ribbonPresetShortcutRefocusesTheField() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.focusedCell = .run
+    let before = model.focusSeq
+
+    model.selectPreset(at: 1)
+    #expect(model.focusedCell == .direction, "same hand-back the Action menu does")
+    #expect(model.focusSeq != before)
+}
+
+@MainActor
+@Test("An out-of-range preset shortcut does nothing")
+func ribbonPresetShortcutIgnoresOutOfRange() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.selectPreset(at: 0)
+    let pinned = model.pinnedPreset
+
+    model.selectPreset(at: PanelPreset.all.count)
+    model.selectPreset(at: -1)
+    #expect(model.pinnedPreset == pinned, "a key past the catalog must not fire the last preset")
+}
+
+@MainActor
+@Test("Shortcuts for disabled cells are inert while a request is in flight")
+func ribbonShortcutsRespectTheLock() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.selectPreset(at: 0)
+    let pinned = model.pinnedPreset
+
+    // The cells are greyed out and disabled in these phases, but the shortcuts
+    // are resolved by the window, above the SwiftUI tree, so they never see it.
+    for phase in [PanelModel.Phase.running, .confirm] {
+        model.phase = phase
+        model.selectPreset(at: 1)
+        model.toggleScope()
+        #expect(model.pinnedPreset == pinned, "\(phase) should not accept a preset change")
+        #expect(model.scope == .selection, "\(phase) should not accept a target change")
+    }
+
+    model.phase = .idle
+    model.selectPreset(at: 1)
+    #expect(model.pinnedPreset == PanelPreset.all[1], "and works again once the run lands")
 }
 
 @MainActor

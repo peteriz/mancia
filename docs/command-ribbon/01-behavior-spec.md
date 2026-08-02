@@ -45,7 +45,7 @@ Menu items: `Selection · N` and `Entire document`. When `hasSelection` is
 false, the cell is a static `Entire document` label with no menu — matching
 today's `scopeCaption` behavior in `EditPanelView.swift:82`.
 
-Shortcuts ⌘1 (selection) and ⌘2 (document) set it directly; ⌘1 is inert when
+Shortcut ⌘T switches it, and is inert when
 `hasSelection` is false.
 
 ### Action
@@ -202,7 +202,8 @@ The ribbon is the keyboard-first direction; this table is its contract.
 | Return | `runPrimary()`, or confirm in `.confirm` | Existing |
 | Esc | Close session, host untouched | Existing `onCancel` |
 | Tab / ⇧Tab | Move Target → Action → Direction → Run | New, stage 7 |
-| ⌘1 / ⌘2 | Target = selection / document | New `PanelKeyCommand` cases |
+| ⌘1…⌘4 | Pin the nth preset | New `PanelKeyCommand` case |
+| ⌘T | Switch the target | New `PanelKeyCommand` case |
 | ← / → | Version navigation in `.applied` with empty Direction | Existing `handleKeyDown` |
 | ⌘, | Settings | Existing |
 | ⌘A/C/V/X/Z/⇧⌘Z | Field editing | Existing `PanelKeyCommand` |
