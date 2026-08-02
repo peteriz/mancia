@@ -15,6 +15,26 @@ enum PanelKeyCommand: Equatable {
     case openSettings
     /// ⌘⏎ — run the primary action, same as Return.
     case submit
+    /// ⌘1…⌘4 — pin the nth preset in `PanelPreset.all`, as picking it from the
+    /// Action menu would. Carries the index rather than the preset so this
+    /// stays a pure mapping from keys, with the catalog resolved by the model.
+    case selectPreset(Int)
+    /// ⌘0 — unpin, handing the action back to the Direction field.
+    ///
+    /// The menu's `Your instruction` row does this with the mouse, but SwiftUI's
+    /// `Menu` under `.buttonStyle(.plain)` opens for neither Space nor Return,
+    /// so without a key of its own a pinned preset would be permanent for the
+    /// rest of a keyboard-only session. Zero because it reads as "none of the
+    /// four", and it sits next to them on the row.
+    case clearPreset
+    /// ⌘T — swap the target between the selection and the whole document.
+    ///
+    /// The digits it used to share with the presets are worth more to them:
+    /// there are four presets and picking one is the common move, whereas the
+    /// target is usually right already — the session opens aimed at whatever
+    /// the user had selected. A two-state control is served just as well by one
+    /// key, and `T` survives keyboard layouts that a shifted digit would not.
+    case toggleTarget
 
     /// Pure mapping from a key event's characters + modifiers, kept separate
     /// from NSEvent so it is unit-testable.
@@ -31,6 +51,39 @@ enum PanelKeyCommand: Equatable {
         case ("w", [.command]): return .closePanel
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
+        case ("t", [.command]): return .toggleTarget
+        case ("0", [.command]): return .clearPreset
+        case ("1", [.command]): return .selectPreset(0)
+        case ("2", [.command]): return .selectPreset(1)
+        case ("3", [.command]): return .selectPreset(2)
+        case ("4", [.command]): return .selectPreset(3)
+        default: return nil
+        }
+    }
+
+    /// Tab and ⇧Tab, which move focus between the ribbon's cells.
+    ///
+    /// Resolved from the key code, and separately from the ⌘-shortcuts above,
+    /// because neither is a key equivalent: a bare Tab has no modifier to mark
+    /// it as a command, so both arrive through `sendEvent` rather than
+    /// `performKeyEquivalent`.
+    enum FocusMove: Equatable { case next, previous }
+
+    /// Return / keypad Enter, unmodified — the lane's primary key.
+    ///
+    /// Also not a key equivalent, and the Direction field is the only cell that
+    /// answers it on its own (through `onSubmit`), so every other focus stop
+    /// needs the window to run it.
+    static func isPrimaryReturn(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard keyCode == 36 || keyCode == 76 else { return false }
+        return modifiers.intersection([.command, .shift, .option, .control]).isEmpty
+    }
+
+    static func focusMove(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> FocusMove? {
+        guard keyCode == 48 else { return nil }
+        switch modifiers.intersection([.command, .shift, .option, .control]) {
+        case []: return .next
+        case [.shift]: return .previous
         default: return nil
         }
     }

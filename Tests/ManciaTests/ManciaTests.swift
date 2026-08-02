@@ -281,6 +281,36 @@ func confirmationSummary() {
     #expect(ApplyConfirmation.summary(originalCharacters: 0, resultCharacters: 0) == "0 → 0 chars")
 }
 
+@Test("The review region's summary is spelled out and grouped")
+func detailedConfirmationSummary() {
+    // Pinned locales, because every part of the output moves with the locale:
+    // the separator, whether four digits group at all, and the digits
+    // themselves. Testing against the machine's locale tests the machine.
+    let english = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "en_US"))
+    #expect(english == "3,842 → 3,716 characters")
+
+    // Same number, a locale that groups with a period.
+    let german = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "de_DE"))
+    #expect(german == "3.842 → 3.716 characters", "the separator follows the locale")
+
+    // And one that does not group four-digit numbers at all, which is why the
+    // old "it got longer, so it must have grouped" assertion was wrong.
+    let polish = ApplyConfirmation.detailedSummary(
+        originalCharacters: 3842, resultCharacters: 3716,
+        locale: Locale(identifier: "pl_PL"))
+    #expect(polish.hasSuffix(" characters"))
+    #expect(polish.contains("→"))
+
+    let small = ApplyConfirmation.detailedSummary(
+        originalCharacters: 0, resultCharacters: 12,
+        locale: Locale(identifier: "en_US"))
+    #expect(small == "0 → 12 characters", "short counts get no separator")
+}
+
 @MainActor
 @Test("Whole-document confirmation defaults on and persists")
 func confirmSettingDefaultsOnAndPersists() {
@@ -1017,6 +1047,12 @@ func panelKeyCommandsResolve() {
         ("w", .command, .closePanel),
         (",", .command, .openSettings),
         ("\r", .command, .submit),
+        ("t", .command, .toggleTarget),
+        ("1", .command, .selectPreset(0)),
+        ("2", .command, .selectPreset(1)),
+        ("3", .command, .selectPreset(2)),
+        ("4", .command, .selectPreset(3)),
+        ("0", .command, .clearPreset),
     ]
     for c in cases {
         #expect(
@@ -1036,6 +1072,218 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "1", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "5", modifiers: .command) == nil)
+}
+
+@Test("Tab and shift-Tab resolve to focus moves")
+func panelKeyCommandsResolveFocusMoves() {
+    let tab: UInt16 = 48
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: []) == .next)
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: .shift) == .previous)
+    // Tab with a command modifier belongs to the system app switcher.
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: .command) == nil)
+    #expect(PanelKeyCommand.focusMove(keyCode: tab, modifiers: [.shift, .option]) == nil)
+    // Any other key, including Return, is not a focus move.
+    #expect(PanelKeyCommand.focusMove(keyCode: 36, modifiers: []) == nil)
+}
+
+@Test("Return and keypad Enter are the primary key, unmodified")
+func panelKeyCommandsResolvePrimaryReturn() {
+    #expect(PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: []))
+    #expect(PanelKeyCommand.isPrimaryReturn(keyCode: 76, modifiers: []))
+    // ⌘⏎ has its own route through `performKeyEquivalent`.
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: .command))
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 36, modifiers: .shift))
+    #expect(!PanelKeyCommand.isPrimaryReturn(keyCode: 48, modifiers: []))
+}
+
+// MARK: - Ribbon keyboard model
+
+@MainActor
+@Test("Tab cycles the ribbon's cells in order and wraps")
+func ribbonFocusCycles() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 12)
+    #expect(model.focusedCell == .direction)
+
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .run)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .target)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action)
+
+    model.moveFocus(.previous)
+    #expect(model.focusedCell == .target)
+    model.moveFocus(.previous)
+    #expect(model.focusedCell == .run)
+}
+
+@MainActor
+@Test("Target leaves the focus ring when there is no selection")
+func ribbonFocusSkipsStaticTarget() {
+    let model = PanelModel()
+    model.reset(hasSelection: false, charCount: 0)
+    #expect(model.focusableCells == [.action, .direction, .run])
+
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .run)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action)
+
+    // Capturing hides the menu the same way, so the cell drops out too.
+    model.reset(hasSelection: true, charCount: 8)
+    model.capturing = true
+    #expect(model.focusableCells == [.action, .direction, .run])
+}
+
+@MainActor
+@Test("Command-T swaps the target, and is inert without a selection")
+func ribbonTargetShortcutsSetScope() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.toggleScope()
+    #expect(model.scope == .document)
+    model.toggleScope()
+    #expect(model.scope == .selection)
+
+    model.reset(hasSelection: false, charCount: 0)
+    #expect(model.scope == .document)
+    model.toggleScope()
+    #expect(model.scope == .document, "aiming at a selection that isn't there does nothing")
+}
+
+@MainActor
+@Test("Command-1 through Command-4 pin the matching preset")
+func ribbonPresetShortcutsPin() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    #expect(model.pinnedPreset == nil, "a fresh session derives its action from the field")
+
+    for (index, preset) in PanelPreset.all.enumerated() {
+        model.selectPreset(at: index)
+        #expect(model.pinnedPreset == preset)
+        #expect(model.resolvedActionTitle == preset.title)
+    }
+}
+
+@MainActor
+@Test("A preset shortcut hands focus back to the Direction field")
+func ribbonPresetShortcutRefocusesTheField() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.focusedCell = .run
+    let before = model.focusSeq
+
+    model.selectPreset(at: 1)
+    #expect(model.focusedCell == .direction, "same hand-back the Action menu does")
+    #expect(model.focusSeq != before)
+}
+
+@MainActor
+@Test("An out-of-range preset shortcut does nothing")
+func ribbonPresetShortcutIgnoresOutOfRange() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.selectPreset(at: 0)
+    let pinned = model.pinnedPreset
+
+    model.selectPreset(at: PanelPreset.all.count)
+    model.selectPreset(at: -1)
+    #expect(model.pinnedPreset == pinned, "a key past the catalog must not fire the last preset")
+}
+
+@MainActor
+@Test("Shortcuts for disabled cells are inert while a request is in flight")
+func ribbonShortcutsRespectTheLock() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.selectPreset(at: 0)
+    let pinned = model.pinnedPreset
+
+    // The cells are greyed out and disabled in these phases, but the shortcuts
+    // are resolved by the window, above the SwiftUI tree, so they never see it.
+    for phase in [PanelModel.Phase.running, .confirm] {
+        model.phase = phase
+        model.selectPreset(at: 1)
+        model.toggleScope()
+        model.clearPreset()
+        #expect(model.pinnedPreset == pinned, "\(phase) should not accept a preset change")
+        #expect(model.scope == .selection, "\(phase) should not accept a target change")
+        #expect(model.pinnedPreset != nil, "\(phase) should not accept an unpin")
+    }
+
+    model.phase = .idle
+    model.selectPreset(at: 1)
+    #expect(model.pinnedPreset == PanelPreset.all[1], "and works again once the run lands")
+    model.clearPreset()
+    #expect(model.pinnedPreset == nil, "as does unpinning")
+}
+
+/// `hasSelection` is optimistically true while the capture is in flight, and
+/// `EditCoordinator` overwrites `scope` outright when the real answer arrives.
+/// A target toggle in that window would be silently discarded a moment later.
+@MainActor
+@Test("The target shortcut is inert until the capture reports back")
+func ribbonTargetShortcutWaitsForCapture() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.capturing = true
+
+    model.toggleScope()
+    #expect(model.scope == .selection, "a toggle mid-capture would be overwritten, so it is refused")
+
+    model.capturing = false
+    model.toggleScope()
+    #expect(model.scope == .document, "and lands once the capture has reported")
+}
+
+@MainActor
+@Test("A fresh session asks the view to refocus the field")
+func ribbonResetRefocusesTheField() {
+    let model = PanelModel()
+    model.focusedCell = .run
+    let before = model.sessionSeq
+
+    model.reset(hasSelection: true, charCount: 30)
+
+    #expect(model.focusedCell == .direction)
+    #expect(
+        model.sessionSeq == before &+ 1,
+        "the lane's hosting view outlives a session, so the bump is what re-asserts focus")
+}
+
+@MainActor
+@Test("Choosing from a menu hands focus back to Direction")
+func ribbonMenuChoiceReturnsFocus() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 40)
+    model.focusedCell = .action
+    let before = model.focusSeq
+
+    model.returnFocusToDirection()
+
+    #expect(model.focusedCell == .direction)
+    #expect(
+        model.focusSeq == before &+ 1,
+        "the bump is what makes the view adopt focus even when the cell already matched")
+}
+
+@MainActor
+@Test("A retry collapses what the previous attempt disclosed")
+func ribbonRunCollapsesDisclosures() {
+    let model = PanelModel()
+    model.phase = .error
+    model.errorDetailsExpanded = true
+    model.previewExpanded = true
+
+    model.phase = .running
+
+    #expect(model.errorDetailsExpanded == false)
+    #expect(
+        model.previewExpanded == false,
+        "a stale disclosure desyncs the flag from the height the lane was measured at")
 }
 
 // MARK: - Shortcut recorder (native replacement for KeyboardShortcuts.Recorder)
@@ -1201,4 +1449,476 @@ func presetRunCarriesFieldText() {
     model.runPreset(.improve)
     #expect(calls.last?.0 == .improve)
     #expect(calls.last?.1 == "keep the bullet list")
+}
+
+// MARK: - Ribbon command row
+
+@Test("The Action cell names Improve until the user types, then names the instruction")
+@MainActor
+func resolvedActionTitleTracksTyping() {
+    let model = PanelModel()
+
+    #expect(model.resolvedActionTitle == "Improve", "an empty Direction runs Improve, and must say so")
+
+    model.instruction = "translate to French"
+    #expect(model.resolvedActionTitle == "Your instruction")
+
+    // Whitespace is not an instruction, and the cell must not claim it is.
+    model.instruction = "   \n "
+    #expect(model.resolvedActionTitle == "Improve")
+}
+
+/// The Action chip lost its caption, so its glyph is now what identifies the
+/// cell. It has to track the same resolution the title does or the two halves
+/// of one control would disagree.
+@Test("The Action cell's glyph follows the same resolution as its title")
+@MainActor
+func resolvedActionSymbolTracksTheTitle() {
+    let model = PanelModel()
+
+    #expect(model.resolvedActionSymbol == EditAction.improve.symbol)
+
+    model.instruction = "translate to French"
+    #expect(model.resolvedActionSymbol == EditAction.custom("").symbol)
+
+    model.pinnedPreset = .improve
+    #expect(
+        model.resolvedActionSymbol == EditAction.improve.symbol,
+        "a pin outranks the typed instruction, exactly as the title does")
+}
+
+@Test("A pinned preset names itself in the Action cell whatever the Direction says")
+@MainActor
+func resolvedActionTitlePrefersThePin() {
+    let model = PanelModel()
+    model.pinnedPreset = .improve
+    #expect(model.resolvedActionTitle == "Improve")
+
+    model.instruction = "keep the bullet list"
+    #expect(
+        model.resolvedActionTitle == "Improve",
+        "a pin outranks typing — the typed text becomes guidance, not the action")
+}
+
+@Test("The primary path runs a pinned preset, with the Direction as guidance")
+@MainActor
+func primaryPathRunsThePinnedPreset() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    model.pinnedPreset = .improve
+    model.instruction = "  keep the bullet list  "
+    model.runPrimary()
+
+    #expect(calls.last?.0 == .improve, "the pin selects the action, not the typed text")
+    #expect(calls.last?.1 == "keep the bullet list", "the typed text rides along as guidance")
+}
+
+@Test("Unpinning hands the action back to the Direction field")
+@MainActor
+func unpinningRestoresInstructionRouting() {
+    let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
+
+    model.pinnedPreset = .improve
+    model.pinnedPreset = nil
+    model.instruction = "make it formal"
+    model.runPrimary()
+
+    #expect(calls.last?.0 == .custom("make it formal"))
+    #expect(calls.last?.1 == nil)
+}
+
+@Test("A new session drops the pin, so a preset cannot leak into the next edit")
+@MainActor
+func resetClearsThePin() {
+    let model = PanelModel()
+    model.pinnedPreset = .improve
+
+    model.reset(hasSelection: true, charCount: 12)
+
+    #expect(model.pinnedPreset == nil)
+    #expect(model.resolvedActionTitle == "Improve")
+}
+
+// MARK: - Ribbon placement
+
+/// A 1440×900 display at the origin, with a 25pt menu-bar strip reserved at the
+/// top and a 60pt Dock at the bottom — the ordinary windowed case.
+private let ribbonScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
+
+@Test("A reserved menu-bar strip anchors the lane flush under the menu bar")
+func placementAnchorsUnderTheMenuBar() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+
+    #expect(resolved.anchor == .screen, "a 33pt top gap means the menu bar reserves a strip")
+    #expect(resolved.frame.maxY == ribbonVisible.maxY, "the lane hangs from the bottom of the menu bar")
+    #expect(resolved.frame.width == RibbonPlacement.maximumWidth, "1440 is wider than the cap")
+    #expect(resolved.frame.midX == ribbonVisible.midX, "a capped lane centers on the space it was given")
+}
+
+@Test("A zoomed host window changes nothing about placement")
+func placementIgnoresAZoomedHost() {
+    let plain = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+    let zoomed = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            hostWindowFrame: ribbonVisible))
+
+    #expect(plain == zoomed, "while a menu-bar strip exists the host window is not consulted at all")
+}
+
+@Test("A full-screen Space anchors to the window, inset below the reveal area")
+func placementFullScreenInsetsBelowTheRevealArea() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: ribbonScreen))
+
+    #expect(resolved.anchor == .hostWindow, "no reserved strip means the menu bar is auto-hidden")
+    #expect(
+        resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
+        "the revealing menu bar must slide in above the lane, not over it")
+    #expect(resolved.frame.midX == ribbonScreen.midX)
+}
+
+@Test("An auto-hidden menu bar anchors to the host window's top edge")
+func placementAutoHiddenMenuBarFollowsTheHostWindow() {
+    let host = CGRect(x: 200, y: 120, width: 900, height: 600)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == host.maxY - RibbonPlacement.revealClearance)
+    #expect(resolved.frame.minX == host.minX)
+    #expect(resolved.frame.width == host.width)
+}
+
+@Test("A notched display widens the clearance past the camera housing")
+func placementNotchWidensTheClearance() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: ribbonScreen, safeAreaTop: 37))
+
+    #expect(
+        resolved.frame.maxY == ribbonScreen.maxY - 41,
+        "clearance is the safe-area inset plus 4, once that exceeds the 28pt default")
+}
+
+@Test("Split View spans the focused half, not the whole screen")
+func placementSplitViewSpansTheHostHalf() {
+    let leftHalf = CGRect(x: 0, y: 0, width: 720, height: 900)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: leftHalf))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.width == leftHalf.width)
+    #expect(resolved.frame.minX == leftHalf.minX)
+}
+
+@Test("A narrow host clamps to the minimum width and centers on the host")
+func placementNarrowHostClampsToMinimumWidth() {
+    // Kept clear of the screen edges: a lane wider than its host overhangs, and
+    // overhanging past the display is what `clamp` exists to stop.
+    let host = CGRect(x: 300, y: 200, width: 320, height: 400)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(
+        resolved.frame.width == RibbonPlacement.minimumWidth,
+        "below the minimum the row's controls cannot hold their labels")
+    #expect(resolved.frame.midX == host.midX, "a lane wider than its host centers on it")
+}
+
+/// The minimum is a floor on legibility, not on position: a lane wider than its
+/// host, next to a host jammed against the edge of the display, still has to
+/// stay on the display.
+@Test("A minimum-width lane over a host at the screen edge stays on the screen")
+func placementNarrowHostAtTheEdgeStaysOnScreen() {
+    let host = CGRect(x: 0, y: 200, width: 320, height: 400)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.frame.width == RibbonPlacement.minimumWidth)
+    #expect(resolved.frame.minX == ribbonScreen.minX, "centering would put it off the left edge")
+}
+
+@Test("A failed host-window probe falls back to the screen, clearance intact")
+func placementFallsBackToTheScreenWhenTheProbeFails() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: nil))
+
+    #expect(resolved.anchor == .hostWindow, "the anchor follows the menu bar, not the probe")
+    #expect(resolved.frame.midX == ribbonScreen.midX, "with no host window the screen is the host")
+    #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance)
+}
+
+@Test("A host on a secondary display keeps the lane on that display")
+func placementStaysOnTheHostDisplay() {
+    let second = CGRect(x: 1440, y: 0, width: 1440, height: 900)
+    let secondVisible = CGRect(x: 1440, y: 0, width: 1440, height: 875)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: second, visibleFrame: secondVisible))
+
+    #expect(resolved.frame.minX >= second.minX, "the lane must never land back on the primary display")
+    #expect(resolved.frame.maxX <= second.maxX)
+    #expect(resolved.frame.maxY == secondVisible.maxY)
+}
+
+@Test("A lane taller than the display still starts on screen")
+func placementClampsAnOversizedLane() {
+    let resolved = RibbonPlacement.resolve(
+        height: 2000,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+
+    #expect(
+        resolved.frame.minY >= ribbonScreen.minY,
+        "the review region's buttons sit at the lane's bottom edge and must stay reachable")
+}
+
+@Test("An ultrawide display caps the lane's width and centers it")
+func placementCapsTheLaneOnWideDisplays() {
+    let ultrawide = CGRect(x: 0, y: 0, width: 5120, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 5120, height: 1407)
+    let resolved = RibbonPlacement.resolve(
+        height: 56, in: .init(screenFrame: ultrawide, visibleFrame: visible))
+
+    #expect(
+        resolved.frame.width == RibbonPlacement.maximumWidth,
+        "5000pt of mostly empty ink would put Run a long way from the field the user typed in")
+    #expect(resolved.frame.midX == visible.midX, "the lane stays top-centered, so it still opens in one place")
+    #expect(resolved.frame.maxY == visible.maxY, "capping the width must not move the lane off the menu bar")
+}
+
+@Test("A host narrower than the cap still spans it exactly")
+func placementSpansAHostNarrowerThanTheCap() {
+    let host = CGRect(x: 40, y: 0, width: 900, height: 700)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: host))
+
+    #expect(resolved.frame.width == host.width, "the cap is a ceiling, not a fixed width")
+    #expect(resolved.frame.minX == host.minX)
+}
+
+@Test("A sub-pixel top gap counts as no reserved strip")
+func placementTreatsASubPixelGapAsHidden() {
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 899.5)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: visible, hostWindowFrame: ribbonScreen))
+
+    #expect(resolved.anchor == .hostWindow, "the threshold is the rule's hinge; half a point is not a menu bar")
+}
+
+@Test("A notched display's reserved strip still yields to a full-screen host")
+func placementPrefersTheHostWhenTheMenuBarIsHidden() {
+    // Measured on a 14" MacBook Pro: the notch keeps `visibleFrame` short of
+    // `frame` even in a full-screen Space, so geometry alone reads as "menu bar
+    // present" and the lane would cover the host's first line.
+    let notched = CGRect(x: 0, y: 0, width: 1470, height: 956)
+    let visible = CGRect(x: 0, y: 0, width: 1470, height: 923)
+    let host = CGRect(x: 0, y: 0, width: 1470, height: 923)
+
+    let covered = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: notched, visibleFrame: visible,
+        hostWindowFrame: host, safeAreaTop: 32))
+    #expect(covered.anchor == .screen, "the measurement on its own cannot tell")
+
+    let resolved = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: notched, visibleFrame: visible,
+        hostWindowFrame: host, safeAreaTop: 32, menuBarHidden: true))
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == host.maxY - 36, "clears the camera housing by 4pt")
+}
+
+@Test("A hidden menu bar does not override a host the probe never resolved")
+func placementFallsBackToTheScreenWithNoHostWindow() {
+    let resolved = RibbonPlacement.resolve(height: 56, in: .init(
+        screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+        hostWindowFrame: nil, safeAreaTop: 0, menuBarHidden: true))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.maxY == ribbonScreen.maxY - RibbonPlacement.revealClearance,
+            "with no host to hang from, the screen edge stands in — inset all the same")
+}
+
+// MARK: - Ribbon placement: sitting against the selection
+
+/// A selection on the first line of a window sitting flush under the menu bar.
+/// In AppKit coordinates that is just below `ribbonVisible.maxY` (875), which
+/// is exactly where a 56pt lane hanging from the menu bar lands: 819…875.
+private let selectionUnderTheMenuBar = CGRect(x: 20, y: 840, width: 260, height: 14)
+
+@Test("The lane sits just under the selection rather than covering it")
+func placementSitsUnderTheSelection() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: selectionUnderTheMenuBar))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(!resolved.frame.intersects(selectionUnderTheMenuBar), "which is the whole point")
+    #expect(
+        resolved.frame.maxY == selectionUnderTheMenuBar.minY - RibbonPlacement.selectionClearance,
+        "flush under the selected line, one clearance short of touching it")
+    #expect(
+        resolved.frame.minY > ribbonVisible.minY + 600,
+        "and nowhere near the floor of the screen, which is what it used to do")
+}
+
+@Test("A selection the resting lane already clears still draws the lane down to it")
+func placementFollowsAClearSelection() {
+    // The point of the rule: the lane goes where the text is, not merely out
+    // of its way. A resting lane would clear this selection by 400pt and put
+    // the result nowhere near the sentence it was invoked on.
+    let selection = CGRect(x: 20, y: 400, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
+@Test("A caret is not a selection, so the lane takes its predictable place")
+func placementIgnoresACaret() {
+    let caret = CGRect(x: 20, y: 840, width: 0, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: caret))
+
+    #expect(resolved.anchor == .screen, "with nothing selected the target is the whole document")
+    #expect(resolved.frame.maxY == ribbonVisible.maxY)
+}
+
+@Test("A selection too near the floor to sit under puts the lane over it instead")
+func placementSitsAboveASelectionNearTheFloor() {
+    let selection = CGRect(x: 20, y: 100, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .aboveSelection)
+    #expect(!resolved.frame.intersects(selection))
+    #expect(
+        resolved.frame.minY == selection.maxY + RibbonPlacement.selectionClearance,
+        "resting on top of the selected line")
+}
+
+/// The lane opens as a bare command row and only grows once there is something
+/// to report, so the room beside the selection cannot be judged on the height
+/// it opens at: it would claim a gap that the review gate then overflows.
+@Test("The room beside the selection is judged at the height the lane will grow to")
+func placementJudgesRoomAtTheHeightItWillGrowTo() {
+    // 190pt of room below the selection once its clearance is counted, so a
+    // 56pt lane fits beneath it and a grown one does not.
+    let selection = CGRect(x: 20, y: 258, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(
+        selection.minY - RibbonPlacement.selectionClearance - 56 > ribbonVisible.minY,
+        "the premise: a resting-height lane would fit under this selection")
+    #expect(resolved.anchor == .aboveSelection, "but the review gate would not, and the choice is made once")
+}
+
+@Test("A selection with nowhere beside it keeps the predictable position")
+func placementKeepsItsPlaceWhenNeitherSideFits() {
+    // Everything on screen selected: any move covers it just as thoroughly.
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: ribbonVisible))
+
+    #expect(resolved.anchor == .screen, "a move that buys nothing is worse than staying where the user expects")
+    #expect(resolved.frame.maxY == ribbonVisible.maxY)
+}
+
+@Test("A selection scrolled off the host leaves the lane where it belongs")
+func placementIgnoresAnOffHostSelection() {
+    // Behind the Dock, below everything the lane is allowed to occupy.
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: CGRect(x: 20, y: 10, width: 260, height: 14)))
+
+    #expect(resolved.anchor == .screen)
+    #expect(resolved.frame.maxY == ribbonVisible.maxY)
+}
+
+@Test("The anchor chosen at open is held while the lane grows")
+func placementAnchorIsEstablishedOnce() {
+    // The review gate has opened and the lane no longer fits under the
+    // selection it settled beneath. Re-deciding now would send it across the
+    // screen mid-run, and back again when the gate closed.
+    let selection = CGRect(x: 20, y: 300, width: 260, height: 14)
+    let context = RibbonPlacement.Context(
+        screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+        selectionRect: selection, establishedAnchor: .belowSelection)
+    let resolved = RibbonPlacement.resolve(height: 260, in: context)
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(
+        resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance,
+        "still pinned by its top edge, so the growth went downward, away from the text")
+}
+
+@Test("A window-anchored lane sits against the selection too, and keeps floating")
+func placementSitsUnderTheSelectionWithinAFullScreenHost() {
+    let host = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let selection = CGRect(x: 20, y: 830, width: 260, height: 14)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true,
+            selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "it is still floating, so it still rounds all four corners")
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
+@Test("A lane sitting against the selection is still centered on its host")
+func placementDoesNotChaseTheSelectionSideways() {
+    let resting = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+    let beside = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: selectionUnderTheMenuBar))
+
+    #expect(beside.frame.minX == resting.frame.minX, "vertical position follows the selection; horizontal does not")
+    #expect(beside.frame.width == resting.frame.width)
 }

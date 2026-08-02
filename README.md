@@ -17,18 +17,16 @@
 Select text in a Mac app that supports standard copy and paste, press a global shortcut, and describe the change. Mancia uses GitHub Copilot CLI to rewrite the text in place—no chat window and no copy-paste loop.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mancia-panel-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/mancia-panel-light.png">
-    <img src="docs/assets/mancia-panel-light.png" alt="Mancia panel showing the instruction field with its preset dropdown and run button, and the status line 'Ready · ↵ improves your selection'" width="340">
-  </picture>
+  <img src="docs/assets/mancia-ribbon.png" alt="The Mancia command ribbon: a dark lane with Target reading 'Selection · 44', Action reading 'Improve', an empty Direction field, and a Run button" width="760">
 </p>
 
 ## What Mancia does
 
 - Works in frontmost apps and text fields that support standard Copy, Select All, and Paste.
 - Uses a configurable global shortcut.
-- Opens a compact floating panel near your cursor.
+- Opens a command ribbon against the text you selected — just below it, or just
+  above when there is no room below. With nothing selected it opens in a
+  predictable place at the top instead.
 - Edits the current selection, or attempts to edit all copyable text when nothing is selected.
 - Offers one-tap **Improve**, a free-form instruction field, and a preset
   dropdown that takes your typed text as extra guidance.
@@ -105,27 +103,31 @@ CODESIGN_ID="<existing codesigning identity>" make app
 
 1. Select text in an app that supports standard copy and paste.
 2. Press <kbd>Control</kbd> + <kbd>Option</kbd> + <kbd>Command</kbd> + <kbd>E</kbd>, the default shortcut.
-3. Press <kbd>Return</kbd> to **Improve**, or type a custom instruction and
-   submit it. The dropdown beside the run button applies a preset, using
+3. Press <kbd>Return</kbd> to **Improve**, or type a custom instruction in the
+   Direction field and submit it. The Action cell applies a preset, using
    anything you typed as extra guidance.
 4. Review the result in the original app.
 5. Use the arrows to switch versions, run another edit, or press
-   <kbd>Esc</kbd> to dismiss the panel.
+   <kbd>Esc</kbd> to dismiss the ribbon.
 
 Try instructions such as “Make this more concise,” “Rewrite in a friendlier tone,” or “Turn these notes into bullet points.”
 
 With no selection, Mancia uses Select All to capture the text it can copy. By default, it asks you to confirm **Replace document** before overwriting that text.
 
-### Panel shortcuts
+### Ribbon shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | <kbd>Return</kbd> or <kbd>Command</kbd> + <kbd>Return</kbd> | Run the edit |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move between the ribbon's cells |
+| <kbd>Command</kbd> + <kbd>1</kbd>…<kbd>4</kbd> | Pick the action: Improve, Sharpen, Plan first, Tighten |
+| <kbd>Command</kbd> + <kbd>0</kbd> | Unpin the action and go back to using your instruction |
+| <kbd>Command</kbd> + <kbd>T</kbd> | Switch the target between the selection and the whole document |
 | <kbd>Left</kbd> / <kbd>Right</kbd> | Switch versions |
 | <kbd>Command</kbd> + <kbd>,</kbd> | Open Settings |
-| <kbd>Escape</kbd> or <kbd>Command</kbd> + <kbd>W</kbd> | Close the panel |
+| <kbd>Escape</kbd> or <kbd>Command</kbd> + <kbd>W</kbd> | Close the ribbon |
 
-Standard macOS editing shortcuts work in the instruction field, including copy, paste, undo, and redo.
+Standard macOS editing shortcuts work in the Direction field, including copy, paste, undo, and redo.
 
 ## Settings
 
@@ -135,7 +137,7 @@ Open **Settings** from the menu bar to:
 - Choose a Copilot model and reasoning effort when available.
 - Set or detect the Copilot CLI path.
 - Launch Mancia at login.
-- Choose whether the panel closes or stays open after an edit.
+- Choose whether the ribbon closes or stays open after an edit.
 
 ## Privacy and security
 

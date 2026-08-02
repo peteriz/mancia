@@ -25,4 +25,24 @@ enum ApplyConfirmation {
     static func summary(originalCharacters: Int, resultCharacters: Int) -> String {
         "\(originalCharacters) → \(resultCharacters) chars"
     }
+
+    /// The same size change, spelled out for the ribbon's review region, which
+    /// has room for it. Grouped thousands, because here the number is being
+    /// read as a magnitude rather than glanced at.
+    ///
+    /// Grouping is left to `IntegerFormatStyle` rather than hand-rolled, since
+    /// the separator and the grouping size both vary by locale.
+    ///
+    /// The locale is a parameter so tests can pin one. Everything about the
+    /// output varies with it — the separator, whether a four-digit number is
+    /// grouped at all, and even the digits themselves, which are not `0`–`9` in
+    /// every locale — so an assertion against the machine's locale is an
+    /// assertion about the machine.
+    static func detailedSummary(
+        originalCharacters: Int, resultCharacters: Int,
+        locale: Locale = .autoupdatingCurrent
+    ) -> String {
+        let style = IntegerFormatStyle<Int>.number.grouping(.automatic).locale(locale)
+        return "\(originalCharacters.formatted(style)) → \(resultCharacters.formatted(style)) characters"
+    }
 }

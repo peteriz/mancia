@@ -1,16 +1,24 @@
 import AppKit
 
-/// Orchestrates a cyclical edit session: capture selection → show panel →
+/// Orchestrates a cyclical edit session: capture selection → show the ribbon →
 /// run provider → apply inline → navigate between iterations or run further
-/// actions, until the user closes the session. Owns the panel and the
-/// in-flight task. The panel stays visible throughout — synthetic keystrokes
+/// actions, until the user closes the session. Owns the ribbon and the
+/// in-flight task. The ribbon stays visible throughout — synthetic keystrokes
 /// are posted to the target app's pid, so they can't be swallowed by it.
 @MainActor
 final class EditCoordinator {
     private let provider: LLMProvider
     private let settings: AppSettings
     private let model = PanelModel()
-    private let panel: EditPanel
+    /// The ribbon, built on first use and kept for the app's lifetime so
+    /// re-opening a session doesn't tear down and re-create a window
+    /// mid-animation.
+    private lazy var ribbon: RibbonWindow = {
+        let ribbon = RibbonWindow(model: model)
+        ribbon.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        ribbon.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
+        return ribbon
+    }()
 
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
@@ -39,13 +47,12 @@ final class EditCoordinator {
     /// A completed whole-document result awaiting explicit confirmation before
     /// it overwrites the document (`.confirm` phase).
     private var pendingApply: (output: String, baseline: String)?
-    /// Wired by AppDelegate; invoked by the panel's ⌘, shortcut.
+    /// Wired by AppDelegate; invoked by the ribbon's ⌘, shortcut.
     var onOpenSettings: (() -> Void)?
 
     init(provider: LLMProvider, settings: AppSettings) {
         self.provider = provider
         self.settings = settings
-        self.panel = EditPanel(model: model)
         wire()
     }
 
@@ -56,19 +63,17 @@ final class EditCoordinator {
         model.onConfirmApply = { [weak self] in self?.confirmApply() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
-        panel.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
-        panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
     }
 
     /// Entry point from hotkey or menu. Starts a fresh session. Ignores
     /// re-triggers while a session is already active, so overlapping capture
     /// sequences can't clobber each other's pasteboard/keystroke state.
     ///
-    /// The panel appears immediately (perceived latency ≈ 0); the selection is
+    /// The ribbon appears immediately (perceived latency ≈ 0); the selection is
     /// captured in the background. If the user fires Improve/Enter before the
     /// capture completes, the action is queued and runs the moment text is ready.
     func start() {
-        guard !sessionActive else { panel.focus(); return }
+        guard !sessionActive else { ribbon.focus(); return }
         guard ensureAccessibility() else { return }
         sessionActive = true
         currentTask?.cancel()
@@ -86,8 +91,8 @@ final class EditCoordinator {
         // the status line reads "Reading selection…" until it resolves.
         model.reset(hasSelection: true, charCount: 0)
         model.capturing = true
-        panel.show(placement: instantPlacement())
-        panel.focus()
+        ribbon.show()
+        ribbon.focus()
         warmProvider()
         currentTask = Task {
             let result = await SelectionCapture.captureSelection()
@@ -106,13 +111,6 @@ final class EditCoordinator {
                 perform(pending, note: note)
             }
         }
-    }
-
-    /// Placement decided instantly from the Accessibility caret rect (a fast,
-    /// non-polling query), so the panel never jumps after the capture completes.
-    private func instantPlacement() -> EditPanel.Placement {
-        if let rect = SelectionCapture.selectionScreenRect() { return .near(rect) }
-        return .nearMouse
     }
 
     // MARK: - Actions
@@ -150,13 +148,13 @@ final class EditCoordinator {
             model.runningTitle = action.progressLabel
             model.phase = .running
             guard let resolved = await resolveInput() else {
-                panel.focus()
+                ribbon.focus()
                 if !Task.isCancelled, model.phase == .running { fail("There is no text to edit.") }
                 return
             }
             // Input capture may have activated the target app; retake key
             // status so Esc reaches the panel while the provider runs.
-            panel.focus()
+            ribbon.focus()
             let prompt: String
             do {
                 try PromptGuard.validate(action: action, text: resolved.text, note: note)
@@ -218,7 +216,7 @@ final class EditCoordinator {
         syncIterationState()
         model.instruction = ""
         model.phase = .applied
-        panel.focus()
+        ribbon.focus()
         scheduleAutoCloseIfHybrid()
     }
 
@@ -230,8 +228,9 @@ final class EditCoordinator {
         pendingApply = (output, baseline)
         model.pendingOriginalCharCount = baseline.count
         model.pendingResultCharCount = output.count
+        model.pendingResultPreview = output
         model.phase = .confirm
-        panel.focus()
+        ribbon.focus()
     }
 
     /// Apply the pending whole-document replacement after the user confirmed.
@@ -241,6 +240,7 @@ final class EditCoordinator {
     private func confirmApply() {
         guard model.phase == .confirm, let capture, let pending = pendingApply else { return }
         pendingApply = nil
+        model.pendingResultPreview = ""
         model.runningTitle = "Replacing document"
         model.phase = .running
         currentTask?.cancel()
@@ -338,7 +338,7 @@ final class EditCoordinator {
                 await SelectionCapture.undo(in: capture)
                 await SelectionCapture.apply(text: text, to: capture, entireDocument: false)
             }
-            panel.focus()
+            ribbon.focus()
         }
     }
 
@@ -366,7 +366,7 @@ final class EditCoordinator {
             pendingAction = nil
             pendingNote = nil
             model.phase = .idle
-            panel.focus()
+            ribbon.focus()
             return
         }
         currentTask?.cancel()
@@ -375,14 +375,15 @@ final class EditCoordinator {
         autoCloseTask = nil
         // Discard any result awaiting confirmation and return to a resting state.
         pendingApply = nil
+        model.pendingResultPreview = ""
         model.phase = versions.count > 1 ? .applied : .idle
-        panel.focus()
+        ribbon.focus()
     }
 
     /// Retake key status for the panel if a session is on screen — used when
     /// the Settings window closes after stealing key from the panel (⌘,).
     func refocusPanel() {
-        panel.focus()
+        ribbon.focus()
     }
 
     /// Close the session (Esc / Done), keeping the document as shown.
@@ -392,8 +393,12 @@ final class EditCoordinator {
         autoCloseTask?.cancel()
         autoCloseTask = nil
         pendingApply = nil
+        // The review gate's preview is the whole generated document. Esc is a
+        // decision like any other, so it discards the text on the same beat
+        // confirming or declining does — not at the next session's `reset`.
+        model.pendingResultPreview = ""
         sessionActive = false
-        panel.close()
+        ribbon.close()
         warmProviderAfterClose()
     }
 
@@ -456,7 +461,7 @@ final class EditCoordinator {
     private func fail(_ message: String) {
         model.errorText = message
         model.phase = .error
-        panel.focus()
+        ribbon.focus()
     }
 
     // MARK: - Accessibility

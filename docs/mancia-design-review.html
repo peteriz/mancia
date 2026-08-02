@@ -1,0 +1,1267 @@
+<!doctype html>
+<!--
+THESIS: Decide between the two surviving Mancia interaction models — ribbon and rail — with both now wearing Mancia's own cream/ink/vermilion identity.
+OWN-WORLD: One calm report shell frames two committed systems drawn from Palette.swift: an ink command lane and a warm paper proofing desk. The rejected inline lens is recorded, not shown.
+STORY: Revisit the diagnosis, see why the lens was retired, compare the two models in the incumbent palette, then leave with a prototype order.
+FIRST VIEWPORT: Current-state critique leads; the decision area presents topology before finish, with every state and supporting dialog visible per option.
+FORM: Interactive design review in Operate mode; alternatives are organized by windowing model, color-disciplined to the shipped palette.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mancia — frontend design review · revision 2</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+      --page: #ebe8e1;
+      --ink: #171815;
+      --muted: #5d6058;
+      --hairline: rgba(23, 24, 21, .14);
+      --focus: #1e63d9;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    button:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    .page {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    .masthead {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(280px, .75fr);
+      gap: 48px;
+      align-items: end;
+      padding: 42px;
+      border-radius: 16px;
+      color: #f8f5ed;
+      background: #181a17;
+      box-shadow: 0 24px 52px rgba(24, 26, 23, .18);
+    }
+
+    .kicker,
+    .micro-label {
+      margin: 0 0 14px;
+      color: #c7c8c0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 720px;
+      margin: 0;
+      font-size: clamp(38px, 6vw, 68px);
+      line-height: .98;
+      letter-spacing: -.035em;
+      text-wrap: balance;
+    }
+
+    .lead {
+      max-width: 640px;
+      margin: 24px 0 0;
+      color: #cbccc4;
+      font-size: 17px;
+    }
+
+    .score-block {
+      border-top: 1px solid rgba(248, 245, 237, .2);
+      padding-top: 20px;
+    }
+
+    .score {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      margin-bottom: 8px;
+    }
+
+    .score strong {
+      font-size: 44px;
+      line-height: 1;
+      letter-spacing: -.035em;
+    }
+
+    .score span { color: #aeb0a7; }
+
+    .score-block p {
+      margin: 0;
+      color: #d9dad2;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      margin: 16px 0 46px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .flow span {
+      position: relative;
+      padding: 18px 18px 20px 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .flow span:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: 18px;
+      color: #8b8f84;
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 34px;
+      margin: 0 0 50px;
+      align-items: start;
+    }
+
+    .review-copy h2,
+    .directions-head h2,
+    .recommendation h2 {
+      margin: 0 0 14px;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.02;
+      letter-spacing: -.03em;
+      text-wrap: balance;
+    }
+
+    .review-copy > p {
+      max-width: 66ch;
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .priorities {
+      margin: 26px 0 0;
+      padding: 0;
+      list-style: none;
+      border-top: 1px solid var(--hairline);
+    }
+
+    .priorities li {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: 14px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .priority-tag {
+      color: #a12f22;
+      font-weight: 750;
+    }
+
+    .priorities strong { display: block; margin-bottom: 3px; }
+    .priorities p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .current-proof {
+      padding: 18px;
+      border-radius: 16px;
+      background: #d6d2ca;
+    }
+
+    .current-proof h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+
+    .current-proof > p {
+      margin: 0 0 14px;
+      color: #555950;
+      font-size: 12px;
+    }
+
+    .current-proof img {
+      display: block;
+      width: 100%;
+      height: auto;
+      margin-top: 10px;
+      border-radius: 10px;
+      background: #000;
+    }
+
+    details {
+      margin-top: 18px;
+      border-top: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 14px 2px;
+      font-weight: 700;
+    }
+
+    .health-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+
+    .health-table th,
+    .health-table td {
+      padding: 9px 8px;
+      border-top: 1px solid var(--hairline);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .health-table th:last-child,
+    .health-table td:last-child { text-align: right; white-space: nowrap; }
+
+    .directions-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 20px;
+    }
+
+    .directions-head p {
+      max-width: 48ch;
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 0 0 12px;
+      padding: 6px;
+      border-radius: 14px;
+      background: #d9d6cf;
+    }
+
+    .tab {
+      min-height: 62px;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .tab strong,
+    .tab span { display: block; }
+    .tab strong { font-size: 14px; }
+    .tab span { margin-top: 2px; color: #5d6058; font-size: 11px; }
+    .tab[aria-selected="true"] { background: #fff; box-shadow: 0 6px 18px rgba(23, 24, 21, .09); }
+
+    .concept[hidden] { display: none; }
+    .concept { animation: settle .38s cubic-bezier(.16, 1, .3, 1); }
+
+    @keyframes settle {
+      from { opacity: .7; transform: translateY(7px); filter: blur(3px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    .concept-intro {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr);
+      gap: 38px;
+      align-items: end;
+      padding: 26px 2px 22px;
+    }
+
+    .concept-intro h3 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: -.025em;
+    }
+
+    .concept-intro p { max-width: 68ch; margin: 0; color: var(--muted); }
+
+    .concept-facts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 0;
+    }
+
+    .concept-facts div { border-top: 1px solid var(--hairline); padding-top: 8px; }
+    .concept-facts dt { color: var(--muted); font-size: 11px; }
+    .concept-facts dd { margin: 3px 0 0; font-weight: 700; font-size: 13px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      margin-left: 9px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      vertical-align: 4px;
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: 0;
+      color: #f5eedc;
+      background: #1a1611;
+    }
+
+    .system-board {
+      position: relative;
+      overflow: hidden;
+      padding: 32px;
+      border-radius: 16px;
+      min-height: 0;
+      box-shadow: 0 30px 70px rgba(23, 24, 21, .16);
+    }
+
+    .board-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 22px;
+      font-size: 11px;
+      font-weight: 720;
+    }
+
+    .board-label span:last-child { font-weight: 500; }
+
+    .surface-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(330px, .88fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .surface-title {
+      margin: 0 0 9px;
+      font-size: 10px;
+      font-weight: 760;
+      letter-spacing: .055em;
+      text-transform: uppercase;
+    }
+
+    .mock-row,
+    .menu-item,
+    .dialog-actions {
+      display: flex;
+      align-items: center;
+    }
+
+    .mini-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .menu-popover { padding: 8px; }
+    .menu-item { justify-content: space-between; min-height: 29px; padding: 5px 8px; font-size: 11px; border-radius: 6px; }
+    .menu-separator { height: 1px; margin: 5px 4px; }
+    .menu-item.disabled { opacity: .58; }
+
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 0 13px;
+    }
+
+    .settings-title { font-size: 12px; font-weight: 720; }
+    .settings-body { padding: 14px; }
+    .readiness { margin-bottom: 12px; padding-bottom: 12px; }
+    .readiness h4, .settings-section h4 { margin: 0 0 9px; font-size: 11px; }
+    .check-line { display: flex; gap: 8px; align-items: center; margin: 7px 0; font-size: 10px; }
+    .check-mark { display: inline-grid; width: 17px; height: 17px; place-items: center; border-radius: 50%; font-size: 10px; font-weight: 900; }
+    .settings-section { padding: 12px 0; }
+    .mock-row { justify-content: space-between; min-height: 28px; gap: 12px; font-size: 10px; }
+    .mock-control { min-width: 112px; padding: 5px 8px; text-align: left; font-size: 10px; }
+    .toggle { width: 27px; height: 16px; padding: 2px; border-radius: 999px; }
+    .toggle::after { content: ""; display: block; width: 12px; height: 12px; margin-left: 11px; border-radius: 50%; }
+
+    .aux-grid {
+      display: grid;
+      grid-template-columns: .8fr 1.2fr .7fr;
+      gap: 16px;
+      margin-top: 24px;
+      align-items: start;
+    }
+
+    .permission-dialog,
+    .about-dialog { padding: 18px; }
+
+    .dialog-icon {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      margin-bottom: 12px;
+      border-radius: 11px;
+      font-size: 21px;
+    }
+
+    .permission-dialog h4,
+    .about-dialog h4 { margin: 0 0 6px; font-size: 14px; }
+    .permission-dialog p,
+    .about-dialog p { margin: 0; font-size: 10px; line-height: 1.45; }
+    .dialog-actions { justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .mini-button { min-height: 26px; padding: 4px 10px; border-radius: 7px; font-size: 10px; font-weight: 720; }
+
+    .palette-note {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      align-items: center;
+      margin-top: 24px;
+      padding-top: 16px;
+    }
+
+    .palette-note p {
+      flex: 1 1 100%;
+      margin: 0 0 2px;
+      font-size: 11px;
+      line-height: 1.5;
+      max-width: 78ch;
+    }
+
+    .swatch {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 10px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .swatch i {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18);
+    }
+
+    .coverage {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 20px;
+    }
+
+    .coverage span {
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 650;
+    }
+
+    .topology-map {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin: 0 0 18px;
+      border-top: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .topology-map > div { padding: 15px 20px 16px 0; }
+    .topology-map > div + div { padding-left: 20px; border-left: 1px solid var(--hairline); }
+    .topology-map strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .topology-map span { color: var(--muted); font-size: 11px; }
+    .tab-flag {
+      display: inline-block;
+      margin-left: 7px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: #1a1611;
+      color: #f5eedc;
+      font-size: 10px;
+      font-weight: 750;
+      vertical-align: 1px;
+    }
+
+    .topology-map .retired { opacity: .62; }
+    .topology-map .retired strong { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+    .dialog-stack { display: grid; gap: 10px; }
+    .shortcut-callout { margin-top: 10px; padding: 9px 10px; font-size: 9px; }
+
+    /* ============================================================
+       Shared Mancia palette — every mock hue below comes from
+       Sources/Mancia/Panel/Palette.swift, with two review fixes:
+       light action deepened #D8513A → #C2412C and secondary text
+       deepened #857866 → #6E6250, both per the P2 contrast finding.
+       ============================================================ */
+    .ribbon, .rail {
+      --m-ink: #1a1611;
+      --m-paper: #fcf9f1;
+      --m-cream: #f5efe3;
+      --m-border: #e4d9c6;
+      --m-text-on-ink: #f3ecde;
+      --m-faint-on-ink: #9e9483;
+      --m-secondary: #6e6250;
+      --m-action: #c2412c;
+      --m-action-on-ink: #ff6a4d;
+      --m-on-action-dark: #25120c;
+      --m-applied: #2f7a44;
+      --m-error: #c0392b;
+    }
+
+    /* Direction A — Menu-Bar Command Ribbon · the palette's dark register */
+    .ribbon {
+      color: var(--m-ink);
+      background: #221c15;
+    }
+
+    .ribbon .board-label, .ribbon .surface-title { color: #e9e1d2; }
+    .ribbon-screen { overflow: hidden; min-height: 400px; border-radius: 12px; color: var(--m-ink); background: var(--m-paper); box-shadow: 6px 15px 34px rgba(0, 0, 0, .3); }
+    .ribbon-menubar { display: flex; align-items: center; gap: 14px; height: 25px; padding: 0 11px; color: var(--m-text-on-ink); background: #161310; font-size: 8px; }
+    .ribbon-menubar b { margin-right: auto; }
+    .command-ribbon { display: grid; grid-template-columns: 96px 126px 1fr 76px; min-height: 56px; color: var(--m-text-on-ink); background: #211c16; box-shadow: 0 8px 16px rgba(22, 19, 16, .28); }
+    .ribbon-cell { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding: 8px 11px; border-right: 1px solid rgba(243, 236, 222, .14); }
+    .ribbon-cell small { color: var(--m-faint-on-ink); font-size: 8px; }
+    .ribbon-cell strong, .ribbon-cell span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .ribbon-cell.run { align-items: center; border-right: 0; color: var(--m-on-action-dark); background: var(--m-action-on-ink); }
+    .ribbon-page { padding: 31px 38px; }
+    .ribbon-page h4 { margin: 0 0 13px; font-size: 19px; letter-spacing: -.02em; }
+    .ribbon-page p { max-width: 60ch; margin: 0 0 10px; color: var(--m-secondary); font-size: 10px; line-height: 1.65; }
+    .ribbon-highlight { color: var(--m-ink); background: rgba(216, 81, 58, .2); }
+    .ribbon-states { display: grid; gap: 5px; margin-top: 17px; }
+    .ribbon-state { display: grid; grid-template-columns: 72px 1fr auto; align-items: center; min-height: 36px; padding: 6px 9px; border-radius: 7px; color: var(--m-secondary); background: var(--m-cream); border: 1px solid var(--m-border); font-size: 9px; }
+    .ribbon-state strong { color: var(--m-ink); font-size: 8px; }
+    .ribbon-state span:last-child { padding: 3px 6px; border-radius: 5px; color: var(--m-ink); background: var(--m-paper); border: 1px solid var(--m-border); font-weight: 800; }
+    .ribbon-state.review { color: #d8cfbe; background: var(--m-ink); border-color: var(--m-ink); }
+    .ribbon-state.review strong { color: var(--m-text-on-ink); }
+    .ribbon-state.review span:last-child { color: var(--m-on-action-dark); background: var(--m-action-on-ink); border: 0; }
+    .ribbon-state.applied { color: var(--m-applied); background: rgba(47, 122, 68, .1); border-color: rgba(47, 122, 68, .3); }
+    .ribbon-state.applied strong { color: var(--m-applied); }
+    .ribbon-state.error { color: var(--m-error); background: rgba(192, 57, 43, .09); border-color: rgba(192, 57, 43, .3); }
+    .ribbon-state.error strong { color: #8e2a1f; }
+
+    .ribbon-settings { display: grid; grid-template-columns: 114px 1fr; min-height: 205px; overflow: hidden; border-radius: 12px; background: var(--m-paper); box-shadow: 5px 12px 28px rgba(0, 0, 0, .3); }
+    .ribbon-settings nav { padding: 13px 9px; color: var(--m-faint-on-ink); background: #211c16; font-size: 9px; }
+    .ribbon-settings nav span { display: block; padding: 7px 8px; border-radius: 6px; }
+    .ribbon-settings nav span.active { color: var(--m-ink); background: var(--m-cream); font-weight: 800; }
+    .ribbon-settings main { padding: 13px; }
+    .ribbon .check-mark { color: #fff; background: var(--m-applied); }
+    .ribbon .readiness, .ribbon .settings-section { border-bottom: 1px solid var(--m-border); }
+    .ribbon .menu-separator { background: var(--m-border); }
+    .ribbon .mock-control, .ribbon .mini-button, .ribbon .shortcut-callout { color: var(--m-ink); background: var(--m-cream); border: 1px solid var(--m-border); border-radius: 5px; }
+    .ribbon .toggle { background: var(--m-action); border: 0; }
+    .ribbon .toggle::after { background: #fff; }
+    .ribbon .menu-popover, .ribbon .permission-dialog, .ribbon .about-dialog { color: var(--m-ink); background: var(--m-paper); border-radius: 10px; box-shadow: 5px 12px 28px rgba(0, 0, 0, .3); }
+    .ribbon .menu-item.active { color: var(--m-text-on-ink); background: var(--m-ink); }
+    .ribbon .dialog-icon { color: var(--m-text-on-ink); background: var(--m-ink); }
+    .ribbon .mini-button.primary { color: #fff; background: var(--m-action); border: 0; }
+    .ribbon .permission-dialog p, .ribbon .about-dialog p, .ribbon .settings-body { color: var(--m-secondary); }
+    .ribbon .palette-note { border-top: 1px solid rgba(243, 236, 222, .18); }
+    .ribbon .palette-note p, .ribbon .swatch { color: #e9e1d2; }
+    .ribbon .coverage span { color: #e9e1d2; background: rgba(252, 249, 241, .12); }
+
+    /* Ribbon placement rule — two full-screen cases, drawn at screen scale */
+    .placement { margin-top: 26px; padding-top: 22px; border-top: 1px solid rgba(243, 236, 222, .18); }
+    .placement > p { max-width: 84ch; margin: 0 0 18px; color: #d6cdbd; font-size: 12px; line-height: 1.6; }
+    .placement-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .placement-case { margin: 0; }
+    .placement-case figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .placement-case figcaption b { color: #f3ecde; font-size: 12px; }
+    .placement-case figcaption em { color: #b6ab98; font-size: 11px; font-style: normal; }
+    .placement-note { margin: 9px 0 0; color: #cfc5b4; font-size: 11px; line-height: 1.55; }
+    .placement-note b { color: #f3ecde; font-weight: 700; }
+
+    .screen {
+      position: relative;
+      overflow: hidden;
+      aspect-ratio: 16 / 10;
+      border-radius: 9px;
+      background: #cdbfa6 linear-gradient(155deg, #d9cbb2, #b9a98e);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, .3);
+    }
+
+    .screen.fs { background: var(--m-paper); }
+
+    .screen-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      height: 17px;
+      padding: 0 9px;
+      color: var(--m-text-on-ink);
+      background: #161310;
+      font-size: 10px;
+    }
+
+    .screen-bar b { margin-right: auto; font-weight: 700; }
+    .screen-bar .clock { color: var(--m-faint-on-ink); }
+
+    .screen-ghostbar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 17px;
+      margin: 3px 4px 0;
+      border: 1px dashed rgba(26, 22, 17, .45);
+      border-radius: 4px;
+      color: #4c4536;
+      font-size: 10px;
+    }
+
+    .screen-lane {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.5fr auto;
+      align-items: center;
+      gap: 1px;
+      padding: 7px 0;
+      color: var(--m-text-on-ink);
+      background: #211c16;
+      box-shadow: 0 7px 14px rgba(22, 19, 16, .4);
+    }
+
+    .screen-lane > div { padding: 0 10px; border-right: 1px solid rgba(243, 236, 222, .16); }
+    .screen-lane > div:last-child { border-right: 0; }
+    .screen-lane small { display: block; color: var(--m-faint-on-ink); font-size: 10px; }
+    .screen-lane strong,
+    .screen-lane .ghost { display: block; font-size: 11px; white-space: nowrap; }
+    .screen-lane .ghost { color: #a29984; }
+
+    .screen-run {
+      padding: 4px 11px;
+      margin-right: 9px;
+      border-radius: 5px;
+      color: var(--m-on-action-dark);
+      background: var(--m-action-on-ink);
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .screen-doc { position: relative; padding: 15px 18px; background: var(--m-paper); }
+    .screen-doc.fill { height: 100%; }
+    .screen-doc h6 { max-width: 62%; margin: 0 0 8px; color: var(--m-ink); font-size: 13px; letter-spacing: -.01em; }
+    .screen-doc p { margin: 0 0 6px; color: var(--m-secondary); font-size: 11px; line-height: 1.65; }
+    .screen-doc mark { color: var(--m-ink); background: rgba(216, 81, 58, .22); }
+
+    .screen-win { margin: 0; overflow: hidden; background: var(--m-paper); }
+    .screen-win.zoomed { height: 100%; }
+    .screen-titlebar { display: flex; align-items: center; gap: 7px; height: 19px; padding: 0 8px; background: var(--m-cream); border-bottom: 1px solid var(--m-border); }
+    .screen-titlebar i { width: 6px; height: 6px; border-radius: 50%; background: #b9ac97; display: block; }
+    .screen-titlebar span { color: var(--m-secondary); font-size: 10px; }
+
+    .screen-flag {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      z-index: 2;
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: var(--m-text-on-ink);
+      background: rgba(26, 22, 17, .92);
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .placement-formula {
+      margin: 16px 0 0;
+      padding: 11px 13px;
+      border-radius: 8px;
+      background: rgba(252, 249, 241, .09);
+      color: #e4dbca;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+
+    .placement-formula b { color: #fff; font-weight: 750; }
+
+    /* Direction B — Proofing Rail · the palette's light register */
+    .rail {
+      color: var(--m-ink);
+      background: #dcd5c7;
+    }
+
+    .rail .board-label, .rail .surface-title { color: #4c4536; }
+    .rail-stage { display: grid; grid-template-columns: minmax(0, 1fr) 310px; min-height: 430px; overflow: hidden; border-radius: 12px; background: var(--m-paper); box-shadow: 7px 16px 36px rgba(23, 24, 21, .22); }
+    .rail-host { padding: 42px 46px; }
+    .rail-host h4 { margin: 0 0 19px; font-size: 21px; letter-spacing: -.02em; }
+    .rail-host p { max-width: 54ch; margin: 0 0 12px; color: var(--m-secondary); font-size: 10px; line-height: 1.75; }
+    .rail-host del { color: var(--m-error); background: rgba(192, 57, 43, .11); }
+    .rail-host ins { color: var(--m-applied); background: rgba(47, 122, 68, .13); text-decoration: none; }
+    .review-rail { display: flex; flex-direction: column; color: var(--m-ink); background: var(--m-cream); border-left: 1px solid var(--m-border); }
+    .rail-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 13px; border-bottom: 1px solid var(--m-border); font-size: 10px; }
+    .rail-head span { color: var(--m-secondary); font-size: 8px; }
+    .rail-scope { display: flex; gap: 5px; padding: 10px 12px 0; }
+    .rail-scope span { padding: 4px 7px; border-radius: 5px; color: var(--m-secondary); background: var(--m-paper); border: 1px solid var(--m-border); font-size: 8px; }
+    .rail-scope span.active { color: var(--m-text-on-ink); background: var(--m-ink); border-color: var(--m-ink); font-weight: 800; }
+    .rail-diff { margin: 10px 12px; padding: 11px; color: var(--m-ink); background: var(--m-paper); border: 1px solid var(--m-border); border-radius: 10px; }
+    .rail-diff small { color: var(--m-secondary); font-size: 8px; }
+    .rail-diff p { margin: 7px 0 0; font-size: 9px; line-height: 1.5; }
+    .rail-diff del { color: var(--m-error); background: rgba(192, 57, 43, .11); }
+    .rail-diff ins { color: var(--m-applied); background: rgba(47, 122, 68, .13); text-decoration: none; }
+    .rail-confirm { margin: 0 12px 10px; padding: 10px; color: #d8cfbe; background: var(--m-ink); border-radius: 10px; }
+    .rail-confirm strong { display: block; color: var(--m-text-on-ink); font-size: 10px; }
+    .rail-confirm p { margin: 4px 0 8px; font-size: 8px; }
+    .rail-buttons { display: flex; justify-content: flex-end; gap: 5px; }
+    .rail-buttons span { padding: 4px 6px; border-radius: 5px; color: var(--m-text-on-ink); background: transparent; border: 1px solid rgba(243, 236, 222, .35); font-size: 8px; font-weight: 800; }
+    .rail-buttons span.primary { color: var(--m-on-action-dark); background: var(--m-action-on-ink); border: 0; }
+    .rail-compose { margin-top: auto; padding: 10px 12px 12px; border-top: 1px solid var(--m-border); }
+    .rail-compose div { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-radius: 7px; color: var(--m-secondary); background: var(--m-paper); border: 1px solid var(--m-border); font-size: 9px; }
+    .rail-compose b { color: var(--m-text-on-ink); background: var(--m-ink); padding: 2px 6px; border-radius: 4px; }
+
+    .rail-states { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 15px; overflow: hidden; border-radius: 10px; background: var(--m-paper); border: 1px solid var(--m-border); box-shadow: 5px 10px 24px rgba(23, 24, 21, .12); }
+    .rail-state { min-height: 70px; padding: 9px; border-right: 1px solid var(--m-border); }
+    .rail-state:last-child { border-right: 0; }
+    .rail-state strong { display: block; color: var(--m-ink); font-size: 8px; }
+    .rail-state p { margin: 5px 0 0; color: var(--m-secondary); font-size: 8px; }
+    .rail-state.error { background: rgba(192, 57, 43, .09); }
+    .rail-state.error strong, .rail-state.error p { color: var(--m-error); }
+    .rail-state.done { background: rgba(47, 122, 68, .11); }
+    .rail-state.done strong, .rail-state.done p { color: var(--m-applied); }
+
+    .rail-settings { min-height: 205px; padding: 0; overflow: hidden; border-radius: 12px; color: var(--m-ink); background: var(--m-paper); box-shadow: 6px 13px 28px rgba(23, 24, 21, .16); }
+    .rail-settings .settings-head { border-bottom: 1px solid var(--m-border); }
+    .rail-settings .settings-head span:last-child { color: var(--m-secondary); font-size: 10px; }
+    .rail-settings .settings-body { padding: 12px; color: var(--m-secondary); }
+    .rail-settings .readiness, .rail-settings .settings-section { border-bottom: 1px solid var(--m-border); }
+    .rail-settings h4 { color: var(--m-ink); }
+    .rail .check-mark { color: #fff; background: var(--m-applied); }
+    .rail .mock-control, .rail .mini-button, .rail .shortcut-callout { color: var(--m-ink); background: var(--m-cream); border: 1px solid var(--m-border); border-radius: 6px; }
+    .rail .toggle { background: var(--m-action); border: 0; }
+    .rail .toggle::after { background: #fff; }
+    .rail .menu-popover, .rail .permission-dialog, .rail .about-dialog { color: var(--m-ink); background: var(--m-paper); border-radius: 10px; box-shadow: 5px 12px 27px rgba(23, 24, 21, .16); }
+    .rail .menu-item.active { color: var(--m-text-on-ink); background: var(--m-ink); }
+    .rail .dialog-icon { color: var(--m-text-on-ink); background: var(--m-ink); }
+    .rail .mini-button.primary { color: #fff; background: var(--m-action); border: 0; }
+    .rail .menu-separator { background: var(--m-border); }
+    .rail .permission-dialog p, .rail .about-dialog p { color: var(--m-secondary); }
+    .rail .palette-note { border-top: 1px solid rgba(23, 24, 21, .14); }
+    .rail .palette-note p, .rail .swatch { color: #4c4536; }
+    .rail .coverage span { color: #4c4536; background: rgba(252, 249, 241, .72); }
+
+    .recommendation {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 56px;
+      margin-top: 54px;
+      padding: 40px;
+      border-top: 1px solid var(--hairline);
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .recommendation p { margin: 0; color: var(--muted); }
+    .recommendation ol { margin: 0; padding-left: 20px; }
+    .recommendation li { margin: 0 0 12px; padding-left: 4px; }
+    .recommendation small { color: var(--muted); }
+
+    .method {
+      display: flex;
+      justify-content: space-between;
+      gap: 30px;
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    @media (max-width: 900px) {
+      .masthead,
+      .review-grid,
+      .concept-intro,
+      .surface-grid,
+      .recommendation { grid-template-columns: 1fr; }
+      .masthead { gap: 28px; padding: 30px; }
+      .system-board { min-height: 0; padding: 22px; }
+      .aux-grid { grid-template-columns: 1fr 1fr; }
+      .about-dialog { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 620px) {
+      .page { width: min(100% - 20px, 1240px); padding-top: 10px; }
+      .masthead { padding: 24px 20px; }
+      .flow { grid-template-columns: 1fr; padding: 10px 0; }
+      .flow span { padding: 7px 0; }
+      .flow span:not(:last-child)::after { content: "↓"; right: 4px; }
+      .directions-head { align-items: start; flex-direction: column; }
+      .topology-map { grid-template-columns: 1fr; }
+      .topology-map > div { padding: 12px 0; }
+      .topology-map > div + div { padding-left: 0; border-top: 1px solid var(--hairline); border-left: 0; }
+      .tabs { grid-template-columns: 1fr; }
+      .tab { min-height: 50px; }
+      .aux-grid { grid-template-columns: 1fr; }
+      .about-dialog { grid-column: auto; }
+      .command-ribbon { grid-template-columns: 1fr 1fr 62px; }
+      .command-ribbon .ribbon-cell:nth-child(3) { grid-column: 1 / 3; grid-row: 2; min-height: 36px; border-top: 1px solid rgba(243, 236, 222, .14); }
+      .command-ribbon .ribbon-cell.run { grid-column: 3; grid-row: 1 / 3; }
+      .ribbon-page { padding: 24px 18px; }
+      .ribbon-state { grid-template-columns: 56px 1fr; gap: 5px; }
+      .ribbon-state span:last-child { grid-column: 2; justify-self: start; }
+      .ribbon-settings { grid-template-columns: 1fr; }
+      .ribbon-settings nav { display: flex; overflow-x: auto; }
+      .placement-grid { grid-template-columns: 1fr; }
+      .screen { aspect-ratio: 4 / 3; }
+      .screen-lane { grid-template-columns: 1fr 1fr auto; }
+      .screen-lane > div:nth-child(3) { grid-column: 1 / 3; padding-top: 5px; border-right: 0; }
+      .screen-lane > div:nth-child(4) { grid-column: 3; grid-row: 1 / 3; }
+      .screen-flag { position: static; display: inline-block; margin-bottom: 7px; font-size: 9px; }
+      .screen-doc h6 { max-width: none; }
+      .rail-stage { grid-template-columns: 1fr; }
+      .rail-host { padding: 28px 25px; }
+      .review-rail { min-height: 330px; border-left: 0; border-top: 1px solid var(--m-border); }
+      .rail-states { grid-template-columns: repeat(3, 1fr); }
+      .rail-state:nth-child(3) { border-right: 0; }
+      .rail-state:nth-child(-n+3) { border-bottom: 1px solid var(--m-border); }
+      .concept-facts { grid-template-columns: 1fr; }
+      .recommendation { padding: 30px 4px; }
+      .method { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { width: 100%; }
+      .tabs { display: none; }
+      .concept[hidden] { display: block; }
+      .concept { break-before: page; }
+      .system-board { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div>
+        <p class="kicker">Mancia · frontend design review · revision 2 · 1 Aug 2026</p>
+        <h1>A sharp panel. An unfinished system.</h1>
+        <p class="lead">Review verdict on revision 1: the inline lens is out, the ribbon and the rail stay. Both now wear Mancia’s own cream, ink and vermilion instead of invented palettes.</p>
+      </div>
+      <div class="score-block" aria-label="Design health score">
+        <p class="micro-label">Current design health</p>
+        <div class="score"><strong>26</strong><span>/ 40 · Acceptable</span></div>
+        <p>Core flow: strong. Trust states: thin. Supporting windows: generic.</p>
+      </div>
+    </header>
+
+    <div class="flow" aria-label="Primary Mancia workflow">
+      <span>Select text</span>
+      <span>Invoke ⌃⌥⌘E</span>
+      <span>Direct the edit</span>
+      <span>Apply inline</span>
+      <span>Iterate or leave</span>
+    </div>
+
+    <section class="review-grid" aria-labelledby="review-title">
+      <div class="review-copy">
+        <p class="kicker" style="color:#5d6058">Design diagnosis</p>
+        <h2 id="review-title">Specific where it edits. Generic where it earns trust.</h2>
+        <p>The warm cream panel, vermilion action and near-caret placement fit the job beautifully. But the empty-field-as-“Improve” convention is hidden, whole-document replacement is squeezed into one line, and Settings leads with provider internals instead of readiness.</p>
+        <ol class="priorities">
+          <li>
+            <span class="priority-tag">P1</span>
+            <div><strong>Expand the high-stakes confirmation.</strong><p>Lead with “Replace entire document?”, keep the size delta, and add Show result / Keep editing.</p></div>
+          </li>
+          <li>
+            <span class="priority-tag">P1</span>
+            <div><strong>Name the default action.</strong><p>Show “Improve” beside the arrow; remove the one-item preset menu until it becomes a real choice.</p></div>
+          </li>
+          <li>
+            <span class="priority-tag">P1</span>
+            <div><strong>Turn Settings into a readiness path.</strong><p>Shortcut, Accessibility and Copilot first. Move model, path and reasoning under Advanced.</p></div>
+          </li>
+          <li>
+            <span class="priority-tag">P2</span>
+            <div><strong>Raise contrast and recovery quality.</strong><p>Deepen the light accent to #C2412C and secondary text to #6E6250; let errors reveal details and offer the right next action. Both fixes are carried into the mocks below.</p></div>
+          </li>
+        </ol>
+
+        <details>
+          <summary>Heuristic scorecard</summary>
+          <table class="health-table">
+            <thead><tr><th>Heuristic</th><th>Evidence</th><th>Score</th></tr></thead>
+            <tbody>
+              <tr><td>System status</td><td>Clear capture, running, confirm, applied and error states; auto-close is easy to miss.</td><td>3 / 4</td></tr>
+              <tr><td>Real-world match</td><td>Plain editing language; provider setup leaks model and reasoning jargon.</td><td>3 / 4</td></tr>
+              <tr><td>User control</td><td>Cancel, Esc, retry and version navigation; no preview for immediate selection edits.</td><td>3 / 4</td></tr>
+              <tr><td>Consistency</td><td>Authored panel beside generic Settings, menu and About surfaces.</td><td>2 / 4</td></tr>
+              <tr><td>Error prevention</td><td>Whole-document gate and shortcut validation are sound.</td><td>3 / 4</td></tr>
+              <tr><td>Recognition</td><td>Arrow, preset glyph and hidden shortcuts still require learning.</td><td>2 / 4</td></tr>
+              <tr><td>Efficiency</td><td>Excellent keyboard and repeat-edit loop; no saved instructions.</td><td>3 / 4</td></tr>
+              <tr><td>Minimalism</td><td>Panel is focused; Settings and compressed status actions dilute hierarchy.</td><td>3 / 4</td></tr>
+              <tr><td>Error recovery</td><td>Retry exists, but one-line errors hide detail and remediation.</td><td>2 / 4</td></tr>
+              <tr><td>Help</td><td>Tooltips and Copilot docs exist; first-run mental model is absent.</td><td>2 / 4</td></tr>
+            </tbody>
+          </table>
+        </details>
+      </div>
+
+      <aside class="current-proof" aria-label="Current Mancia panel screenshots">
+        <h3>Incumbent visual truth</h3>
+        <p>Committed light and dark screenshots. Strong personality; small secondary type and icon-only action carry too much meaning. Every color in the concepts below is drawn from this identity.</p>
+        <img src="assets/mancia-panel-light.png" alt="Current Mancia edit panel in light appearance">
+        <img src="assets/mancia-panel-dark.png" alt="Current Mancia edit panel in dark appearance">
+      </aside>
+    </section>
+
+    <section aria-labelledby="directions-title">
+      <div class="directions-head">
+        <div>
+          <p class="kicker" style="color:#5d6058">Two surviving models</p>
+          <h2 id="directions-title">Same identity. Different place. Different rhythm.</h2>
+        </div>
+        <p>These are not skins. Each changes where Mancia appears and how the user moves from selection to result — but both now speak the shipped palette: cream and ink surfaces, one vermilion action, green and warm red reserved for status.</p>
+      </div>
+
+      <div class="topology-map" aria-label="Interaction model comparison">
+        <div><strong>Menu-Bar Command Ribbon <span class="tab-flag">Recommended</span></strong><span>Lives at the screen top · sequential · always predictable</span></div>
+        <div><strong>Proofing Rail</strong><span>Lives at the right edge · comparative · stays for a session</span></div>
+        <div class="retired"><strong>Inline Selection Lens</strong><span>Retired in review — the inline model was rejected, and its cobalt world sat outside Mancia’s identity.</span></div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Design direction">
+        <button class="tab" role="tab" id="tab-ribbon" aria-controls="concept-ribbon" aria-selected="true" tabindex="0">
+          <strong>Menu-Bar Command Ribbon <span class="tab-flag">Recommended</span></strong><span>Fixed · sequential · keyboard-led</span>
+        </button>
+        <button class="tab" role="tab" id="tab-rail" aria-controls="concept-rail" aria-selected="false" tabindex="-1">
+          <strong>Proofing Rail</strong><span>Comparative · persistent · deliberate</span>
+        </button>
+      </div>
+
+      <section class="concept" id="concept-ribbon" role="tabpanel" aria-labelledby="tab-ribbon">
+        <div class="concept-intro">
+          <div>
+            <h3>Menu-Bar Command Ribbon <span class="badge">Recommended</span></h3>
+            <p>A slim command lane drops below the macOS menu bar and turns the edit into a left-to-right sentence: target, action, instruction, run. It never covers the selection and always opens in one predictable place, regardless of the host app. The lane runs the palette’s dark register — the same ink and #FF6A4D accent the panel already uses in dark appearance.</p>
+          </div>
+          <dl class="concept-facts">
+            <div><dt>Best for</dt><dd>Keyboard muscle memory</dd></div>
+            <div><dt>Honest risk</dt><dd>Eye travel from text</dd></div>
+          </dl>
+        </div>
+
+        <div class="system-board ribbon">
+          <div class="board-label"><span>Model A · fixed below the menu bar</span><span>Illustrative interface concept</span></div>
+          <div class="surface-grid">
+            <div>
+              <p class="surface-title">Signature workflow · one horizontal command sentence</p>
+              <div class="ribbon-screen">
+                <div class="ribbon-menubar"><b>● Mancia</b><span>File</span><span>Edit</span><span>View</span><span>10:42</span></div>
+                <div class="command-ribbon" aria-label="Command ribbon idle state">
+                  <div class="ribbon-cell"><small>Target</small><strong>Selection ⌄</strong></div>
+                  <div class="ribbon-cell"><small>Action</small><strong>Improve ⌄</strong></div>
+                  <div class="ribbon-cell"><small>Direction</small><span>Optional instruction…</span></div>
+                  <div class="ribbon-cell run"><strong>Run ↵</strong></div>
+                </div>
+                <div class="ribbon-page">
+                  <h4>The writing stays fully visible.</h4>
+                  <p>The command has a fixed home above the host app. The user looks up to direct the edit, then immediately returns to the selected sentence.</p>
+                  <p><span class="ribbon-highlight">This text remains unobscured while the ribbon is open.</span></p>
+                  <div class="ribbon-states" aria-label="Command ribbon state variants">
+                    <div class="ribbon-state"><strong>CAPTURE</strong><span>Reading selected text…</span><span>Esc</span></div>
+                    <div class="ribbon-state"><strong>RUNNING</strong><span>Improving selection…</span><span>Cancel</span></div>
+                    <div class="ribbon-state review"><strong>REVIEW</strong><span>Replace entire document? · 3,842 → 3,716</span><span>Show result · Replace</span></div>
+                    <div class="ribbon-state applied"><strong>APPLIED</strong><span>Version 2 of 3</span><span>← → Done</span></div>
+                    <div class="ribbon-state error"><strong>ERROR</strong><span>Copilot is signed out. Selection untouched.</span><span>Fix setup</span></div>
+                    <div class="ribbon-state"><strong>SCOPE</strong><span>Selection / document · Improve / custom action</span><span>⌘1 · ⌘2</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p class="surface-title">Command-center settings + shortcut</p>
+              <div class="ribbon-settings">
+                <nav aria-label="Mock ribbon settings navigation"><span class="active">Ready</span><span>Shortcut</span><span>Editing</span><span>Copilot</span></nav>
+                <main>
+                  <div class="readiness">
+                    <h4>Ready</h4>
+                    <div class="check-line"><span class="check-mark">✓</span><span>⌃⌥⌘E opens the ribbon</span></div>
+                    <div class="check-line"><span class="check-mark">✓</span><span>Accessibility granted</span></div>
+                    <div class="check-line"><span class="check-mark">✓</span><span>Copilot connected</span></div>
+                  </div>
+                  <div class="settings-section">
+                    <div class="mock-row"><span>Ribbon screen</span><span class="mock-control">Active display⌄</span></div>
+                    <div class="mock-row"><span>Confirm document edits</span><span class="toggle"></span></div>
+                  </div>
+                  <div class="shortcut-callout"><strong>Shortcut recorder</strong><br>Press keys now · current ⌃⌥⌘E</div>
+                </main>
+              </div>
+            </div>
+          </div>
+
+          <div class="placement" aria-labelledby="placement-title">
+            <p class="surface-title" id="placement-title">Placement rule · hybrid</p>
+            <p>The ribbon keeps one predictable home whenever the menu bar is on screen. A full-screen Space has no strip to occupy, so the lane docks to the host window's top edge instead, inset far enough that the auto-revealing menu bar cannot slide over it. Both cases are drawn at screen scale below.</p>
+
+            <div class="placement-grid">
+              <figure class="placement-case">
+                <figcaption><b>Case 1 · windowed or zoomed</b><em>Screen-anchored</em></figcaption>
+                <div class="screen" role="img" aria-label="Full screen mockup: macOS menu bar at the top, the Mancia command lane pinned directly beneath it across the full width, and a zoomed document window below whose title bar the lane covers.">
+                  <div class="screen-bar"><b>☝︎ Notes</b><span>File</span><span>Edit</span><span>View</span><span class="clock">10:42</span></div>
+                  <div class="screen-lane">
+                    <div><small>Target</small><strong>Selection ⌄</strong></div>
+                    <div><small>Action</small><strong>Improve ⌄</strong></div>
+                    <div><small>Direction</small><span class="ghost">Optional instruction…</span></div>
+                    <div><span class="screen-run">Run ↵</span></div>
+                  </div>
+                  <div class="screen-win zoomed">
+                    <div class="screen-doc">
+                      <span class="screen-flag">Window title bar underneath</span>
+                      <h6>The writing stays fully visible.</h6>
+                      <p>The lane owns the strip below the menu bar, so it never lands on the text you selected.</p>
+                      <p><mark>This sentence is the capture, and it stays in view.</mark></p>
+                    </div>
+                  </div>
+                </div>
+                <p class="placement-note"><b>Anchor:</b> below the menu bar on the active display. <b>Cost:</b> the lane covers the window's title bar and toolbar while it is open — chrome, never content.</p>
+              </figure>
+
+              <figure class="placement-case">
+                <figcaption><b>Case 2 · full-screen Space</b><em>Window-anchored</em></figcaption>
+                <div class="screen fs" role="img" aria-label="Full screen mockup: no menu bar is visible because it is auto-hidden; a dashed strip marks the reserved reveal area, and the Mancia command lane is docked below it at the full-screen window's top edge, with the document text and its selection unobscured.">
+                  <div class="screen-ghostbar">Menu bar hidden · reveals on hover</div>
+                  <div class="screen-lane" style="margin-top:3px">
+                    <div><small>Target</small><strong>Document ⌄</strong></div>
+                    <div><small>Action</small><strong>Improve ⌄</strong></div>
+                    <div><small>Direction</small><span class="ghost">Tighten the opening…</span></div>
+                    <div><span class="screen-run">Run ↵</span></div>
+                  </div>
+                  <div class="screen-doc fill">
+                    <h6>Nothing above it to collide with.</h6>
+                    <p>In full-screen the lane leaves the reveal strip empty, so pulling the pointer up shows the menu bar without covering the controls.</p>
+                    <p><mark>The selection stays clear of the lane at every window height.</mark></p>
+                  </div>
+                </div>
+                <p class="placement-note"><b>Anchor:</b> the host window's top edge, inset 28pt. <b>Cost:</b> the promise softens to “one place, except full-screen” — the honest trade for never covering the text.</p>
+              </figure>
+            </div>
+
+            <p class="placement-formula"><b>Rule.</b> If the frontmost window is in a full-screen Space or the menu bar is set to auto-hide → anchor to the window's top edge, inset 28pt. Otherwise → anchor below the menu bar on the display holding the frontmost window. In both cases the panel keeps <b>.canJoinAllSpaces</b> and <b>.fullScreenAuxiliary</b>, which <b>EditPanel.swift</b> already sets today.</p>
+          </div>
+
+          <div class="aux-grid">
+            <div>
+              <p class="surface-title">Menu bar</p>
+              <div class="menu-popover">
+                <div class="menu-item active"><span>Show command ribbon</span><span>⌃⌥⌘E</span></div>
+                <div class="menu-item"><span>Target selection</span><span>⌘1</span></div>
+                <div class="menu-item"><span>Target document</span><span>⌘2</span></div>
+                <div class="menu-separator"></div>
+                <div class="menu-item"><span>Settings…</span><span>⌘,</span></div>
+                <div class="menu-item"><span>About / Quit</span></div>
+              </div>
+            </div>
+            <div>
+              <p class="surface-title">Provider recovery + Accessibility</p>
+              <div class="dialog-stack">
+                <div class="permission-dialog"><h4>Provider unavailable</h4><p>The ribbon stays open with your instruction preserved.</p><div class="dialog-actions"><span class="mini-button">Copy command</span><span class="mini-button primary">Repair Copilot</span></div></div>
+                <div class="permission-dialog"><h4>Accessibility is off</h4><p>Grant access once; the ribbon will retry the capture.</p><div class="dialog-actions"><span class="mini-button primary">Open System Settings</span></div></div>
+              </div>
+            </div>
+            <div>
+              <p class="surface-title">About</p>
+              <div class="about-dialog"><div class="dialog-icon">☝︎</div><h4>Mancia 0.1.0</h4><p>One command lane above every app.<br>Invoke, improve, return.</p></div>
+            </div>
+          </div>
+
+          <div class="palette-note" aria-label="Command ribbon color discipline">
+            <p><strong>Color discipline.</strong> Every hue is from Palette.swift. The lane is the palette’s dark register (ink surface, #FF6A4D action on #25120C, exactly the shipped dark-appearance ramp); the host page stays paper. Vermilion is spent once per surface — on Run. Applied speaks green, errors speak warm red, and nothing else gets a hue.</p>
+            <span class="swatch"><i style="background:#f5efe3"></i>Cream F5EFE3</span>
+            <span class="swatch"><i style="background:#fcf9f1"></i>Paper FCF9F1</span>
+            <span class="swatch"><i style="background:#1a1611"></i>Ink 1A1611</span>
+            <span class="swatch"><i style="background:#e4d9c6"></i>Border E4D9C6</span>
+            <span class="swatch"><i style="background:#c2412c"></i>Action · light C2412C</span>
+            <span class="swatch"><i style="background:#ff6a4d"></i>Action · on ink FF6A4D</span>
+            <span class="swatch"><i style="background:#2f7a44"></i>Applied 2F7A44</span>
+            <span class="swatch"><i style="background:#c0392b"></i>Error C0392B</span>
+          </div>
+
+          <div class="coverage"><span>Idle ribbon</span><span>Capturing</span><span>Running</span><span>Document review</span><span>Applied</span><span>Error</span><span>Scope</span><span>Presets</span><span>Menu</span><span>Settings</span><span>Shortcut recorder</span><span>Provider recovery</span><span>Accessibility</span><span>About</span></div>
+        </div>
+      </section>
+
+      <section class="concept" id="concept-rail" role="tabpanel" aria-labelledby="tab-rail" hidden>
+        <div class="concept-intro">
+          <div>
+            <h3>Proofing Rail</h3>
+            <p>Mancia opens a temporary right-edge workspace with source, revision and version history visible together. It is the only direction that makes review — not prompting — the primary object, turning whole-document edits into a deliberate proofing session. The rail is the palette’s light register: cream on paper, with ink reserved for the one heavyweight decision.</p>
+          </div>
+          <dl class="concept-facts">
+            <div><dt>Best for</dt><dd>High-trust review</dd></div>
+            <div><dt>Honest risk</dt><dd>Heavier than micro-edits</dd></div>
+          </dl>
+        </div>
+
+        <div class="system-board rail">
+          <div class="board-label"><span>Model B · docked to the right edge</span><span>Illustrative interface concept</span></div>
+          <div class="surface-grid">
+            <div>
+              <p class="surface-title">Signature workflow · source and revision stay comparable</p>
+              <div class="rail-stage">
+                <div class="rail-host">
+                  <h4>Review before the words return.</h4>
+                  <p>The rail keeps the host document visible while showing exactly what Mancia changed.</p>
+                  <p>The utility should <del>make the sentence better without disrupting everything</del> <ins>improve the sentence without disrupting the writing flow</ins>.</p>
+                  <p>For a quick edit the rail can collapse immediately. For a full document, it stays until the user accepts or cancels.</p>
+                </div>
+                <aside class="review-rail" aria-label="Proofing rail review state">
+                  <div class="rail-head"><strong>Mancia · Review</strong><span>2 of 3 · Esc</span></div>
+                  <div class="rail-scope"><span class="active">Selection</span><span>Document</span><span>Improve⌄</span></div>
+                  <div class="rail-diff"><small>PROPOSED CHANGE</small><p>The utility should <del>make the sentence better</del> <ins>improve the sentence</ins> without disrupting the writing flow.</p></div>
+                  <div class="rail-confirm"><strong>Replace the entire document?</strong><p>3,842 → 3,716 characters. Review all changes first.</p><div class="rail-buttons"><span>Keep editing</span><span class="primary">Replace</span></div></div>
+                  <div class="rail-compose"><div><span>Ask for another change…</span><b>↵</b></div></div>
+                </aside>
+              </div>
+
+              <div class="rail-states" aria-label="Proofing rail state variants">
+                <div class="rail-state"><strong>Idle</strong><p>Composer + scope</p></div>
+                <div class="rail-state"><strong>Capturing</strong><p>Source appears</p></div>
+                <div class="rail-state"><strong>Running</strong><p>Diff builds</p></div>
+                <div class="rail-state"><strong>Review</strong><p>Accept / retry</p></div>
+                <div class="rail-state done"><strong>Applied</strong><p>Version 2 / 3</p></div>
+                <div class="rail-state error"><strong>Error</strong><p>Details + repair</p></div>
+              </div>
+            </div>
+
+            <div>
+              <p class="surface-title">Settings as another rail page</p>
+              <div class="rail-settings">
+                <div class="settings-head"><span class="settings-title">Mancia · Settings</span><span>Close</span></div>
+                <div class="settings-body">
+                  <div class="readiness">
+                    <h4>System readiness</h4>
+                    <div class="check-line"><span class="check-mark">✓</span><span>Shortcut</span><span style="margin-left:auto">⌃⌥⌘E</span></div>
+                    <div class="check-line"><span class="check-mark">✓</span><span>Accessibility</span><span style="margin-left:auto">Granted</span></div>
+                    <div class="check-line"><span class="check-mark">✓</span><span>Copilot</span><span style="margin-left:auto">Ready</span></div>
+                  </div>
+                  <div class="settings-section">
+                    <div class="mock-row"><span>Open rail for</span><span class="mock-control">Document edits⌄</span></div>
+                    <div class="mock-row"><span>Show inline diff</span><span class="toggle"></span></div>
+                  </div>
+                  <div class="shortcut-callout"><strong>Shortcut recorder</strong><br>Listening for a new combination…</div>
+                  <div class="settings-section" style="border-bottom:0"><div class="mock-row"><span>Copilot diagnostics</span><span>Open →</span></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="aux-grid">
+            <div>
+              <p class="surface-title">Menu bar</p>
+              <div class="menu-popover">
+                <div class="menu-item active"><span>Open proofing rail</span><span>⌃⌥⌘E</span></div>
+                <div class="menu-item"><span>Review last edit</span><span>⌥⌘R</span></div>
+                <div class="menu-separator"></div>
+                <div class="menu-item"><span>Settings…</span><span>⌘,</span></div>
+                <div class="menu-item"><span>About / Quit</span></div>
+              </div>
+            </div>
+            <div>
+              <p class="surface-title">Provider recovery + Accessibility</p>
+              <div class="dialog-stack">
+                <div class="permission-dialog"><h4>Revision paused</h4><p>Copilot stopped responding. Source and instruction remain in the rail.</p><div class="dialog-actions"><span class="mini-button">Diagnostics</span><span class="mini-button primary">Retry</span></div></div>
+                <div class="permission-dialog"><h4>Allow text replacement</h4><p>Accessibility is required to apply an accepted revision.</p><div class="dialog-actions"><span class="mini-button primary">Open System Settings</span></div></div>
+              </div>
+            </div>
+            <div>
+              <p class="surface-title">About</p>
+              <div class="about-dialog"><div class="dialog-icon">☝︎</div><h4>Mancia 0.1.0</h4><p>Compare. Refine. Apply.<br>A proofing desk beside any app.</p></div>
+            </div>
+          </div>
+
+          <div class="palette-note" aria-label="Proofing rail color discipline">
+            <p><strong>Color discipline.</strong> Every hue is from Palette.swift. The rail is the palette’s light register — cream on paper with hairline borders — and only the whole-document decision earns the ink block, where Replace carries the dark-register action. Diff colors are the app’s own applied-green and warm error red, at text weight and as quiet washes; no mint, no rose.</p>
+            <span class="swatch"><i style="background:#f5efe3"></i>Cream F5EFE3</span>
+            <span class="swatch"><i style="background:#fcf9f1"></i>Paper FCF9F1</span>
+            <span class="swatch"><i style="background:#1a1611"></i>Ink 1A1611</span>
+            <span class="swatch"><i style="background:#e4d9c6"></i>Border E4D9C6</span>
+            <span class="swatch"><i style="background:#c2412c"></i>Action · light C2412C</span>
+            <span class="swatch"><i style="background:#ff6a4d"></i>Action · on ink FF6A4D</span>
+            <span class="swatch"><i style="background:#2f7a44"></i>Inserted 2F7A44</span>
+            <span class="swatch"><i style="background:#c0392b"></i>Removed C0392B</span>
+          </div>
+
+          <div class="coverage"><span>Idle rail</span><span>Capturing</span><span>Running</span><span>Document review</span><span>Applied</span><span>Error</span><span>Scope</span><span>Presets</span><span>Menu</span><span>Settings</span><span>Shortcut recorder</span><span>Provider recovery</span><span>Accessibility</span><span>About</span></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="recommendation" aria-labelledby="recommendation-title">
+      <div>
+        <p class="kicker" style="color:#5d6058">Recommendation</p>
+        <h2 id="recommendation-title">Prototype the Command Ribbon. Borrow the Rail’s review gate.</h2>
+        <p>With the inline lens retired, the ribbon is the strongest everyday surface: one predictable home, a keyboard-first command sentence, and no cross-app anchoring risk. The rail earns its weight only when the stakes rise — so adopt its diff-and-confirm pattern as the ribbon’s whole-document review, and keep the full rail as a later document mode. Because both wear the shipped palette, either can graduate to production without a rebrand.</p>
+      </div>
+      <div>
+        <ol>
+          <li><strong>Build the hybrid placement rule first.</strong><br><small>Resolved above: screen-anchored below the menu bar, window-anchored and inset 28pt in a full-screen Space. Verify it against multi-display, Split View and menu-bar auto-hide before anything else is built.</small></li>
+          <li><strong>Wire the command sentence for keyboards.</strong><br><small>Tab moves target → action → direction; ⌘1/⌘2 switch scope; Esc always restores the host untouched.</small></li>
+          <li><strong>Adopt the rail’s review gate for document edits.</strong><br><small>Diff first, then “Replace entire document?” on the ink block — never a one-line confirmation.</small></li>
+          <li><strong>Hold the color line.</strong><br><small>Vermilion only on Run/Replace; status only through applied-green and warm red; light-mode action at #C2412C and secondary text at #6E6250 to clear 4.5:1.</small></li>
+        </ol>
+      </div>
+    </section>
+
+    <footer class="method">
+      <span>Method: dual independent review — unanchored design assessment + deterministic source/evidence pass; revision 2 applies the reviewer’s cut and recolors both concepts to Palette.swift.</span>
+      <span>Evidence: SwiftUI/AppKit source, committed light/dark screenshots, full user-flow inventory. Concepts are illustrative, not implemented UI.</span>
+    </footer>
+  </main>
+
+  <script>
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+    const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+    function activate(tab, moveFocus, updateHash = true) {
+      tabs.forEach((item) => {
+        const selected = item === tab;
+        item.setAttribute('aria-selected', String(selected));
+        item.tabIndex = selected ? 0 : -1;
+      });
+      panels.forEach((panel) => {
+        panel.hidden = panel.id !== tab.getAttribute('aria-controls');
+      });
+      if (updateHash) history.replaceState(null, '', `#${tab.id.replace('tab-', '')}`);
+      if (moveFocus) tab.focus();
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => activate(tab, false));
+      tab.addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        let next = index;
+        if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+        if (event.key === 'Home') next = 0;
+        if (event.key === 'End') next = tabs.length - 1;
+        activate(tabs[next], true);
+      });
+    });
+
+    const requestedTab = tabs.find((tab) => tab.id === `tab-${location.hash.slice(1)}`);
+    if (requestedTab) {
+      activate(requestedTab, false, false);
+      document.querySelector('[role="tablist"]').scrollIntoView({ block: 'start' });
+    }
+  </script>
+</body>
+</html>

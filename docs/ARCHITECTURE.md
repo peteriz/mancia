@@ -18,17 +18,32 @@ Sources/Mancia/
 ├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
 │                                 ⌘Z undo helper, AX caret-rect lookup; keystrokes are
 │                                 posted to the target app's pid (CGEvent.postToPid)
-├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → panel →
+├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
 ├── DebugCLI.swift                --provider-check / --complete headless entry points
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
 ├── Panel/
 │   ├── PanelModel.swift          @Observable state shared between coordinator and view
-│   ├── EditPanel.swift           NSPanel host (floating, non-activating; placed at the
-│   │                             caret, at the mouse, or centered)
-│   ├── PanelKeyCommand.swift     ⌘-shortcut mapping for the panel (no menu bar, so the
-│   │                             panel resolves Edit-menu-style key equivalents itself)
-│   └── EditPanelView.swift       SwiftUI content (describe field + action rows + status strip)
+│   ├── KeyablePanel.swift        NSPanel subclass that can take key status while the
+│   │                             target app stays active (.nonactivatingPanel)
+│   ├── Palette.swift             Shared color tokens
+│   ├── PanelPreset.swift         The specialized presets (Proofread / Rewrite / Summarize)
+│   └── PanelKeyCommand.swift     ⌘-shortcut and focus-move mapping for the editing surface
+│                                 (no menu bar, so it resolves Edit-menu-style key
+│                                 equivalents itself)
+├── Ribbon/
+│   ├── RibbonWindow.swift        Hosts the lane: measures the view at the resolved width,
+│   │                             sets the frame, animates entry/exit, tracks screen changes
+│   ├── RibbonPlacement.swift     Pure placement resolver — sits against the selection when
+│   │                             the host reports one, else under the menu bar or the
+│   │                             host's title bar
+│   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
+│   │                             through Accessibility (placement's second input)
+│   ├── RibbonView.swift          The lane: one row of Target / Action / Direction / Run,
+│   │                             with status and iteration beside Run and an error row
+│   ├── RibbonReviewView.swift    The whole-document review gate
+│   ├── RibbonControls.swift      Controls shared across the lane's registers
+│   └── RibbonPalette.swift       The lane's dark-register color tokens
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider/WarmableLLMProvider protocols and ProviderStatus
 │   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, fallback Process)
@@ -41,6 +56,7 @@ Sources/Mancia/
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
     ├── SettingsView.swift        SwiftUI settings window content
+    ├── ReadinessRow.swift        One "is this ready?" row (hotkey / Accessibility / provider)
     └── ShortcutRecorderView.swift  Native hotkey recorder (see note below)
 
 Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv/ACP construction and parsing
@@ -73,28 +89,79 @@ wired to call `coordinator.start()`.
      every 30 ms up to 600 ms.
    - Restores the snapshot immediately, returning the captured string (or
      `nil` if nothing changed, i.e. no selection).
-3. **Panel** — the result seeds `PanelModel` (`hasSelection`, `charCount`),
-   and `EditPanel.show(placement:)` positions an `NSPanel`
-   (`.nonactivatingPanel` + `.floating`, so the target app keeps focus):
-   - next to the caret/selection when there is one, via the Accessibility API
-     (`SelectionCapture.selectionScreenRect()`: focused UI element →
-     `kAXSelectedTextRange` → `kAXBoundsForRange`, converted from AX top-left
-     to AppKit coordinates), falling back to the mouse location;
-   - centered on the main screen for entire-document scope;
-   - always clamped to the screen's visible frame.
-   The panel is a cyclical **edit session**: the describe field and its
-   trailing preset dropdown (Improve / Sharpen / Plan first / Tighten) are
-   always visible, dimmed and disabled while a request runs; a status strip cycles
-   `PanelModel.phase` through `.idle → .running → .confirm → .applied/.error`
-   and back until the user closes it. The panel **stays visible throughout**: all
-   synthetic keystrokes are posted directly to the target app's process
-   (`CGEvent.postToPid`), so they cannot be swallowed by the panel and no
-   hide/reveal dance is needed. After each keystroke burst (which activates
-   the target app) the coordinator calls `panel.focus()` to retake key
-   status so Esc and typing reach the panel again.
+3. **Ribbon** — the result seeds `PanelModel` (`hasSelection`, `charCount`),
+   and `RibbonWindow.show()` opens the lane: a `KeyablePanel`
+   (`.nonactivatingPanel` + `.floating`, so the target app keeps focus) placed
+   by `RibbonPlacement.resolve(_:)`, a pure function of the screen, the host
+   window and the selection rectangle.
+
+   When the host reports where the selected text is, the lane **sits just
+   under the selection** — or just over it, when the selection is too near the
+   foot of the host to fit beneath. That is the ordinary case, and it is the
+   point of the rule: the command the user is composing sits next to the words
+   it will rewrite. When there is no selection rectangle — a bare caret, or a
+   host that cannot answer — the lane takes a predictable place instead:
+   - **screen-anchored** — flush under the menu bar, when the menu bar is
+     reserving a strip at the top of the screen;
+   - **host-anchored** — under the frontmost window's title bar, when it is
+     not: full-screen Spaces and auto-hidden menu bars both leave the lane
+     nowhere safe to sit, and on a notched display the top of the screen is
+     not addressable at all.
+
+   That predictable place is also the fallback for a selection with nowhere
+   beside it — the whole document selected, say. A move that buys nothing is
+   worse than staying where the user expects.
+
+   Whichever edge the lane hangs from is the edge it **pins**, so it grows
+   away from the selection and a review gate can never creep back over the
+   line it was invoked on. The room beside the selection is judged against
+   `projectedHeight`, the tallest ordinary state, not the height the lane
+   opens at: a 48pt row fits into gaps a ~195pt review gate does not. The
+   anchor is then **established for the session** and fed back through
+   `Context.establishedAnchor`, so a lane that grew mid-run does not leap
+   across the screen and leap back when the region closes. A bare caret is not
+   a selection: with nothing selected the target is the whole document and
+   there is no line to sit against.
+
+   Vertical position follows the selection; horizontal does not. The lane's
+   **width is imposed by placement** (the host's width, clamped to a maximum
+   and centered) and only its **height comes from content**, so the view is
+   measured at the resolved width before the frame is set. `HostWindowProbe`
+   supplies the host window's frame and full-screen state through
+   Accessibility; every failure path returns `nil` and placement degrades to
+   the screen rather than failing the session.
+
+   The lane is a cyclical **edit session**. Target, Action, Direction and Run
+   sit on a **single row**, dimmed and disabled while a request runs. Each
+   control names itself — an icon and a value in a chip, a prompt inside the
+   field — rather than carrying a caption above it, which is what lets the row
+   be one line rather than two. Live status is a dot and one word **beside
+   Run**, and iteration history a counter beside that, both riding in width
+   the Direction field gives up by capping at a comfortable measure. Only a
+   failure still earns a **row of its own**, because it carries a message plus
+   Details, Copy and Retry. `PanelModel.phase` cycles
+   `.idle → .running → .confirm → .applied/.error` and back until the user
+   closes it. The lane **stays visible throughout**: all synthetic keystrokes
+   are posted directly to the target app's process (`CGEvent.postToPid`), so
+   they cannot be swallowed by the lane and no hide/reveal dance is needed.
+   After each keystroke burst (which activates the target app) the coordinator
+   calls `ribbon.focus()` to retake key status so Esc and typing reach the
+   lane again.
+
+   Tab, ⇧Tab and the focus **ring both read `PanelModel.focusedCell`**, not the
+   view's `@FocusState`. Tab arrives at the window rather than at a view, and
+   SwiftUI grants `@FocusState` to the Direction field but refuses it to the
+   three `.focusable()` cells, so the model is the only place that knows which
+   stop the keyboard is on.
+
+   ⌘1…⌘4 pin the nth entry of `PanelPreset.all` and ⌘T swaps the target, both
+   resolved by `PanelKeyCommand` and dispatched through `KeyablePanel`. Because
+   that happens above the SwiftUI tree, the `disabled` that greys the cells out
+   while a request runs is invisible to them — `PanelModel.isLocked` is what
+   actually holds them off, and the mutating entry points check it themselves.
 4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
-   Return or the run button, giving `.improve` on an empty field and
-   `.custom(text)` on a typed one) or picks a preset from the field's dropdown
+   Return or the Run control, giving `.improve` on an empty Direction field
+   and `.custom(text)` on a typed one) or picks a preset from the Action cell
    (`PanelModel.runPreset(_:)`, which passes the typed text along as a guidance
    note rather than as the instruction).
    `EditCoordinator.perform(_:note:)` resolves this cycle's input and apply
@@ -118,7 +185,7 @@ wired to call `coordinator.start()`.
    It then builds the prompt with `PromptBuilder.build(action:text:)` and
    calls `provider.complete(prompt)` inside a cancellable `Task`. While it
    runs, only the strip's **Cancel** is enabled (spinner + action name).
-   Providers that conform to `WarmableLLMProvider` are warmed when the panel
+   Providers that conform to `WarmableLLMProvider` are warmed when the lane
    opens and after it closes; `CopilotCLIProvider` uses that hook to keep one
    empty, single-use ACP session ready for the next edit.
 5. **Confirm (whole-document only)** — before a `.document`-scope result
@@ -134,7 +201,7 @@ wired to call `coordinator.start()`.
    on confirm for documents),
    `SelectionCapture.apply(text:to:entireDocument:)` pastes it (pasteboard →
    activate target → `⌘V`, restoring the user's pasteboard ~1 s later) with
-   the panel still on screen. The coordinator records the iteration
+   the lane still on screen. The coordinator records the iteration
    (`versions`: index 0 is the session original, one entry per applied
    result; running a new action from an earlier version truncates the
    forward history) and the applied strip shows `←` / `→` navigation with a
@@ -146,9 +213,9 @@ wired to call `coordinator.start()`.
      session open; **Retry** (error strip) re-runs `perform(lastAction)`;
    - Esc closes the session, keeping whichever version is showing. The applied
      strip carries no close button: Esc is the one dismissal, and hybrid
-     post-apply behavior closes the panel on its own after a beat.
+     post-apply behavior closes the lane on its own after a beat.
 
-Esc anywhere in the panel routes through `KeyablePanel.cancelOperation` →
+Esc anywhere in the lane routes through `KeyablePanel.cancelOperation` →
 `model.onCancel` and closes the session in every phase.
 
 ## The `LLMProvider` protocol
@@ -169,7 +236,7 @@ the places that need completion or availability checks.
 
 - **Primary latency path:** a persistent `copilot --acp --stdio` process, driven
   by `CopilotACPClient` over JSON-RPC. `CopilotACPSidecar` warms one empty
-  session while the panel is open; the session is consumed by a single prompt
+  session while the lane is open; the session is consumed by a single prompt
   and then discarded so selected text cannot carry into later edits.
 - **Fallback reliability path:** the original one-shot `copilot -p <prompt>` CLI
   invocation. ACP launch, protocol, empty-output, and timeout failures fall back
@@ -230,7 +297,7 @@ provider-specific details.
 
 ## Prompt gate & injection hardening
 
-The panel's free-form instruction field plus the captured **selected text** form
+The lane's free-form Direction field plus the captured **selected text** form
 an open prompt gate. The selected text is untrusted third-party content (an
 email, web page, or chat message the user highlighted) and can carry embedded
 "instructions", so the defenses target the *data path*, not the user's own
@@ -256,7 +323,7 @@ instruction:
   bounds the instruction (`maxInstructionCharacters`) and input text
   (`maxInputCharacters`) and rejects empties, surfacing typed
   `PromptGuardError`s. Both `EditCoordinator.perform` and `DebugCLI.complete`
-  validate before building the prompt; failures surface through the panel error
+  validate before building the prompt; failures surface through the lane's error
   state / stderr rather than sending a runaway request to the provider.
 - **Human-in-the-loop for whole-document overwrites (`ApplyConfirmation`).**
   A `.document`-scope result never auto-pastes: the coordinator pauses in the
@@ -265,7 +332,7 @@ instruction:
   or runaway result — the dangerous ⌘A+⌘V path — while leaving low-risk,
   undoable selection edits immediate. Default on
   (`AppSettings.confirmWholeDocumentReplace`), user-toggleable. The confirm/
-  keystroke wiring lives in `EditCoordinator`/`EditPanelView` and is verified by
+  keystroke wiring lives in `EditCoordinator`/`RibbonView` and is verified by
   manual testing; the pure policy (`ApplyConfirmation`) is unit-tested.
 
 Deliberately **not** done: a "jailbreak/abuse classifier" on the instruction
@@ -342,7 +409,7 @@ prompt):
   values exit 2), builds the prompt with `PromptBuilder.build`, calls
   `provider.complete(prompt)`, prints the result (exit 0) or an error to stderr
   (exit 1). (`fix-grammar` is the CLI id for the action labeled **Proofread** in
-  the panel, and `plan-first` for **Plan first**.)
+  the lane, and `plan-first` for **Plan first**.)
 
 `PromptBuilder` keeps every Copilot prompt template in `Actions.swift`. Improve,
 Sharpen, Plan first, Tighten, Proofread, Rewrite, and Summarize each use a named
