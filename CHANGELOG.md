@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-02
+
+### Added
+
+- Command ribbon: a slim **Target · Action · Direction · Run** lane that
+  replaces the floating edit panel. It sits against the text being edited —
+  just under the selection, or just over it when the selection is near the
+  foot of its window — and falls back to a predictable resting place under
+  the menu bar or the host's title bar when there is no selection or no room
+  beside one.
+- Ribbon keyboard model: Return runs, Esc closes, Tab cycles the cells,
+  `cmd-1`…`cmd-4` pin the four presets, `cmd-0` unpins, and `cmd-T` switches
+  the target between selection and whole document.
+- Three presets that restructure rather than reword, none of which may invent
+  requirements: **Sharpen** (goal first, constraints and success criteria as
+  explicit lines, concrete anchors kept verbatim), **Plan first** (reframes an
+  implementation request as an investigate-then-plan request), and **Tighten**
+  (the shortest faithful version, dropping filler but never a requirement).
+- Provider readiness is surfaced in Settings and in the ribbon's status strip.
+
+### Changed
+
+- The ribbon keeps the target app focused for the whole session, so synthetic
+  keystrokes go straight to the host's pid and the old hide/reveal dance is
+  gone.
+- README and architecture/spec docs are updated for the ribbon, including a
+  new ribbon screenshot in place of the panel screenshots.
+
 ## [0.1.1] - 2026-07-28
 
 ### Changed
@@ -42,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.1.1...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/peteriz/mancia/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/peteriz/mancia/compare/0.1.0...0.1.1
 [0.1.0]: https://github.com/peteriz/mancia/releases/tag/0.1.0
