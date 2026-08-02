@@ -33,6 +33,14 @@ import CoreGraphics
 /// stays centered on its host at every anchor, so it never chases the caret
 /// sideways and its controls stay where the hand expects them.
 ///
+/// One amendment after each apply: pasting can put words where the opening
+/// geometry never described them — a longer result flows past the old
+/// selection's foot, and hosts scroll to keep the caret visible. When the
+/// lane is found covering the text it just wrote (`laneObstructs` against
+/// `updatedTextRect`), the anchor is re-decided against where that text
+/// actually is. A lane already clear of the words holds still: the user's
+/// eye is on the result, and a move that buys no visibility is churn.
+///
 /// The predictable place is chosen by measurement rather than a capability
 /// query: `screenFrame.maxY - visibleFrame.maxY`. `visibleFrame` excludes the
 /// menu bar at the top and the Dock at the bottom or sides, so the *top* gap
@@ -76,6 +84,10 @@ enum RibbonPlacement {
         /// and leap back when the region closed. Feeding the established
         /// anchor back in pins the decision to the geometry that was true at
         /// open, which is the geometry the user saw.
+        ///
+        /// `RibbonWindow` clears it in exactly two places: when a fresh
+        /// mid-session selection moves the work somewhere else, and when a
+        /// landed paste leaves the lane covering the text it just wrote.
         var establishedAnchor: Anchor?
 
         init(
@@ -234,6 +246,40 @@ enum RibbonPlacement {
 
         let anchor = context.establishedAnchor ?? choose()
         return Resolution(frame: frame(anchor, height), anchor: anchor)
+    }
+
+    /// The span the applied text occupies once a paste has landed, judged
+    /// from the two rectangles the session can still read: the selection the
+    /// result replaced and the caret that now ends it. Pasting collapses the
+    /// selection, so the caret is the only live report of where the new words
+    /// stop — a longer result flows past the old selection's foot, and a host
+    /// that scrolled to keep the caret visible moved everything with it. At
+    /// open a bare caret is noise; here it is the tail of the words just
+    /// written, so it counts.
+    static func updatedTextRect(
+        previousSelection: CGRect?, caretAfterApply: CGRect?
+    ) -> CGRect? {
+        let selection = previousSelection.flatMap { rect in
+            rect.width > 0 && rect.height > 0 ? rect : nil
+        }
+        let caret = caretAfterApply.flatMap { rect -> CGRect? in
+            guard rect.height > 0 else { return nil }
+            // A caret reports zero width; give it one so the rect survives
+            // the width check every selection rect goes through.
+            return CGRect(x: rect.minX, y: rect.minY, width: max(rect.width, 1), height: rect.height)
+        }
+        switch (selection, caret) {
+        case (nil, nil): return nil
+        case (let rect?, nil), (nil, let rect?): return rect
+        case (let selection?, let caret?): return selection.union(caret)
+        }
+    }
+
+    /// Whether a lane at `frame` covers the updated text — the only condition
+    /// that reopens the anchor decision after an apply.
+    static func laneObstructs(_ frame: CGRect, updatedText: CGRect?) -> Bool {
+        guard let updatedText else { return false }
+        return frame.intersects(updatedText)
     }
 
     /// A caret is not a selection. With nothing selected the target is the

@@ -1922,3 +1922,73 @@ func placementDoesNotChaseTheSelectionSideways() {
     #expect(beside.frame.minX == resting.frame.minX, "vertical position follows the selection; horizontal does not")
     #expect(beside.frame.width == resting.frame.width)
 }
+
+// MARK: - Ribbon placement: stepping off the applied text
+
+@Test("The applied text's span runs from the replaced selection down to the caret that ends it")
+func updatedTextRectUnionsSelectionAndCaret() {
+    let selection = CGRect(x: 20, y: 500, width: 260, height: 14)
+    // A longer result: the paste flowed three lines past the selection's foot.
+    let caret = CGRect(x: 40, y: 458, width: 0, height: 14)
+
+    let updated = RibbonPlacement.updatedTextRect(
+        previousSelection: selection, caretAfterApply: caret)
+
+    #expect(updated?.maxY == selection.maxY, "the span still starts where the replaced text started")
+    #expect(updated?.minY == caret.minY, "and reaches down to the caret that ends the new words")
+}
+
+@Test("With no selection to union, the caret alone stands for the applied text")
+func updatedTextRectAcceptsABareCaret() {
+    let caret = CGRect(x: 40, y: 340, width: 0, height: 14)
+
+    let updated = RibbonPlacement.updatedTextRect(
+        previousSelection: nil, caretAfterApply: caret)
+
+    #expect(updated != nil, "at open a bare caret is noise; after an apply it is the tail of the result")
+    #expect(updated!.width >= 1, "a zero-width caret is given one so the fit rules can see it")
+    #expect(
+        RibbonPlacement.updatedTextRect(previousSelection: nil, caretAfterApply: nil) == nil,
+        "a host that reports neither rect leaves the lane with nothing to judge")
+}
+
+@Test("A lane clear of the applied text holds still")
+func laneClearOfTheAppliedTextHoldsStill() {
+    let selection = CGRect(x: 20, y: 500, width: 260, height: 14)
+    let opened = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+    // A same-size result: the caret came to rest inside the replaced span.
+    let caret = CGRect(x: 200, y: 500, width: 0, height: 14)
+    let updated = RibbonPlacement.updatedTextRect(
+        previousSelection: selection, caretAfterApply: caret)
+
+    #expect(opened.anchor == .belowSelection)
+    #expect(
+        !RibbonPlacement.laneObstructs(opened.frame, updatedText: updated),
+        "a move that buys no visibility is churn")
+}
+
+@Test("A longer result flowing under the lane reopens the anchor decision")
+func longerResultReopensTheAnchor() {
+    let selection = CGRect(x: 20, y: 500, width: 260, height: 14)
+    let opened = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+    #expect(opened.anchor == .belowSelection)
+
+    // The result ran long; its tail now sits where the lane is.
+    let caret = CGRect(x: 40, y: opened.frame.midY, width: 0, height: 14)
+    let updated = RibbonPlacement.updatedTextRect(
+        previousSelection: selection, caretAfterApply: caret)
+    #expect(RibbonPlacement.laneObstructs(opened.frame, updatedText: updated))
+
+    // What `RibbonWindow.avoidUpdatedText` then does: drop the established
+    // anchor and resolve again with the updated span as the selection.
+    let dodged = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: updated))
+
+    #expect(!dodged.frame.intersects(updated!), "the lane steps off the words it just wrote")
+    #expect(dodged.anchor == .belowSelection, "and sits back against them from the near side")
+}
