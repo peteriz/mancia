@@ -34,6 +34,10 @@ swift run Mancia --provider-check
 echo "some text" | swift run Mancia --complete rewrite
 ```
 
+`make shot` redraws the README's hero image (`docs/assets/mancia-ribbon.png`).
+It renders the shipping `RibbonView` off screen — see `DocsShot.swift` — so run
+it after any change to how the lane looks, and commit the result.
+
 The `Makefile` targets run through `./scripts/swift.sh`, a thin wrapper around
 `swift` that keeps SwiftPM dependency resolution working in restricted
 environments (some sandboxes force `safe.bareRepository=explicit`, which breaks

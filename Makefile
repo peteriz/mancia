@@ -1,4 +1,4 @@
-.PHONY: build test app release dmg run clean
+.PHONY: build test app release dmg run shot clean
 
 SWIFT := ./scripts/swift.sh
 
@@ -20,6 +20,10 @@ dmg:
 
 run: app
 	open build/Mancia.app
+
+# Redraw the README's hero image from the shipping ribbon view.
+shot:
+	$(SWIFT) run Mancia --shoot docs/assets/mancia-ribbon.png
 
 clean:
 	$(SWIFT) package clean
