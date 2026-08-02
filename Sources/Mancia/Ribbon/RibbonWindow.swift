@@ -23,10 +23,10 @@ final class RibbonWindow {
     /// focus, after which the system-wide focused element is the Direction
     /// field and the rect would describe the lane itself.
     private var selectionRect: CGRect?
-    /// Set once the lane has moved to the foot of its host, and held for the
-    /// rest of the session so a growing review region cannot make it leap back
-    /// and forth. Cleared by `show()`.
-    private var parkedAtBottom = false
+    /// The edge the lane currently hangs from, which decides both the side it
+    /// slides in from and — fed back through `Context` — where it stays for
+    /// the rest of the session. Cleared by `show()`.
+    private var currentAnchor: RibbonPlacement.Anchor?
     private var screenObserver: (any NSObjectProtocol)?
     /// Bumped on every `show()`, so an exit animation still in flight when a
     /// new session opens cannot order the new lane out.
@@ -63,7 +63,7 @@ final class RibbonWindow {
         self.panel = panel
         hostWindow = HostWindowProbe.frontmostWindow()
         selectionRect = SelectionCapture.selectionScreenRect()
-        parkedAtBottom = false
+        currentAnchor = nil
         let resolution = resolveFrame()
         observeScreenChanges()
         present(panel, at: resolution.frame)
@@ -111,8 +111,8 @@ final class RibbonWindow {
     /// — the review region opening or closing — and when the screen
     /// configuration changes underneath it.
     ///
-    /// The frame is anchored by its *top* edge, so a taller lane grows downward
-    /// rather than shifting up.
+    /// Each anchor pins the edge it hangs from, so the lane grows away from
+    /// whatever it is sitting against rather than moving across it.
     func reposition(animated: Bool = true) {
         guard let panel, panel.isVisible else { return }
         let resolution = resolveFrame()
@@ -142,7 +142,8 @@ final class RibbonWindow {
             // Start a lane's height off its home edge and slide into it. The
             // lane sits below `.mainMenu`, so hanging from the menu bar it
             // genuinely emerges from behind the menu bar rather than over it;
-            // parked at the foot of the screen it rises from below instead.
+            // sitting on the screen floor, or over the selection, it rises
+            // from below instead.
             panel.setFrame(frame.offsetBy(dx: 0, dy: hiddenOffset(for: frame)), display: false)
             panel.alphaValue = 0
             panel.makeKeyAndOrderFront(nil)
@@ -160,10 +161,12 @@ final class RibbonWindow {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// How far off screen the lane starts and ends its slide: up behind the
-    /// menu bar at its resting position, down past the bottom edge when parked.
+    /// How far off screen the lane starts and ends its slide. Each anchor
+    /// enters from the side it is pinned to: up from behind the menu bar or
+    /// from under the selection it hangs beneath, down from the screen floor
+    /// or from over the selection it sits above.
     private func hiddenOffset(for frame: CGRect) -> CGFloat {
-        parkedAtBottom ? -frame.height : frame.height
+        (currentAnchor?.entersFromBelow ?? false) ? -frame.height : frame.height
     }
 
     // MARK: - Placement
@@ -178,7 +181,7 @@ final class RibbonWindow {
         let widthProbe = RibbonPlacement.resolve(height: 0, in: context)
         let height = measuredHeight(width: widthProbe.frame.width, anchor: widthProbe.anchor)
         let resolution = RibbonPlacement.resolve(height: height, in: context)
-        parkedAtBottom = resolution.parked
+        currentAnchor = resolution.anchor
         hosting?.rootView = content(width: resolution.frame.width, anchor: resolution.anchor)
         return resolution
     }
@@ -229,7 +232,7 @@ final class RibbonWindow {
             safeAreaTop: screen.safeAreaInsets.top,
             menuBarHidden: menuBarHidden,
             selectionRect: selectionRect,
-            preferBottom: parkedAtBottom
+            establishedAnchor: currentAnchor
         )
     }
 

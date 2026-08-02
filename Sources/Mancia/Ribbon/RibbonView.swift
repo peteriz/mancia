@@ -86,19 +86,15 @@ struct RibbonView: View {
     }
 
     /// A lane flush against the top of the screen rounds only its bottom
-    /// corners; parked against the bottom it rounds only its top corners; a
-    /// window-anchored one floats over the host and rounds all four.
+    /// corners; one floating over the host or against the selection rounds all
+    /// four.
     private var shape: UnevenRoundedRectangle {
         switch anchor {
         case .screen:
             UnevenRoundedRectangle(
                 topLeadingRadius: 0, bottomLeadingRadius: 12,
                 bottomTrailingRadius: 12, topTrailingRadius: 0, style: .continuous)
-        case .screenBottom:
-            UnevenRoundedRectangle(
-                topLeadingRadius: 12, bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0, topTrailingRadius: 12, style: .continuous)
-        case .hostWindow:
+        case .hostWindow, .belowSelection, .aboveSelection:
             UnevenRoundedRectangle(
                 topLeadingRadius: 12, bottomLeadingRadius: 12,
                 bottomTrailingRadius: 12, topTrailingRadius: 12, style: .continuous)

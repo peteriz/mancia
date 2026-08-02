@@ -34,9 +34,9 @@ Sources/Mancia/
 ├── Ribbon/
 │   ├── RibbonWindow.swift        Hosts the lane: measures the view at the resolved width,
 │   │                             sets the frame, animates entry/exit, tracks screen changes
-│   ├── RibbonPlacement.swift     Pure placement resolver — screen-anchored under the menu
-│   │                             bar, host-anchored under the host's title bar, or parked
-│   │                             at the host's foot when either would cover the selection
+│   ├── RibbonPlacement.swift     Pure placement resolver — sits against the selection when
+│   │                             the host reports one, else under the menu bar or the
+│   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
 │   ├── RibbonView.swift          The lane: one row of Target / Action / Direction / Run,
@@ -93,7 +93,14 @@ wired to call `coordinator.start()`.
    and `RibbonWindow.show()` opens the lane: a `KeyablePanel`
    (`.nonactivatingPanel` + `.floating`, so the target app keeps focus) placed
    by `RibbonPlacement.resolve(_:)`, a pure function of the screen, the host
-   window and the selection rectangle. It anchors in one of two places:
+   window and the selection rectangle.
+
+   When the host reports where the selected text is, the lane **sits just
+   under the selection** — or just over it, when the selection is too near the
+   foot of the host to fit beneath. That is the ordinary case, and it is the
+   point of the rule: the command the user is composing sits next to the words
+   it will rewrite. When there is no selection rectangle — a bare caret, or a
+   host that cannot answer — the lane takes a predictable place instead:
    - **screen-anchored** — flush under the menu bar, when the menu bar is
      reserving a strip at the top of the screen;
    - **host-anchored** — under the frontmost window's title bar, when it is
@@ -101,25 +108,28 @@ wired to call `coordinator.start()`.
      nowhere safe to sit, and on a notched display the top of the screen is
      not addressable at all.
 
-   Either way the lane **parks at the foot of its host** if its resting frame
-   would cover the selected text. A window sitting flush under the menu bar —
-   a new TextEdit document, say — puts its first lines exactly where the lane
-   hangs, and a 48pt lane growing to ~195pt cannot hide behind a 28pt title
-   bar. The park decision is made against `projectedHeight`, the tallest
-   ordinary state, not against the height the lane currently measures: it is
-   decided once and held for the session, so deciding it on a resting row
-   would let a lane that cleared the selection at open bury it the moment the
-   review gate arrived. Holding it also stops a lane that grew into the
-   selection leaping back when the review region closes. A bare caret is not a
-   selection: with nothing selected the target is the whole document and there
-   is no line to keep clear.
+   That predictable place is also the fallback for a selection with nowhere
+   beside it — the whole document selected, say. A move that buys nothing is
+   worse than staying where the user expects.
 
-   The lane's **width is imposed by placement** (the host's width, clamped to
-   a maximum and centered) and only its **height comes from content**, so the
-   view is measured at the resolved width before the frame is set.
-   `HostWindowProbe` supplies the host window's frame and full-screen state
-   through Accessibility; every failure path returns `nil` and placement
-   degrades to the screen rather than failing the session.
+   Whichever edge the lane hangs from is the edge it **pins**, so it grows
+   away from the selection and a review gate can never creep back over the
+   line it was invoked on. The room beside the selection is judged against
+   `projectedHeight`, the tallest ordinary state, not the height the lane
+   opens at: a 48pt row fits into gaps a ~195pt review gate does not. The
+   anchor is then **established for the session** and fed back through
+   `Context.establishedAnchor`, so a lane that grew mid-run does not leap
+   across the screen and leap back when the region closes. A bare caret is not
+   a selection: with nothing selected the target is the whole document and
+   there is no line to sit against.
+
+   Vertical position follows the selection; horizontal does not. The lane's
+   **width is imposed by placement** (the host's width, clamped to a maximum
+   and centered) and only its **height comes from content**, so the view is
+   measured at the resolved width before the frame is set. `HostWindowProbe`
+   supplies the host window's frame and full-screen state through
+   Accessibility; every failure path returns `nil` and placement degrades to
+   the screen rather than failing the session.
 
    The lane is a cyclical **edit session**. Target, Action, Direction and Run
    sit on a **single row**, dimmed and disabled while a request runs. Each
