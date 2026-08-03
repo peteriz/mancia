@@ -10,7 +10,7 @@ import SwiftUI
 /// its **height comes from content**, so the view is measured at the resolved
 /// width before the frame is set.
 @MainActor
-final class RibbonWindow: NSObject, NSWindowDelegate {
+final class RibbonWindow: NSObject {
     private let model: PanelModel
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?
@@ -30,10 +30,6 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
     /// slides in from and — fed back through `Context` — where it stays for
     /// the rest of the session. Cleared by `show()`.
     private var currentAnchor: RibbonPlacement.Anchor?
-    /// Once the user moves the lane, its frame becomes the positioning source
-    /// for the rest of this session. Content can still resize, but automatic
-    /// placement must not take the lane back to its computed opening home.
-    private var userPositionedFrame: CGRect?
     private var screenObserver: (any NSObjectProtocol)?
     /// Bumped on every `show()`, so an exit animation still in flight when a
     /// new session opens cannot order the new lane out.
@@ -72,7 +68,6 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
         hostWindow = HostWindowProbe.frontmostWindow()
         selectionRect = SelectionCapture.selectionScreenRect()
         currentAnchor = nil
-        userPositionedFrame = nil
         let resolution = resolveFrame()
         observeScreenChanges()
         present(panel, at: resolution.frame)
@@ -244,20 +239,9 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
         let context = currentContext()
         let widthProbe = RibbonPlacement.resolve(height: 0, in: context)
         let height = measuredHeight(width: widthProbe.frame.width, anchor: widthProbe.anchor)
-        var resolution = RibbonPlacement.resolve(height: height, in: context)
+        let resolution = RibbonPlacement.resolve(height: height, in: context)
         currentAnchor = resolution.anchor
-        if let userPositionedFrame {
-            resolution.frame = RibbonPlacement.resizedUserFrame(
-                userPositionedFrame,
-                width: resolution.frame.width,
-                height: resolution.frame.height
-            )
-            self.userPositionedFrame = resolution.frame
-        }
-        let visualAnchor: RibbonPlacement.Anchor = userPositionedFrame == nil
-            ? resolution.anchor
-            : .hostWindow
-        hosting?.rootView = content(width: resolution.frame.width, anchor: visualAnchor)
+        hosting?.rootView = content(width: resolution.frame.width, anchor: resolution.anchor)
         return resolution
     }
 
@@ -401,11 +385,10 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
         )
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        // Let every non-interactive part of the lane act as a drag surface.
-        // AppKit keeps controls such as the menus and Direction field
-        // interactive while using the surrounding background to move it.
-        panel.isMovable = true
-        panel.isMovableByWindowBackground = true
+        // Placement is the lane's contract; dragging would detach it from the
+        // selection or resting edge it was resolved against.
+        panel.isMovable = false
+        panel.isMovableByWindowBackground = false
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
@@ -427,7 +410,6 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
         // than show the lane over a full-screen app.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
-        panel.delegate = self
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
         panel.onKeyDown = { [weak self] event in
             guard let self else { return false }
@@ -470,33 +452,5 @@ final class RibbonWindow: NSObject, NSWindowDelegate {
             model.runPrimary()
         }
         return panel
-    }
-
-    /// `windowWillMove` is sent when the user starts a native window drag, but
-    /// not by our programmatic `setFrame` calls. That makes it the handoff from
-    /// automatic placement to the user's chosen position.
-    func windowWillMove(_ notification: Notification) {
-        guard let movedPanel = notification.object as? NSWindow,
-              movedPanel === panel
-        else { return }
-
-        let firstUserMove = userPositionedFrame == nil
-        userPositionedFrame = movedPanel.frame
-        if firstUserMove {
-            // Once detached from its computed edge, the lane is visually a
-            // floating panel and should have four rounded corners.
-            hosting?.rootView = content(width: movedPanel.frame.width, anchor: .hostWindow)
-        }
-    }
-
-    /// Keep the stored frame current throughout the drag and through later
-    /// content-size animations. Programmatic moves before the first user drag
-    /// are ignored because `userPositionedFrame` is still `nil` then.
-    func windowDidMove(_ notification: Notification) {
-        guard userPositionedFrame != nil,
-              let movedPanel = notification.object as? NSWindow,
-              movedPanel === panel
-        else { return }
-        userPositionedFrame = movedPanel.frame
     }
 }

@@ -36,11 +36,10 @@ import CoreGraphics
 /// can stand clear of the words there as it opens.
 ///
 /// Whichever edge faces the selection is the edge the lane *pins*, so it grows
-/// away from the text: a review gate opening under a lane that sits beneath
-/// the text can never creep back over the line it was invoked on, and one
-/// opening beside it grows along a margin it already owns. Which is also why
-/// the room at the selection's ends is judged at `projectedHeight` rather than
-/// the height the lane opens at.
+/// away from the text. An end with room for `projectedHeight`, or a margin the
+/// lane owns outright, stays clear as the review gate opens. The cramped-end
+/// fallback is the deliberate exception: its opening row clears the words,
+/// but screen clamping can move a grown gate back over the far end.
 ///
 /// Horizontal position is imposed by the host, not by the caret, at the three
 /// anchors that hang over it — the lane never chases a caret sideways along a
@@ -247,15 +246,17 @@ enum RibbonPlacement {
         let floor = host.minY + floorClearance
         let selection = avoidedSelection(in: context)
         let resting: Anchor = menuBarReservesStrip ? .screen : .hostWindow
+        let onScreenHost = host.intersection(context.screenFrame)
 
         /// The margin between one flank of the selection and the edge of the
-        /// host, measured — like the room at its ends — against the band the
-        /// lane may occupy rather than against the selection's own window.
+        /// on-screen host. A host can extend beyond its target display; counting
+        /// that off-screen area would let the clamp push the lane back across
+        /// the selection.
         func margin(_ side: Anchor) -> CGFloat? {
-            guard let selection else { return nil }
+            guard let selection, !onScreenHost.isNull else { return nil }
             return side == .leftOfSelection
-                ? selection.minX - host.minX
-                : host.maxX - selection.maxX
+                ? selection.minX - onScreenHost.minX
+                : onScreenHost.maxX - selection.maxX
         }
 
         /// A lane in the margin, or `nil` when that margin cannot hold one.
@@ -277,9 +278,9 @@ enum RibbonPlacement {
         }
 
         /// Where an anchor puts a lane of a given height. Each pins the edge
-        /// facing the selection, so the lane always grows away from what it
-        /// sits against — a review region opening below the selection can
-        /// never creep back over the line it was invoked on.
+        /// facing the selection, so the lane grows away from what it sits
+        /// against. A cramped end can still be clamped back over the far edge
+        /// once the review gate outgrows the room accepted at open.
         func frame(_ anchor: Anchor, _ h: CGFloat) -> CGRect {
             let restingFrame = CGRect(x: x, y: ceiling - h, width: width, height: h)
             let rect: CGRect = switch anchor {
@@ -348,13 +349,6 @@ enum RibbonPlacement {
 
         let anchor = context.establishedAnchor ?? choose()
         return Resolution(frame: frame(anchor, height), anchor: anchor)
-    }
-
-    /// Resize a lane the user has moved without taking its position back.
-    /// A floating lane grows down from the top edge, matching its ordinary
-    /// screen- and window-anchored layout.
-    static func resizedUserFrame(_ frame: CGRect, width: CGFloat, height: CGFloat) -> CGRect {
-        CGRect(x: frame.minX, y: frame.maxY - height, width: width, height: height)
     }
 
     /// The span the applied text occupies once a paste has landed, judged

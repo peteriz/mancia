@@ -123,11 +123,11 @@ wired to call `coordinator.start()`.
    user expects; a move that buys the whole point of the rule is not.
 
    Whichever edge faces the selection is the edge the lane **pins**, so it
-   grows away from the text and a review gate can never creep back over the
-   line it was invoked on. The room at the selection's ends is judged against
-   `projectedHeight`, the tallest ordinary state, not the height the lane
-   opens at: a 48pt row fits into gaps a ~195pt review gate does not. The
-   anchor is then **established for the session** and fed back through
+   grows away from the text. An end with room for `projectedHeight`, or a
+   margin the lane owns outright, stays clear as the review gate opens. The
+   cramped-end fallback is the deliberate exception: its opening row clears
+   the words, but screen clamping can move a grown gate back over the block's
+   far end. The anchor is **established for the session** and fed back through
    `Context.establishedAnchor`, so a lane that grew mid-run does not leap
    across the screen and leap back when the region closes. A bare caret is not
    a selection: with nothing selected the target is the whole document and

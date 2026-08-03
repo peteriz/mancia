@@ -1764,17 +1764,6 @@ func placementFallsBackToTheScreenWithNoHostWindow() {
             "with no host to hang from, the screen edge stands in — inset all the same")
 }
 
-@Test("A user-positioned lane keeps its top-left position while content grows")
-func placementResizesAroundTheUserPosition() {
-    let moved = CGRect(x: 275, y: 420, width: 700, height: 56)
-    let resized = RibbonPlacement.resizedUserFrame(moved, width: 700, height: 180)
-
-    #expect(resized.minX == moved.minX)
-    #expect(resized.maxY == moved.maxY)
-    #expect(resized.width == 700)
-    #expect(resized.height == 180)
-}
-
 // MARK: - Ribbon placement: sitting against the selection
 
 /// A selection on the first line of a window sitting flush under the menu bar.
@@ -1912,6 +1901,22 @@ func placementIgnoresAMarginTooNarrowToStandIn() {
 
     #expect(resolved.anchor == .belowSelection, "so it settles at the roomier end instead")
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
+@Test("Off-screen host area does not count as margin")
+func placementMeasuresMarginsInsideTheTargetDisplay() {
+    let host = CGRect(x: -400, y: 0, width: 1440, height: 900)
+    let selection = CGRect(x: 500, y: 150, width: 100, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true, selectionRect: selection))
+
+    #expect(
+        resolved.anchor == .belowSelection,
+        "the 400pt beyond the left edge must not make that flank appear wide enough")
+    #expect(!resolved.frame.intersects(selection), "screen clamping must not move the lane across the words")
 }
 
 @Test("A lane in the margin keeps its clearance as it grows")
