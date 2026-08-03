@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- About reported 0.1.0 while the shipped bundle was 0.2.2. The panel now reads
+  `CFBundleShortVersionString` from the bundle, so it follows the version the
+  release workflow writes instead of a Swift literal that had to be remembered.
+  `Support/Info.plist` is now the only place a version number lives, and tests
+  fail if its two version keys or the changelog's newest release drift apart.
+
+### Changed
+
+- The menu says "About Mancia" and "Quit Mancia", matching the spec and the
+  platform convention.
+
+### Added
+
+- `--about-check` opens the About panel, checks the version it reports, and
+  clicks its red close button on both a first open and a reopen — the title bar
+  a unit test cannot reach.
+
 ## [0.2.2] - 2026-08-03
 
 ### Changed

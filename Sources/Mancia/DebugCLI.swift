@@ -5,6 +5,7 @@ import Foundation
 enum DebugCLI {
     /// Handle a recognized debug flag. Returns true if it took over the process
     /// (and will `exit`); false to continue to normal app startup.
+    @MainActor
     static func handle(_ arguments: [String]) -> Bool {
         if arguments.contains("--provider-check") {
             run { await providerCheck() }
@@ -17,6 +18,10 @@ enum DebugCLI {
         if let index = arguments.firstIndex(of: "--complete") {
             let actionArg = index + 1 < arguments.count ? arguments[index + 1] : ""
             run { await complete(actionArg: actionArg) }
+            return true
+        }
+        if arguments.contains("--about-check") {
+            aboutCheck()
             return true
         }
         if let index = arguments.firstIndex(of: "--shoot") {
@@ -115,6 +120,78 @@ enum DebugCLI {
             printErr("Error: \(error.localizedDescription)")
             exit(1)
         }
+    }
+
+    /// Verify the About panel: that it reports the bundle's version rather than
+    /// a stale literal, and that its red close button actually dismisses it,
+    /// on a first open and on a reopen.
+    ///
+    /// This exists because the About panel is AppKit's, not ours, so a unit
+    /// test can't reach its title bar. Run it against the bundle
+    /// (`build/Mancia.app/Contents/MacOS/Mancia --about-check`) to check the
+    /// real version; under `swift run` there is no Info.plist and the version
+    /// reads as `dev`.
+    ///
+    /// Unlike the headless hooks this drives a real AppKit event loop, so it
+    /// runs under `NSApp.run()` rather than `run(_:)`: `dispatchMain()` parks
+    /// the main thread with `pthread_exit`, which traps once NSApplication is
+    /// alive on it.
+    @MainActor
+    private static func aboutCheck() {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        Task { @MainActor in await checkAboutPanel() }
+        app.run()
+    }
+
+    @MainActor
+    private static func checkAboutPanel() async {
+        let version = AppVersion.displayString
+        let source = AppVersion.short == AppVersion.unbundled
+            ? "no Info.plist — running unbundled" : "Info.plist"
+        print("version: \(version)  (source: \(source))")
+
+        var failures: [String] = []
+        // Twice: the first open builds a fresh panel, the second reuses the one
+        // AppKit cached, which is the path a lookalike test would not exercise.
+        for attempt in 1...2 {
+            AboutPanel.present()
+            await settle()
+
+            guard let panel = AboutPanel.currentPanel() else {
+                failures.append("open #\(attempt): no About panel appeared")
+                continue
+            }
+            guard let close = panel.standardWindowButton(.closeButton) else {
+                failures.append("open #\(attempt): panel has no close button")
+                continue
+            }
+            let live = close.isEnabled && !close.isHidden
+            print(
+                "open #\(attempt): visible=\(panel.isVisible) key=\(panel.isKeyWindow) closeButton=\(live ? "live" : "INERT")"
+            )
+            if !live { failures.append("open #\(attempt): close button is not clickable") }
+
+            close.performClick(nil)
+            await settle()
+            if panel.isVisible {
+                failures.append("open #\(attempt): close button did not dismiss the panel")
+            } else {
+                print("open #\(attempt): red close button dismissed the panel")
+            }
+        }
+
+        guard failures.isEmpty else {
+            for failure in failures { printErr("Error: \(failure)") }
+            exit(1)
+        }
+        print("About panel OK")
+        exit(0)
+    }
+
+    /// Give AppKit a beat to order, key, and close windows.
+    private static func settle() async {
+        try? await Task.sleep(nanoseconds: 400_000_000)
     }
 
     /// Redraw the README's hero image. Documentation upkeep rather than an app
