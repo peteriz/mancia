@@ -162,6 +162,16 @@ enum DebugCLI {
                 failures.append("open #\(attempt): no About panel appeared")
                 continue
             }
+            let displayedText = AboutPanel.displayedText(in: panel)
+            let displaysVersion = displayedText.contains { $0.contains(version) }
+            print(
+                "open #\(attempt): displayedVersion=\(displaysVersion ? version : "MISSING")"
+            )
+            if !displaysVersion {
+                failures.append(
+                    "open #\(attempt): panel text does not contain bundle version \(version)"
+                )
+            }
             guard let close = panel.standardWindowButton(.closeButton) else {
                 failures.append("open #\(attempt): panel has no close button")
                 continue

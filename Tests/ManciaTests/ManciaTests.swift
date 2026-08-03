@@ -2042,6 +2042,25 @@ func aboutPanelOptionsUseBundleVersion() {
     #expect(options[.applicationIcon] == nil, "a missing icon is omitted, not faked")
 }
 
+@Test("The About diagnostic reads visible nested panel text")
+@MainActor
+func aboutPanelDisplayedText() {
+    let root = NSView()
+    let container = NSView()
+    container.addSubview(NSTextField(labelWithString: "Version 9.9.9"))
+    container.addSubview(NSTextField(labelWithString: "Copyright"))
+    root.addSubview(container)
+
+    let hidden = NSTextField(labelWithString: "stale 0.1.0")
+    hidden.isHidden = true
+    root.addSubview(hidden)
+
+    let panel = NSPanel()
+    panel.contentView = root
+
+    #expect(AboutPanel.displayedText(in: panel) == ["Version 9.9.9", "Copyright"])
+}
+
 /// `Support/Info.plist` is the one place a version number lives. These guard
 /// the sync: the release workflow rewrites both plist keys from the git tag,
 /// and the release commit bumps the changelog to the same number.

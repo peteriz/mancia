@@ -53,4 +53,27 @@ enum AboutPanel {
                 && window.standardWindowButton(.closeButton) != nil
         }
     }
+
+    /// Visible text rendered by the panel, including text nested in stack views.
+    static func displayedText(in panel: NSWindow) -> [String] {
+        guard let contentView = panel.contentView else { return [] }
+
+        var text: [String] = []
+        collectDisplayedText(in: contentView, into: &text)
+        return text
+    }
+
+    private static func collectDisplayedText(in view: NSView, into text: inout [String]) {
+        guard !view.isHidden else { return }
+
+        if let textField = view as? NSTextField {
+            let value = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                text.append(value)
+            }
+        }
+        for subview in view.subviews {
+            collectDisplayedText(in: subview, into: &text)
+        }
+    }
 }
