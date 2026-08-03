@@ -53,12 +53,26 @@ struct EditSession: Equatable {
     }
 
     /// What the core needs the coordinator to go and find out.
+    /// What the session needs next. Each case either asks the coordinator to
+    /// go and find something out, or ends the resolution.
     enum Step: Equatable {
+        /// Which app is the user actually in? `capture` — and with it the pid
+        /// every synthetic keystroke is posted to — is frozen when the session
+        /// starts, so a session that never asked would pull the *original* app
+        /// forward and edit whatever was still selected in it, with nothing on
+        /// screen saying so.
         case probeFrontmost
+        /// Take a full capture in the app the user moved to.
         case captureNewTarget
+        /// ⌘C: has the user selected something since the session opened?
         case probeFreshSelection
+        /// ⌘A + ⌘C: read the whole document, so manual edits made between
+        /// cycles are respected.
         case captureDocument
+        /// Resolved: send this text and put the result back this way.
         case run(Run)
+        /// Nothing to send — there is no evidence about what the user wants
+        /// edited, so the cycle does nothing rather than guess.
         case abort
     }
 

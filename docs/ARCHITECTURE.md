@@ -19,8 +19,10 @@ Sources/Mancia/
 ├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
 │                                 ⌘Z undo helper, AX caret-rect lookup; keystrokes are
 │                                 posted to the target app's pid (CGEvent.postToPid)
-├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → ribbon →
+├── EditCoordinator.swift         Drives a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
+├── EditSession.swift             Pure decision core for a session — which text each cycle
+│                                 sends, how the result goes back, and the version history
 ├── DebugCLI.swift                --provider-check / --complete / --about-check /
 │                                 --ribbon-click-check headless and UI entry points
 ├── AboutPanel.swift              The standard About panel's options, icon, and presentation
@@ -183,7 +185,14 @@ wired to call `coordinator.start()`.
    (`PanelModel.runPreset(_:)`, which passes the typed text along as a guidance
    note rather than as the instruction).
    `EditCoordinator.perform(_:note:)` resolves this cycle's input and apply
-   strategy (`resolveInput()`):
+   strategy. The rules are `EditSession`'s — a pure, AppKit-free step machine
+   that the coordinator drives, asking for one observation at a time (probe
+   the frontmost app, capture a new target, probe for a fresh selection,
+   capture the document) until it answers with a run or an abort. Ahead of
+   both scope branches it checks whether the user has moved to a different
+   app, since neither branch can tell that the session's target went stale
+   underneath it; only a live selection in the new app re-targets, and doing
+   so resets the baseline. The two scope branches:
    - `.document` scope: when the session originally found no selection, first
      probes with a fresh `⌘C`; a new non-empty live selection switches the
      session to `.selection` scope, unless it matches the currently shown
