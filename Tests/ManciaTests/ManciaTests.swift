@@ -687,15 +687,28 @@ func tieredUnknownCategoryFallsBackToBalanced() {
     #expect(Set(tiers[0].models.map(\.id)) == ["mystery", "weird"])
 }
 
-@Test("tiered sorts within a tier by price then by name")
-func tieredSortsByPriceThenName() {
+@Test("tiered sorts provider families A-Z and models newest-first within each family")
+func tieredSortsByProviderThenNewestModel() {
     let models = [
-        CopilotModel(id: "z-high", name: "Z High", modelPickerCategory: "powerful", modelPickerPriceCategory: "high"),
-        CopilotModel(id: "a-medium", name: "A Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
-        CopilotModel(id: "b-medium", name: "B Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
+        CopilotModel(id: "gpt-5.4", name: "GPT-5.4", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0),
+        CopilotModel(id: "grok-3", name: "Grok 3", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 1),
+        CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 10),
+        CopilotModel(id: "gemini-3.1", name: "Gemini 3.1", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0.5),
+        CopilotModel(id: "gpt-5.6", name: "GPT-5.6", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 12),
+        CopilotModel(id: "nova-2", name: "Nova 2", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 2),
+        CopilotModel(id: "gemini-3.6", name: "Gemini 3.6", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 8),
+        CopilotModel(id: "claude-opus-5", name: "Claude Opus 5", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 1),
+        CopilotModel(id: "gpt-5.5", name: "GPT-5.5", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 3),
+        CopilotModel(id: "grok-4", name: "Grok 4", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0.25),
     ]
     let tiers = CopilotModelCatalog.tiered(models)
-    #expect(tiers[0].models.map(\.id) == ["a-medium", "b-medium", "z-high"])
+    #expect(tiers[0].models.map(\.id) == [
+        "claude-opus-5", "claude-opus-4.8",
+        "gemini-3.6", "gemini-3.1",
+        "gpt-5.6", "gpt-5.5", "gpt-5.4",
+        "grok-4", "grok-3",
+        "nova-2",
+    ])
 }
 
 @Test("tiered omits empty tiers entirely")

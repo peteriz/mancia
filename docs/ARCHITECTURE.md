@@ -273,17 +273,20 @@ To add a new provider:
    its price class. Check what the picker will show with
    `swift run Mancia --list-models`.
 
-   **Keep the catalog free of hardcoded model ids.** Everything the picker
-   does — tiering, ordering, and the first-run recommendation
-   (`recommendedFastModel`) — is derived from what the backend advertises:
-   the latency class, the price class, and the premium-request multiplier
-   (`_meta.copilotUsage`, live only). A model released tomorrow is tiered,
-   ranked, and can become the recommended default with no code change, and a
-   retired one disappears on its own. Named-id lists rot silently as models
-   come and go, so add signals rather than special cases. Unknown enum values
-   (a new latency class, price class, or reasoning-effort level) must degrade
-   to a sensible default instead of dropping the model. The reasoning-effort
-   picker
+   **Keep the catalog free of hardcoded model ids.** Tiering and the first-run
+   recommendation (`recommendedFastModel`) are derived from what the backend
+   advertises: the latency class, the price class, and the premium-request
+   multiplier (`_meta.copilotUsage`, live only). Within each tier, picker rows
+   group by the model name's leading provider-family prefix, providers sort
+   A-Z, and each provider's models sort newest/highest first by natural name.
+   Copilot exposes no provider field, so an unknown prefix simply forms its own
+   group rather than requiring an allowlist. A model released tomorrow is
+   tiered, ordered, and can become the recommended default with no code change,
+   and a retired one disappears on its own. Named-id lists rot silently as
+   models come and go, so add signals rather than special cases. Unknown enum
+   values (a new latency class, price class, or reasoning-effort level) must
+   degrade to a sensible default instead of dropping the model. The
+   reasoning-effort picker
    narrows to the selected model's `supportedReasoningEfforts` and is passed
    to the CLI as `--reasoning-effort`.
 3. Add a real provider-selection path in `AppSettings` and `SettingsView`
