@@ -104,14 +104,15 @@ wired to call `coordinator.start()`.
 
    When the host reports where the selected text is, the lane **sits just
    under the selection** — or just over it, when the selection is too near the
-   foot of the host to fit beneath. That is the ordinary case, and it is the
+   foot of the display to fit beneath. That is the ordinary case, and it is the
    point of the rule: the command the user is composing sits next to the words
    it will rewrite. When the block is too tall for either end — a paragraph, a
    long quote — the lane **stands in the margin beside it**, on the roomier
    flank, as wide as that margin can hold. A tall selection is usually a
    narrow one, so the margin is nearly always there, and a lane standing in it
    covers no text at all. When there is no selection rectangle — a bare caret,
-   or a host that cannot answer — the lane takes a predictable place instead:
+   so the whole document is the target, or a host that cannot answer — the lane
+   takes a predictable place instead:
    - **screen-anchored** — flush under the menu bar, when the menu bar is
      reserving a strip at the top of the screen;
    - **host-anchored** — under the frontmost window's title bar, when it is
@@ -139,17 +140,23 @@ wired to call `coordinator.start()`.
    a selection: with nothing selected the target is the whole document and
    there is no line to sit against.
 
-   Vertical position follows the selection; horizontal follows its host window
-   at the end anchors rather than chasing the caret. Margin anchors use the
-   only flank the text does not already occupy; the resting screen anchor stays
-   predictably screen-centered. The lane's **width is imposed by placement**
-   (the host window's width at a selection end, the screen's width at rest, or
-   the margin's width beside a tall block, each clamped to its limits) and only
-   its **height comes from content**, so the view is measured at the resolved
-   width before the frame is set. `HostWindowProbe` supplies the host window's
-   frame and full-screen state through Accessibility; every failure path
-   returns `nil` and placement degrades to the screen rather than failing the
-   session.
+   Vertical *and* horizontal position follow the selection: the lane is
+   centered on the selected span and as wide as it, clamped between
+   `minimumWidth` and `maximumWidth`, and the room at its ends and flanks is
+   measured against the **display's band**, never the host window. The lane
+   floats over its host rather than inside it, so a window much wider than the
+   sentence is no reason to put the lane half a screen from it, and a window
+   shorter than the room below the words is no reason to send the lane over
+   them. Margin anchors use the only flank the text does not already occupy,
+   sized to that margin; the resting anchors are the one place the host window
+   still has a say, and they stay predictably centered on it. The lane's
+   **width is imposed by placement** (the selection's width at an end anchor,
+   the margin's width beside a tall block, the window's or screen's at rest,
+   each clamped to its limits) and only its **height comes from content**, so
+   the view is measured at the resolved width before the frame is set.
+   `HostWindowProbe` supplies the host window's frame and full-screen state
+   through Accessibility; every failure path returns `nil` and placement
+   degrades to the screen rather than failing the session.
 
    The lane is a cyclical **edit session**. Target, Action, Direction and Run
    sit on a **single row**, dimmed and disabled while a request runs. Each

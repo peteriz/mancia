@@ -114,12 +114,13 @@ Mancia/
    - If changed → captured selection string. If not → no selection.
    - Restore the snapshot to the pasteboard afterward.
 3. **The ribbon opens against the selection**, resolved by
-   `RibbonPlacement`: just under the selected text, or just over it when the
-   selection sits too near the foot of the host to fit beneath. With no
-   selection rectangle to work from — a bare caret, a host that cannot report
-   bounds, or a selection with nowhere beside it — it falls back to one
-   predictable place: flush under the menu bar when the menu bar reserves a
-   strip, otherwise under the frontmost window's title bar. It is a
+   `RibbonPlacement`: centered on the selected span and as wide as it, just
+   under the selected text, or just over it when the selection sits too near
+   the foot of the display to fit beneath. The window around the text does not
+   move it. With no selection rectangle to work from — a bare caret, a host
+   that cannot report bounds, or a selection with nowhere beside it — it falls
+   back to one predictable place: flush under the menu bar when the menu bar
+   reserves a strip, otherwise under the frontmost window's title bar. It is a
    `KeyablePanel` with `.nonactivatingPanel` style and floating level, so the
    target app keeps focus until the user interacts. Esc closes it.
 4. Ribbon UI (SwiftUI, a single lane whose width comes from placement and
