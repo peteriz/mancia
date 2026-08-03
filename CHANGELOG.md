@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-03
+
+### Changed
+
+- The ribbon stays with the text it is editing. A result longer than what it
+  replaced no longer ends up underneath the lane: the placement re-resolves
+  when the lane would cover the new span, and holds still when it would not,
+  so a move only happens when it buys visibility.
+- A selection made mid-session moves the lane with it, re-probing the host
+  window so a selection in another window — or another app on another
+  display — is answered beside the right text on the right screen.
+- The default "flash and close" beat now also requires the lane to still hold
+  key, so clicking back into the host app to select the next passage keeps the
+  session open instead of closing it mid-iteration.
+
 ## [0.2.1] - 2026-08-02
 
 ### Changed
@@ -85,7 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.2...HEAD
+[0.2.2]: https://github.com/peteriz/mancia/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/peteriz/mancia/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/peteriz/mancia/compare/0.1.1...0.2.0
 [0.1.1]: https://github.com/peteriz/mancia/compare/0.1.0...0.1.1
