@@ -12,15 +12,18 @@ import SwiftUI
 /// Measured against the lane fill `#211C16`: `text` 14.38:1, `caption` 5.65:1,
 /// `applied` 7.83:1, `error` 7.27:1, `action` 5.97:1, and `onAction` on
 /// `action` 6.34:1. Against the lifted `control` fill `#2A241C`, which the
-/// menus and the Direction field sit on: `text` 13.06:1 and `caption` — the
-/// register the field's placeholder is drawn in — 5.13:1.
+/// Target menu, action buttons, and Direction field sit on: `text` 13.06:1 and
+/// `caption` — the register the field's placeholder is drawn in — 5.13:1.
 enum RibbonPalette {
     static let lane = Color(hex: 0x211C16)
     static let laneEdge = Color(hex: 0x352E24)
-    /// The one surface lifted off the lane: the two menus and the Direction
-    /// field. It is what tells a control apart from the lane now that the
+    /// The one surface lifted off the lane: the Target menu, action buttons,
+    /// and Direction field. It tells a control apart from the lane now that the
     /// captions naming them are gone.
     static let control = Color(hex: 0x2A241C)
+    /// Selected action-button fill: lifted enough to scan as state without
+    /// competing with the vermilion Run control.
+    static let controlSelected = Color(hex: 0x40352A)
     static let text = Color(hex: 0xF3ECDE)
     static let caption = Color(hex: 0x9E9483)
     static let action = Color(hex: 0xFF6A4D)

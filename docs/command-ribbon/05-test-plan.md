@@ -145,8 +145,8 @@ The point of these is that the ribbon changed presentation only.
 | E6 ▲ | Review gate → `Replace ↵` | Document replaced; version count 2 |
 | E7 | Review gate → `Keep editing` | Nothing applied; lane returns to a resting state |
 | E8 | Review gate → `Show result` | Full result visible, scrollable; buttons do not move |
-| E9 ▲ | Apply, then ← / → | Versions navigate; document matches the counter |
-| E10 | Cancel mid-run | Run stops; session stays open; document untouched |
+| E9 ▲ | Apply twice, then ⌘Z repeatedly | Each press restores the previous applied version, then the original |
+| E10 | Hover the primary action mid-run, then click Cancel | Run stops; session stays open; document untouched; button width is unchanged |
 | E11 | Esc at every phase | Session closes; document left as shown |
 | E12 ▲ | Clipboard has content → run an edit → check clipboard | Unchanged. The snapshot/restore contract must survive |
 | E13 | Sign the provider out, run an edit | Error strip with Details / Copy / Retry; selection untouched |

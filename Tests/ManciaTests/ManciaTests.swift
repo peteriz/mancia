@@ -1048,11 +1048,11 @@ func panelKeyCommandsResolve() {
         (",", .command, .openSettings),
         ("\r", .command, .submit),
         ("t", .command, .toggleTarget),
-        ("1", .command, .selectPreset(0)),
-        ("2", .command, .selectPreset(1)),
-        ("3", .command, .selectPreset(2)),
-        ("4", .command, .selectPreset(3)),
-        ("0", .command, .clearPreset),
+        ("1", .command, .activateAction(0)),
+        ("2", .command, .activateAction(1)),
+        ("3", .command, .activateAction(2)),
+        ("4", .command, .activateAction(3)),
+        ("5", .command, .activateAction(4)),
     ]
     for c in cases {
         #expect(
@@ -1073,7 +1073,8 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
     #expect(PanelKeyCommand.resolve(characters: "1", modifiers: []) == nil)
-    #expect(PanelKeyCommand.resolve(characters: "5", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "0", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "6", modifiers: .command) == nil)
 }
 
 @Test("Tab and shift-Tab resolve to focus moves")
@@ -1105,19 +1106,28 @@ func panelKeyCommandsResolvePrimaryReturn() {
 func ribbonFocusCycles() {
     let model = PanelModel()
     model.reset(hasSelection: true, charCount: 12)
+    #expect(model.focusedCell == .run)
+    #expect(model.focusableCells == [
+        .target, .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+    ])
+
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .target)
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action(0))
+    model.moveFocus(.next)
+    #expect(model.focusedCell == .action(1))
+
+    model.moveFocus(.previous)
+    #expect(model.focusedCell == .action(0))
+
+    model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
-
+    #expect(model.focusableCells == [
+        .target, .action(4), .direction, .action(0), .action(1), .action(2), .action(3), .run,
+    ])
     model.moveFocus(.next)
-    #expect(model.focusedCell == .run)
-    model.moveFocus(.next)
-    #expect(model.focusedCell == .target)
-    model.moveFocus(.next)
-    #expect(model.focusedCell == .action)
-
-    model.moveFocus(.previous)
-    #expect(model.focusedCell == .target)
-    model.moveFocus(.previous)
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .action(0))
 }
 
 @MainActor
@@ -1125,17 +1135,24 @@ func ribbonFocusCycles() {
 func ribbonFocusSkipsStaticTarget() {
     let model = PanelModel()
     model.reset(hasSelection: false, charCount: 0)
-    #expect(model.focusableCells == [.action, .direction, .run])
+    #expect(model.focusableCells == [
+        .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+    ])
 
     model.moveFocus(.next)
-    #expect(model.focusedCell == .run)
-    model.moveFocus(.next)
-    #expect(model.focusedCell == .action)
+    #expect(model.focusedCell == .action(0))
 
     // Capturing hides the menu the same way, so the cell drops out too.
     model.reset(hasSelection: true, charCount: 8)
     model.capturing = true
-    #expect(model.focusableCells == [.action, .direction, .run])
+    #expect(model.focusableCells == [
+        .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+    ])
+
+    model.selectCustomInstruction()
+    #expect(model.focusableCells == [
+        .action(4), .direction, .action(0), .action(1), .action(2), .action(3), .run,
+    ])
 }
 
 @MainActor
@@ -1155,70 +1172,87 @@ func ribbonTargetShortcutsSetScope() {
 }
 
 @MainActor
-@Test("Command-1 through Command-4 pin the matching preset")
-func ribbonPresetShortcutsPin() {
+@Test("Command-1 through Command-4 immediately run all four built-ins")
+func ribbonKeyboardActionsRunImmediately() {
     let model = PanelModel()
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
     model.reset(hasSelection: true, charCount: 40)
-    #expect(model.pinnedPreset == nil, "a fresh session derives its action from the field")
 
-    for (index, preset) in PanelPreset.all.enumerated() {
-        model.selectPreset(at: index)
-        #expect(model.pinnedPreset == preset)
+    for (index, preset) in PanelPreset.keyboardActions.enumerated() {
+        let before = calls.count
+        model.activateAction(at: index)
+        #expect(calls.count == before + 1, "one shortcut should dispatch exactly once")
+        #expect(calls.last?.0 == preset.action)
+        #expect(calls.last?.1 == nil)
+        #expect(model.actionChoice == .preset(preset))
         #expect(model.resolvedActionTitle == preset.title)
+        #expect(model.focusedCell == .run)
     }
 }
 
 @MainActor
-@Test("A preset shortcut hands focus back to the Direction field")
-func ribbonPresetShortcutRefocusesTheField() {
+@Test("Command-5 discloses Custom without running it")
+func ribbonCustomShortcutDisclosesWithoutRunning() {
     let model = PanelModel()
+    var calls: [EditAction] = []
+    model.onPerform = { action, _ in calls.append(action) }
     model.reset(hasSelection: true, charCount: 40)
-    model.focusedCell = .run
     let before = model.focusSeq
 
-    model.selectPreset(at: 1)
-    #expect(model.focusedCell == .direction, "same hand-back the Action menu does")
+    model.activateAction(at: PanelModel.customActionIndex)
+
+    #expect(model.isCustomInstructionSelected)
+    #expect(model.resolvedActionTitle == "Custom")
+    #expect(model.focusedCell == .direction)
     #expect(model.focusSeq != before)
+    #expect(calls.isEmpty)
+    #expect(!model.canRunPrimary)
 }
 
 @MainActor
-@Test("An out-of-range preset shortcut does nothing")
-func ribbonPresetShortcutIgnoresOutOfRange() {
+@Test("An out-of-range keyboard action does nothing")
+func ribbonKeyboardActionIgnoresOutOfRange() {
     let model = PanelModel()
+    var calls: [EditAction] = []
+    model.onPerform = { action, _ in calls.append(action) }
     model.reset(hasSelection: true, charCount: 40)
-    model.selectPreset(at: 0)
-    let pinned = model.pinnedPreset
+    let choice = model.actionChoice
 
-    model.selectPreset(at: PanelPreset.all.count)
-    model.selectPreset(at: -1)
-    #expect(model.pinnedPreset == pinned, "a key past the catalog must not fire the last preset")
+    model.activateAction(at: PanelModel.actionIndices.count)
+    model.activateAction(at: -1)
+
+    #expect(model.actionChoice == choice)
+    #expect(calls.isEmpty)
 }
 
 @MainActor
 @Test("Shortcuts for disabled cells are inert while a request is in flight")
 func ribbonShortcutsRespectTheLock() {
     let model = PanelModel()
+    var calls: [EditAction] = []
+    model.onPerform = { action, _ in calls.append(action) }
     model.reset(hasSelection: true, charCount: 40)
     model.selectPreset(at: 0)
-    let pinned = model.pinnedPreset
+    let choice = model.actionChoice
 
     // The cells are greyed out and disabled in these phases, but the shortcuts
     // are resolved by the window, above the SwiftUI tree, so they never see it.
     for phase in [PanelModel.Phase.running, .confirm] {
         model.phase = phase
-        model.selectPreset(at: 1)
+        model.activateAction(at: 1)
         model.toggleScope()
-        model.clearPreset()
-        #expect(model.pinnedPreset == pinned, "\(phase) should not accept a preset change")
+        model.activateAction(at: PanelModel.customActionIndex)
+        #expect(model.actionChoice == choice, "\(phase) should not accept an action change")
         #expect(model.scope == .selection, "\(phase) should not accept a target change")
-        #expect(model.pinnedPreset != nil, "\(phase) should not accept an unpin")
+        #expect(calls.isEmpty, "\(phase) should not dispatch a keyboard action")
     }
 
     model.phase = .idle
-    model.selectPreset(at: 1)
-    #expect(model.pinnedPreset == PanelPreset.all[1], "and works again once the run lands")
-    model.clearPreset()
-    #expect(model.pinnedPreset == nil, "as does unpinning")
+    model.activateAction(at: 1)
+    #expect(calls == [PanelPreset.keyboardActions[1].action], "and works again once unlocked")
+    model.activateAction(at: PanelModel.customActionIndex)
+    #expect(model.isCustomInstructionSelected)
 }
 
 /// `hasSelection` is optimistically true while the capture is in flight, and
@@ -1240,34 +1274,37 @@ func ribbonTargetShortcutWaitsForCapture() {
 }
 
 @MainActor
-@Test("A fresh session asks the view to refocus the field")
-func ribbonResetRefocusesTheField() {
+@Test("A fresh session asks the view to refocus Run")
+func ribbonResetRefocusesRun() {
     let model = PanelModel()
-    model.focusedCell = .run
+    model.focusedCell = .direction
     let before = model.sessionSeq
 
     model.reset(hasSelection: true, charCount: 30)
 
-    #expect(model.focusedCell == .direction)
+    #expect(model.focusedCell == .run)
     #expect(
         model.sessionSeq == before &+ 1,
         "the lane's hosting view outlives a session, so the bump is what re-asserts focus")
 }
 
 @MainActor
-@Test("Choosing from a menu hands focus back to Direction")
-func ribbonMenuChoiceReturnsFocus() {
+@Test("Action choices focus their primary control")
+func ribbonActionChoiceReturnsPrimaryFocus() {
     let model = PanelModel()
     model.reset(hasSelection: true, charCount: 40)
-    model.focusedCell = .action
+    model.focusedCell = .action(0)
     let before = model.focusSeq
 
-    model.returnFocusToDirection()
+    model.selectCustomInstruction()
 
     #expect(model.focusedCell == .direction)
     #expect(
         model.focusSeq == before &+ 1,
         "the bump is what makes the view adopt focus even when the cell already matched")
+
+    model.selectPreset(at: 1)
+    #expect(model.focusedCell == .run)
 }
 
 @MainActor
@@ -1373,15 +1410,112 @@ func nonceAvoidsGuidanceCollision() {
     #expect(!"body".contains(nonce))
 }
 
-@Test("The field dropdown offers Improve plus the three agent presets, in menu order")
+@Test("The action strip exposes all four built-ins in shortcut order")
 func presetListShape() {
     #expect(PanelPreset.all == [.improve, .sharpen, .planFirst, .tighten])
+    #expect(PanelPreset.keyboardActions == [.improve, .sharpen, .planFirst, .tighten])
     #expect(PanelPreset.improve.action == .improve)
     #expect(PanelPreset.sharpen.action == .sharpen)
     #expect(PanelPreset.planFirst.action == .planFirst)
     #expect(PanelPreset.tighten.action == .tighten)
     #expect(PanelPreset.all.count == Set(PanelPreset.all.map(\.id)).count, "preset ids must be unique")
     #expect(PanelPreset.all.allSatisfy { !$0.action.isCustom }, "presets are named templates, never free-form")
+}
+
+@MainActor
+@Test("The five action buttons keep stable indices while Custom moves left")
+func actionButtonOrder() {
+    let model = PanelModel()
+
+    #expect(!model.prefersExpandedRibbon)
+    #expect(model.actionDisplayOrder == [0, 1, 2, 3, 4])
+    #expect(PanelModel.actionIndices.map { model.actionTitle(at: $0) } == [
+        "Improve", "Sharpen", "Plan first", "Tighten", "Custom",
+    ])
+    #expect(model.isActionSelected(at: 0))
+
+    model.selectCustomInstruction()
+
+    #expect(model.prefersExpandedRibbon)
+    #expect(model.actionDisplayOrder == [4, 0, 1, 2, 3])
+    #expect(model.isActionSelected(at: 4))
+    #expect(!model.isActionSelected(at: 0))
+}
+
+@MainActor
+@Test("Only Custom requests the expanded ribbon")
+func onlyCustomPrefersExpandedRibbon() {
+    let model = PanelModel()
+
+    for phase in [PanelModel.Phase.idle, .running, .confirm, .applied, .error] {
+        model.phase = phase
+        #expect(!model.prefersExpandedRibbon)
+    }
+
+    model.phase = .idle
+    model.selectCustomInstruction()
+    #expect(model.prefersExpandedRibbon)
+}
+
+@MainActor
+@Test("Every action exposes the matching Command-number hover label")
+func actionShortcutLabels() {
+    let model = PanelModel()
+
+    #expect(PanelModel.actionIndices.map { model.actionShortcut(at: $0) } == [
+        "⌘1", "⌘2", "⌘3", "⌘4", "⌘5",
+    ])
+    #expect(model.actionShortcut(at: -1) == nil)
+    #expect(model.actionShortcut(at: 5) == nil)
+}
+
+@MainActor
+@Test("The primary button names the selected action and offers Cancel while running")
+func primaryButtonActionLabels() {
+    let model = PanelModel()
+
+    #expect(model.runButtonTitle == "Improving")
+    #expect(model.runButtonHoverTitle == nil)
+
+    model.selectPreset(at: 1)
+    #expect(model.runButtonTitle == "Sharpening")
+
+    model.phase = .running
+    #expect(model.runButtonTitle == "Sharpening")
+    #expect(model.runButtonHoverTitle == "Cancel")
+
+    model.phase = .applied
+    #expect(model.runButtonTitle == "Sharpening")
+    #expect(model.runButtonHoverTitle == nil)
+
+    model.phase = .idle
+    model.selectCustomInstruction()
+    #expect(model.runButtonTitle == "Working")
+    #expect(model.runButtonHoverTitle == nil)
+}
+
+@MainActor
+@Test("Version undo is available only after an applied edit")
+func versionUndoAvailability() {
+    let model = PanelModel()
+    var calls = 0
+    model.onUndoVersion = {
+        calls += 1
+        return true
+    }
+
+    #expect(!model.undoLastVersion())
+    model.phase = .applied
+    #expect(!model.undoLastVersion())
+
+    model.versionCount = 2
+    model.currentIndex = 1
+    #expect(model.undoLastVersion())
+    #expect(calls == 1)
+
+    model.phase = .running
+    #expect(!model.undoLastVersion())
+    #expect(calls == 1)
 }
 
 @Test("Every preset renders a distinct title, symbol, and progress label")
@@ -1415,7 +1549,7 @@ func presetGuidanceIsBounded() {
 
 // MARK: - Panel routing
 
-@Test("The primary path runs Improve when empty and the typed instruction otherwise")
+@Test("The primary path runs the explicitly selected action")
 @MainActor
 func primaryPathRouting() {
     let model = PanelModel()
@@ -1426,121 +1560,120 @@ func primaryPathRouting() {
     #expect(calls.last?.0 == .improve)
     #expect(calls.last?.1 == nil)
 
+    // A hidden draft does not silently change Improve or ride along as guidance.
+    model.instruction = "  hidden draft  "
+    model.runPrimary()
+    #expect(calls.last?.0 == .improve)
+    #expect(calls.last?.1 == nil)
+
+    model.selectCustomInstruction()
     model.instruction = "  make it formal  "
     model.runPrimary()
     #expect(calls.last?.0 == .custom("make it formal"))
     #expect(calls.last?.1 == nil)
 }
 
-@Test("A preset runs its own action, carrying the field text as guidance")
+@Test("Blank Custom cannot run or fall back to Improve")
 @MainActor
-func presetRunCarriesFieldText() {
+func blankCustomIsInert() {
     let model = PanelModel()
-    var calls: [(EditAction, String?)] = []
-    model.onPerform = { calls.append(($0, $1)) }
+    var calls: [EditAction] = []
+    model.onPerform = { action, _ in calls.append(action) }
 
-    // Empty field: the preset runs alone.
-    model.runPreset(.improve)
-    #expect(calls.last?.0 == .improve)
-    #expect(calls.last?.1 == nil)
+    model.selectCustomInstruction()
+    #expect(!model.canRunPrimary)
+    model.runPrimary()
 
-    // Typed text becomes guidance for the preset, not a custom instruction.
-    model.instruction = "  keep the bullet list  "
-    model.runPreset(.improve)
-    #expect(calls.last?.0 == .improve)
-    #expect(calls.last?.1 == "keep the bullet list")
+    model.instruction = "  \n "
+    #expect(!model.canRunPrimary)
+    model.runPrimary()
+    #expect(calls.isEmpty)
 }
 
 // MARK: - Ribbon command row
 
-@Test("The Action cell names Improve until the user types, then names the instruction")
+@Test("The resolved action title follows explicit selection, not typing")
 @MainActor
-func resolvedActionTitleTracksTyping() {
+func resolvedActionTitleTracksSelection() {
     let model = PanelModel()
 
-    #expect(model.resolvedActionTitle == "Improve", "an empty Direction runs Improve, and must say so")
+    #expect(model.resolvedActionTitle == "Improve")
 
     model.instruction = "translate to French"
-    #expect(model.resolvedActionTitle == "Your instruction")
+    #expect(model.resolvedActionTitle == "Improve", "a hidden draft cannot change the action")
 
-    // Whitespace is not an instruction, and the cell must not claim it is.
-    model.instruction = "   \n "
-    #expect(model.resolvedActionTitle == "Improve")
+    model.selectCustomInstruction()
+    #expect(model.resolvedActionTitle == "Custom")
+
+    model.selectPreset(at: 2)
+    #expect(model.resolvedActionTitle == PanelPreset.all[2].title)
 }
 
 /// The Action chip lost its caption, so its glyph is now what identifies the
 /// cell. It has to track the same resolution the title does or the two halves
 /// of one control would disagree.
-@Test("The Action cell's glyph follows the same resolution as its title")
+@Test("The resolved action glyph follows the same selection as its title")
 @MainActor
-func resolvedActionSymbolTracksTheTitle() {
+func resolvedActionSymbolTracksSelection() {
     let model = PanelModel()
 
     #expect(model.resolvedActionSymbol == EditAction.improve.symbol)
 
-    model.instruction = "translate to French"
+    model.selectCustomInstruction()
     #expect(model.resolvedActionSymbol == EditAction.custom("").symbol)
 
-    model.pinnedPreset = .improve
-    #expect(
-        model.resolvedActionSymbol == EditAction.improve.symbol,
-        "a pin outranks the typed instruction, exactly as the title does")
+    model.selectPreset(at: 1)
+    #expect(model.resolvedActionSymbol == PanelPreset.all[1].action.symbol)
 }
 
-@Test("A pinned preset names itself in the Action cell whatever the Direction says")
+@Test("A selected preset ignores a preserved hidden custom draft")
 @MainActor
-func resolvedActionTitlePrefersThePin() {
+func selectedPresetIgnoresHiddenDraft() {
     let model = PanelModel()
-    model.pinnedPreset = .improve
-    #expect(model.resolvedActionTitle == "Improve")
+    var calls: [(EditAction, String?)] = []
+    model.onPerform = { calls.append(($0, $1)) }
 
+    model.selectCustomInstruction()
     model.instruction = "keep the bullet list"
-    #expect(
-        model.resolvedActionTitle == "Improve",
-        "a pin outranks typing — the typed text becomes guidance, not the action")
-}
-
-@Test("The primary path runs a pinned preset, with the Direction as guidance")
-@MainActor
-func primaryPathRunsThePinnedPreset() {
-    let model = PanelModel()
-    var calls: [(EditAction, String?)] = []
-    model.onPerform = { calls.append(($0, $1)) }
-
-    model.pinnedPreset = .improve
-    model.instruction = "  keep the bullet list  "
+    model.selectPreset(at: 1)
     model.runPrimary()
 
-    #expect(calls.last?.0 == .improve, "the pin selects the action, not the typed text")
-    #expect(calls.last?.1 == "keep the bullet list", "the typed text rides along as guidance")
-}
-
-@Test("Unpinning hands the action back to the Direction field")
-@MainActor
-func unpinningRestoresInstructionRouting() {
-    let model = PanelModel()
-    var calls: [(EditAction, String?)] = []
-    model.onPerform = { calls.append(($0, $1)) }
-
-    model.pinnedPreset = .improve
-    model.pinnedPreset = nil
-    model.instruction = "make it formal"
-    model.runPrimary()
-
-    #expect(calls.last?.0 == .custom("make it formal"))
+    #expect(calls.last?.0 == PanelPreset.all[1].action)
     #expect(calls.last?.1 == nil)
+    #expect(model.instruction == "keep the bullet list", "the draft is preserved for switching back")
+
+    model.selectCustomInstruction()
+    #expect(model.hasCustomInstruction)
 }
 
-@Test("A new session drops the pin, so a preset cannot leak into the next edit")
+@Test("Restoring the default action clears and hides Custom")
 @MainActor
-func resetClearsThePin() {
+func restoreDefaultActionClearsCustom() {
     let model = PanelModel()
-    model.pinnedPreset = .improve
+    model.selectCustomInstruction()
+    model.instruction = "make it formal"
+
+    model.restoreDefaultAction()
+
+    #expect(model.actionChoice == .preset(.improve))
+    #expect(model.instruction.isEmpty)
+    #expect(!model.isCustomInstructionSelected)
+    #expect(model.focusedCell == .run)
+}
+
+@Test("A new session restores the buttons-only Improve default")
+@MainActor
+func resetRestoresDefaultAction() {
+    let model = PanelModel()
+    model.selectCustomInstruction()
+    model.instruction = "make it formal"
 
     model.reset(hasSelection: true, charCount: 12)
 
-    #expect(model.pinnedPreset == nil)
+    #expect(model.actionChoice == .preset(.improve))
     #expect(model.resolvedActionTitle == "Improve")
+    #expect(!model.isCustomInstructionSelected)
+    #expect(model.focusedCell == .run)
 }
 
 // MARK: - Ribbon placement
@@ -1549,6 +1682,43 @@ func resetClearsThePin() {
 /// top and a 60pt Dock at the bottom — the ordinary windowed case.
 private let ribbonScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
 private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
+
+@Test("Placement honors standard and expanded preferred widths")
+func placementHonorsPreferredWidth() {
+    #expect(RibbonPlacement.standardWidth == 600)
+    let standard = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            preferredWidth: RibbonPlacement.standardWidth))
+    let expanded = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            preferredWidth: RibbonPlacement.maximumWidth))
+
+    #expect(standard.frame.width == RibbonPlacement.standardWidth)
+    #expect(expanded.frame.width == RibbonPlacement.maximumWidth)
+    #expect(standard.frame.midX == expanded.frame.midX)
+    #expect(standard.anchor == expanded.anchor)
+}
+
+@Test("Preferred width stays inside placement's safe bounds")
+func placementClampsPreferredWidth() {
+    let belowMinimum = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            preferredWidth: 200))
+    let aboveMaximum = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            preferredWidth: 2_000))
+
+    #expect(belowMinimum.frame.width == RibbonPlacement.minimumWidth)
+    #expect(aboveMaximum.frame.width == RibbonPlacement.maximumWidth)
+}
 
 @Test("A reserved menu-bar strip anchors the lane flush under the menu bar")
 func placementAnchorsUnderTheMenuBar() {

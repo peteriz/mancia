@@ -77,9 +77,8 @@ enum RibbonPlacement {
         var selectionRect: CGRect?
         /// The anchor the lane settled on when it opened, once it has opened.
         ///
-        /// Placement is decided once and then held. The lane grows and shrinks
-        /// while a request runs — a status word, a review gate, an expanded
-        /// error — and each of those re-resolves the frame. Re-deciding the
+        /// Placement is decided once and then held. The lane can grow vertically
+        /// for a review gate or expanded error, and each re-resolves the frame. Re-deciding the
         /// anchor every time would let a lane leap across the screen mid-run
         /// and leap back when the region closed. Feeding the established
         /// anchor back in pins the decision to the geometry that was true at
@@ -89,6 +88,10 @@ enum RibbonPlacement {
         /// mid-session selection moves the work somewhere else, and when a
         /// landed paste leaves the lane covering the text it just wrote.
         var establishedAnchor: Anchor?
+        /// Content's requested width before host/screen safety clamping. The
+        /// button strip asks for the stable standard width; Custom asks for the
+        /// expanded maximum.
+        var preferredWidth: CGFloat
 
         init(
             screenFrame: CGRect,
@@ -97,7 +100,8 @@ enum RibbonPlacement {
             safeAreaTop: CGFloat = 0,
             menuBarHidden: Bool = false,
             selectionRect: CGRect? = nil,
-            establishedAnchor: Anchor? = nil
+            establishedAnchor: Anchor? = nil,
+            preferredWidth: CGFloat = RibbonPlacement.maximumWidth
         ) {
             self.screenFrame = screenFrame
             self.visibleFrame = visibleFrame
@@ -106,6 +110,7 @@ enum RibbonPlacement {
             self.menuBarHidden = menuBarHidden
             self.selectionRect = selectionRect
             self.establishedAnchor = establishedAnchor
+            self.preferredWidth = preferredWidth
         }
     }
 
@@ -142,10 +147,13 @@ enum RibbonPlacement {
     static let revealClearance: CGFloat = 28
 
     /// Never let the lane get narrower than this; below it the row's controls
-    /// cannot hold their labels. Measured rather than guessed: at rest the two
-    /// menus, the field at its minimum and Run come to a little over 500pt, and
-    /// a running lane adds a Cancel and a status word on top of that.
+    /// cannot hold their labels.
     static let minimumWidth: CGFloat = 600
+
+    /// The fixed width for every buttons-only state. The selected action and
+    /// in-flight Cancel affordance share one fixed-width primary button, so no
+    /// phase needs spare horizontal room or resizes the panel.
+    static let standardWidth: CGFloat = 600
 
     /// …and never let it get wider than this. On a 5K or ultrawide display a
     /// full-width lane is thousands of points of mostly empty ink with `Run` a
@@ -166,8 +174,8 @@ enum RibbonPlacement {
     /// The height every fit decision is taken against, whatever the lane
     /// currently measures.
     ///
-    /// The lane opens as a single command row and grows later — a status word
-    /// costs it nothing, but a review gate takes it to about 195pt, measured.
+    /// The lane opens as a single command row and grows later — phase labels
+    /// stay inside that row, but a review gate takes it to about 195pt, measured.
     /// Placement is decided at open, on a lane barely 50pt tall, and then held
     /// for the session. Judging the room beside the selection on that opening
     /// height would let the lane claim a gap it cannot actually fit into, and
@@ -193,7 +201,8 @@ enum RibbonPlacement {
 
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
-        let width = max(minimumWidth, min(host.width, maximumWidth))
+        let requestedWidth = min(context.preferredWidth, maximumWidth)
+        let width = max(minimumWidth, min(host.width, requestedWidth))
         let x = host.minX + (host.width - width) / 2   // centered on the host
 
         // The band the lane is allowed to occupy.

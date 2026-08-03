@@ -36,8 +36,8 @@ final class RibbonWindow {
     private var presentationSeq = 0
 
     /// Invoked on any key press routed to the lane. Returns whether the event
-    /// was consumed (used to cancel the post-apply auto-close and to drive
-    /// keyboard version navigation without the field swallowing the arrows).
+    /// was consumed (used to cancel the post-apply auto-close and handle the
+    /// lane's non-key-equivalent controls).
     var onKeyDown: ((NSEvent) -> Bool)?
     /// Invoked by ⌘, — the app has no menu bar to own this shortcut.
     var onOpenSettings: (() -> Void)?
@@ -127,16 +127,26 @@ final class RibbonWindow {
     /// whatever it is sitting against rather than moving across it.
     func reposition(animated: Bool = true) {
         guard let panel, panel.isVisible else { return }
+        let previousWidth = panel.frame.width
         let resolution = resolveFrame()
         guard resolution.frame != panel.frame else { return }
+        let widthChanged = abs(resolution.frame.width - previousWidth) > 0.5
         if animated, !reduceMotion {
-            NSAnimationContext.runAnimationGroup { context in
+            NSAnimationContext.runAnimationGroup({ context in
                 context.duration = Motion.resize
                 context.timingFunction = Motion.curve
                 panel.animator().setFrame(resolution.frame, display: true)
-            }
+            }, completionHandler: { [weak self] in
+                Task { @MainActor in
+                    guard widthChanged else { return }
+                    self?.model.returnFocusToPrimaryControl()
+                }
+            })
         } else {
             panel.setFrame(resolution.frame, display: true)
+            if widthChanged {
+                model.returnFocusToPrimaryControl()
+            }
         }
         panel.invalidateShadow()
     }
@@ -281,7 +291,10 @@ final class RibbonWindow {
             safeAreaTop: screen.safeAreaInsets.top,
             menuBarHidden: menuBarHidden,
             selectionRect: selectionRect,
-            establishedAnchor: currentAnchor
+            establishedAnchor: currentAnchor,
+            preferredWidth: model.prefersExpandedRibbon
+                ? RibbonPlacement.maximumWidth
+                : RibbonPlacement.standardWidth
         )
     }
 
@@ -354,7 +367,7 @@ final class RibbonWindow {
 
     private func makePanel() -> KeyablePanel {
         let hosting = NSHostingView(
-            rootView: content(width: RibbonPlacement.minimumWidth, anchor: .screen))
+            rootView: content(width: RibbonPlacement.standardWidth, anchor: .screen))
         // The lane *is* the window: no title bar strip to sit below, and no
         // 28pt of transparent window above the ink. Without this the titled
         // panel's safe area pushes the content down and the lane stops
@@ -422,7 +435,8 @@ final class RibbonWindow {
             if PanelKeyCommand.isPrimaryReturn(
                 keyCode: event.keyCode, modifiers: event.modifierFlags),
                 model.focusedCell != .direction,
-                model.phase != .running, model.phase != .confirm
+                model.phase != .running, model.phase != .confirm,
+                model.canRunPrimary
             {
                 model.runPrimary()
                 return true
@@ -430,14 +444,14 @@ final class RibbonWindow {
             return false
         }
         panel.onToggleTarget = { [weak self] in self?.model.toggleScope() }
-        panel.onSelectPreset = { [weak self] index in self?.model.selectPreset(at: index) }
-        panel.onClearPreset = { [weak self] in self?.model.clearPreset() }
+        panel.onActivateAction = { [weak self] index in self?.model.activateAction(at: index) }
+        panel.onUndoVersion = { [weak self] in self?.model.undoLastVersion() ?? false }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }
             // Mirror the Return key: inert while a request runs or a
             // whole-document replacement awaits confirmation.
-            guard model.phase != .running, model.phase != .confirm else { return }
+            guard model.phase != .running, model.phase != .confirm, model.canRunPrimary else { return }
             model.runPrimary()
         }
         return panel

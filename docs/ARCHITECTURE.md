@@ -39,8 +39,8 @@ Sources/Mancia/
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
-│   ├── RibbonView.swift          The lane: one row of Target / Action / Direction / Run,
-│   │                             with status and iteration beside Run and an error row
+│   ├── RibbonView.swift          The lane: Target / five Actions / Run, moving Custom
+│   │                             left and disclosing Direction when selected
 │   ├── RibbonReviewView.swift    The whole-document review gate
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
 │   └── RibbonPalette.swift       The lane's dark-register color tokens
@@ -124,20 +124,23 @@ wired to call `coordinator.start()`.
    there is no line to sit against.
 
    Vertical position follows the selection; horizontal does not. The lane's
-   **width is imposed by placement** (the host's width, clamped to a maximum
-   and centered) and only its **height comes from content**, so the view is
+   **width is imposed by placement** (700pt throughout every buttons-only phase
+   or up to 900pt for Custom, host-clamped and centered) and only its **height
+   comes from content**, so the view is
    measured at the resolved width before the frame is set. `HostWindowProbe`
    supplies the host window's frame and full-screen state through
    Accessibility; every failure path returns `nil` and placement degrades to
    the screen rather than failing the session.
 
-   The lane is a cyclical **edit session**. Target, Action, Direction and Run
-   sit on a **single row**, dimmed and disabled while a request runs. Each
-   control names itself — an icon and a value in a chip, a prompt inside the
-   field — rather than carrying a caption above it, which is what lets the row
-   be one line rather than two. Live status is a dot and one word **beside
-   Run**, and iteration history a counter beside that, both riding in width
-   the Direction field gives up by capping at a comfortable measure. Only a
+   The lane is a cyclical **edit session**. Target, five tight Action buttons and
+   Run sit on a **single row**, dimmed and disabled while a request runs.
+   Selecting Custom moves it to the leading edge, inserts Direction after it,
+   and expands the whole lane horizontally. Hovering an action replaces its
+   title with its ⌘1…⌘5 shortcut without changing the button's size. Each
+   control names itself rather than carrying a caption above it. Running and
+   applied status replace the text **inside Run**, while iteration history stays
+   beside it. When disclosed, Direction
+   takes the row's slack up to a comfortable measure. Only a
    failure still earns a **row of its own**, because it carries a message plus
    Details, Copy and Retry. `PanelModel.phase` cycles
    `.idle → .running → .confirm → .applied/.error` and back until the user
@@ -151,19 +154,22 @@ wired to call `coordinator.start()`.
    Tab, ⇧Tab and the focus **ring both read `PanelModel.focusedCell`**, not the
    view's `@FocusState`. Tab arrives at the window rather than at a view, and
    SwiftUI grants `@FocusState` to the Direction field but refuses it to the
-   three `.focusable()` cells, so the model is the only place that knows which
-   stop the keyboard is on.
+   live `.focusable()` cells, so the model is the only place that knows which
+   stop the keyboard is on. Every action button is a stop; Direction joins the
+   ring immediately after Custom only while the field is disclosed.
 
-   ⌘1…⌘4 pin the nth entry of `PanelPreset.all` and ⌘T swaps the target, both
-   resolved by `PanelKeyCommand` and dispatched through `KeyablePanel`. Because
+   ⌘1…⌘4 immediately run Improve, Sharpen, Plan first, and Tighten; ⌘5 moves
+   Custom left, discloses its field, and focuses it without running. ⌘T swaps the target. These
+   commands are resolved by `PanelKeyCommand` and dispatched through
+   `KeyablePanel`. Because
    that happens above the SwiftUI tree, the `disabled` that greys the cells out
    while a request runs is invisible to them — `PanelModel.isLocked` is what
    actually holds them off, and the mutating entry points check it themselves.
 4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
-   Return or the Run control, giving `.improve` on an empty Direction field
-   and `.custom(text)` on a typed one) or picks a preset from the Action cell
-   (`PanelModel.runPreset(_:)`, which passes the typed text along as a guidance
-   note rather than as the instruction).
+   Return or Run executes the explicitly selected preset, or `.custom(text)`
+   when Custom is selected and non-empty). ⌘1…⌘4 dispatch their built-in actions
+   directly. Hidden custom draft text never rides along with
+   a preset.
    `EditCoordinator.perform(_:note:)` resolves this cycle's input and apply
    strategy (`resolveInput()`):
    - `.document` scope: when the session originally found no selection, first
@@ -204,15 +210,14 @@ wired to call `coordinator.start()`.
    the lane still on screen. The coordinator records the iteration
    (`versions`: index 0 is the session original, one entry per applied
    result; running a new action from an earlier version truncates the
-   forward history) and the applied strip shows `←` / `→` navigation with a
-   "2/3"-style counter.
-   - Navigation (`EditCoordinator.navigate(to:)`) rewrites the document with
-     `versions[index]`: undo-then-paste for selections (including index 0),
-     `⌘A`+`⌘V` for document scope (robust against manual edits in between).
-   - **Cancel** (running strip) stops the in-flight `Task` but keeps the
-     session open; **Retry** (error strip) re-runs `perform(lastAction)`;
-   - Esc closes the session, keeping whichever version is showing. The applied
-     strip carries no close button: Esc is the one dismissal, and hybrid
+   forward history). ⌘Z calls `EditCoordinator.undoLastVersion()` to rewrite
+   the document with the previous entry: undo-then-paste for selections
+   (including index 0), `⌘A`+`⌘V` for document scope (robust against
+   manual edits in between).
+   - **Cancel** (the primary button on hover while running) stops the in-flight
+     `Task` but keeps the session open; **Retry** runs the action the ribbon
+     currently describes.
+   - Esc closes the session, keeping whichever version is showing. Hybrid
      post-apply behavior closes the lane on its own after a beat.
 
 Esc anywhere in the lane routes through `KeyablePanel.cancelOperation` →
@@ -297,7 +302,7 @@ provider-specific details.
 
 ## Prompt gate & injection hardening
 
-The lane's free-form Direction field plus the captured **selected text** form
+The lane's disclosed free-form Direction field plus the captured **selected text** form
 an open prompt gate. The selected text is untrusted third-party content (an
 email, web page, or chat message the user highlighted) and can carry embedded
 "instructions", so the defenses target the *data path*, not the user's own
