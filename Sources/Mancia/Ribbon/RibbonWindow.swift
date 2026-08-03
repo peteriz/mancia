@@ -305,19 +305,19 @@ final class RibbonWindow: NSObject {
         return UserDefaults.standard.bool(forKey: "_HIHideMenuBar")
     }
 
-    /// The screen holding the frontmost host window — deliberately not
+    /// The screen holding the text being edited — deliberately not
     /// `NSScreen.main`, which is the screen with the key window and for a
     /// menu-bar app is regularly the wrong one.
     ///
-    /// The selection sits between the host and the mouse as a signal. It is the
-    /// weaker of the two rectangles — a caret gives a sliver, and some hosts
-    /// report nothing — but it is *about the text being edited*, whereas the
-    /// pointer is wherever the hand left it. On a second display that is the
-    /// difference between the lane opening over the words and opening over
-    /// whatever the mouse was last near.
+    /// The selection leads, because it is what the lane is placed against: a
+    /// window straddling two displays holds most of its area on one of them
+    /// and the selected sentence can be on the other. The host window stands
+    /// in when no selection rect came back — some hosts report none — and the
+    /// pointer only when neither did, since it is wherever the hand left it
+    /// rather than where the words are.
     private func targetScreen() -> NSScreen? {
-        if let screen = screenOverlapping(hostWindow?.frame) { return screen }
         if let screen = screenOverlapping(selectionRect) { return screen }
+        if let screen = screenOverlapping(hostWindow?.frame) { return screen }
         let mouse = NSEvent.mouseLocation
         if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
             return underMouse
