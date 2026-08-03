@@ -23,6 +23,10 @@ pragmatic, and proportionate to the app's size.
 - For provider-only checks, prefer:
   - `swift run Mancia --provider-check`
   - `echo "text" | swift run Mancia --complete rewrite`
+- For the About panel, run it against the bundle so it can read a real version:
+  - `build/Mancia.app/Contents/MacOS/Mancia --about-check`
+- After touching the ribbon's controls, check they still answer the mouse:
+  - `swift run Mancia --ribbon-click-check`
 
 ## Coding Guidelines
 
@@ -43,11 +47,14 @@ pragmatic, and proportionate to the app's size.
 - The app edits text inline in any frontmost app using pasteboard snapshots and
   synthetic `cmd-C`, `cmd-A`, and `cmd-V`.
 - The command ribbon should stay lightweight, fast, and menu-bar-app
-  appropriate. It sits against the text being edited — just under the selection,
-  or just over it when the selection is near the foot of its window. With no
-  selection, or no room beside one, it falls back to a predictable resting place
-  under the menu bar or the frontmost window's title bar. It never chases the
-  caret.
+  appropriate. It sits against the text being edited, and the selected span —
+  not the window around it — is what drives where it goes: centered on the
+  span and as wide as it, just under the selection, just over it when the
+  selection is near the foot of the display, or in the margin beside a block
+  too tall for either end. With no selection (the whole document is the
+  target), or no room anywhere beside one, it falls back to a predictable
+  resting place under the menu bar or the frontmost window's title bar. It
+  never chases the caret.
 - GitHub Copilot CLI is the only provider today; the provider layer is the
   extension point for future backends.
 - Development builds are ad-hoc signed, so Accessibility permission may need to

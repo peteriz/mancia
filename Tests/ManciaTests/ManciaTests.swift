@@ -687,15 +687,28 @@ func tieredUnknownCategoryFallsBackToBalanced() {
     #expect(Set(tiers[0].models.map(\.id)) == ["mystery", "weird"])
 }
 
-@Test("tiered sorts within a tier by price then by name")
-func tieredSortsByPriceThenName() {
+@Test("tiered sorts provider families A-Z and models newest-first within each family")
+func tieredSortsByProviderThenNewestModel() {
     let models = [
-        CopilotModel(id: "z-high", name: "Z High", modelPickerCategory: "powerful", modelPickerPriceCategory: "high"),
-        CopilotModel(id: "a-medium", name: "A Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
-        CopilotModel(id: "b-medium", name: "B Medium", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium"),
+        CopilotModel(id: "gpt-5.4", name: "GPT-5.4", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0),
+        CopilotModel(id: "grok-3", name: "Grok 3", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 1),
+        CopilotModel(id: "claude-opus-4.8", name: "Claude Opus 4.8", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 10),
+        CopilotModel(id: "gemini-3.1", name: "Gemini 3.1", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0.5),
+        CopilotModel(id: "gpt-5.6", name: "GPT-5.6", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 12),
+        CopilotModel(id: "nova-2", name: "Nova 2", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 2),
+        CopilotModel(id: "gemini-3.6", name: "Gemini 3.6", modelPickerCategory: "powerful", modelPickerPriceCategory: "high", usageMultiplier: 8),
+        CopilotModel(id: "claude-opus-5", name: "Claude Opus 5", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 1),
+        CopilotModel(id: "gpt-5.5", name: "GPT-5.5", modelPickerCategory: "powerful", modelPickerPriceCategory: "medium", usageMultiplier: 3),
+        CopilotModel(id: "grok-4", name: "Grok 4", modelPickerCategory: "powerful", modelPickerPriceCategory: "low", usageMultiplier: 0.25),
     ]
     let tiers = CopilotModelCatalog.tiered(models)
-    #expect(tiers[0].models.map(\.id) == ["a-medium", "b-medium", "z-high"])
+    #expect(tiers[0].models.map(\.id) == [
+        "claude-opus-5", "claude-opus-4.8",
+        "gemini-3.6", "gemini-3.1",
+        "gpt-5.6", "gpt-5.5", "gpt-5.4",
+        "grok-4", "grok-3",
+        "nova-2",
+    ])
 }
 
 @Test("tiered omits empty tiers entirely")
@@ -1703,6 +1716,29 @@ func placementHonorsPreferredWidth() {
     #expect(standard.anchor == expanded.anchor)
 }
 
+@Test("Preferred width also applies beside a selection")
+func placementHonorsPreferredWidthBesideSelection() {
+    let wideSelection = CGRect(x: 200, y: 500, width: 1_000, height: 16)
+    let standardEnd = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: wideSelection,
+            preferredWidth: RibbonPlacement.standardWidth))
+    let tallSelection = CGRect(x: 300, y: 100, width: 200, height: 700)
+    let standardMargin = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: tallSelection,
+            preferredWidth: RibbonPlacement.standardWidth))
+
+    #expect(standardEnd.anchor == .belowSelection)
+    #expect(standardEnd.frame.width == RibbonPlacement.standardWidth)
+    #expect(standardMargin.anchor == .rightOfSelection)
+    #expect(standardMargin.frame.width == RibbonPlacement.standardWidth)
+}
+
 @Test("Preferred width stays inside placement's safe bounds")
 func placementClampsPreferredWidth() {
     let belowMinimum = RibbonPlacement.resolve(
@@ -1974,6 +2010,97 @@ func placementFollowsAClearSelection() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
+@Test("A selection-anchored lane spans the selection, not the window around it")
+func placementSpansTheSelectionNotTheHostWindow() {
+    let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    // A window three times the width of the text selected inside it: centering
+    // the lane on the window would put it half a screen from the words.
+    let host = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    let selection = CGRect(x: 1800, y: 793, width: 354, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 48,
+        in: .init(
+            screenFrame: screen, visibleFrame: visible,
+            hostWindowFrame: host, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(resolved.frame.midX == selection.midX, "the span is what the lane is centered on")
+    #expect(
+        resolved.frame.width == RibbonPlacement.minimumWidth,
+        "a span narrower than the row needs still gets a legible row, not a window-wide one")
+}
+
+@Test("A selection near the screen edge keeps its lane on the display")
+func placementClampsASelectionAnchoredLaneToTheScreen() {
+    let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    let host = CGRect(x: 1964, y: 402, width: 673, height: 439)
+    let selection = CGRect(x: 2200, y: 793, width: 340, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 48,
+        in: .init(
+            screenFrame: screen, visibleFrame: visible,
+            hostWindowFrame: host, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(resolved.frame.maxX == screen.maxX, "centering alone would hang it off the right edge")
+    #expect(
+        resolved.frame.maxX > selection.minX && resolved.frame.minX < selection.maxX,
+        "the lane must remain horizontally adjacent to the selected text")
+}
+
+@Test("A wide selection widens the lane, up to the cap")
+func placementWidensTheLaneToTheSelection() {
+    let selection = CGRect(x: 300, y: 500, width: 760, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(
+        resolved.frame.width == selection.width + 2 * RibbonPlacement.selectionClearance,
+        "the lane spans the words it is about to rewrite")
+    #expect(resolved.frame.midX == selection.midX)
+}
+
+@Test("A selection wider than the cap does not widen the lane past it")
+func placementCapsAWideSelectionsLane() {
+    let selection = CGRect(x: 100, y: 500, width: 1200, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.frame.width == RibbonPlacement.maximumWidth)
+    #expect(resolved.frame.midX == selection.midX, "still centered on the span it edits")
+}
+
+@Test("A small host window neither shrinks the lane nor bounds the room beside the text")
+func placementIgnoresASmallHostWindowBesideTheSelection() {
+    // A short window on a large display, its menu bar auto-hidden so the host
+    // window is what the resting anchor would hang from. The old rule measured
+    // the room at the selection's ends against that window's own edges, so a
+    // selection near its foot was pushed above the words even though the
+    // display below them was empty.
+    let host = CGRect(x: 400, y: 300, width: 340, height: 260)
+    let selection = CGRect(x: 500, y: 320, width: 200, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "there is room on the display, whatever the window says")
+    #expect(
+        resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance,
+        "the lane floats over its host; it is not clipped to it")
+    #expect(resolved.frame.minY < host.minY, "so it may hang past the window's foot to stay with the words")
+    #expect(resolved.frame.width == RibbonPlacement.minimumWidth, "and it is not squeezed to the window")
+    #expect(resolved.frame.midX == selection.midX)
+}
+
 @Test("A caret is not a selection, so the lane takes its predictable place")
 func placementIgnoresACaret() {
     let caret = CGRect(x: 20, y: 840, width: 0, height: 14)
@@ -2020,9 +2147,146 @@ func placementJudgesRoomAtTheHeightItWillGrowTo() {
     #expect(resolved.anchor == .aboveSelection, "but the review gate would not, and the choice is made once")
 }
 
+// MARK: - Ribbon placement: standing in the margin
+
+/// A paragraph selected in a column of text: 670pt tall, so neither end of it
+/// can hold a grown lane, and 520pt wide, so the display has margin to spare
+/// either side. The case the rule used to answer by trekking to the menu bar.
+private let tallSelection = CGRect(x: 80, y: 150, width: 520, height: 670)
+
+@Test("A selection too tall for either end puts the lane in the margin beside it")
+func placementStandsInTheMarginOfATallSelection() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: tallSelection))
+
+    #expect(resolved.anchor == .rightOfSelection, "the roomier flank of the two")
+    #expect(!resolved.frame.intersects(tallSelection), "a lane in the margin covers nothing at all")
+    #expect(
+        resolved.frame.minX == tallSelection.maxX + RibbonPlacement.selectionClearance,
+        "flush against the flank, one clearance short of touching it")
+    #expect(resolved.frame.midY == tallSelection.midY, "level with the middle of the block, where the eye is")
+    #expect(resolved.frame.maxX <= ribbonVisible.maxX, "and inside the band it was measured against")
+}
+
+@Test("The lane takes the roomier flank, not always the same one")
+func placementPrefersTheRoomierFlank() {
+    // The same block, moved to the right of the display: now the margin is on
+    // the other side of it.
+    let selection = CGRect(x: 800, y: 150, width: 560, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .leftOfSelection)
+    #expect(!resolved.frame.intersects(selection))
+    #expect(resolved.frame.maxX == selection.minX - RibbonPlacement.selectionClearance)
+}
+
+@Test("A margin narrower than the lane is no margin at all")
+func placementIgnoresAMarginTooNarrowToStandIn() {
+    // 400pt of margin on the roomier side: below the 600pt the row needs to
+    // hold its controls, so squeezing in would cost legibility for nothing.
+    let selection = CGRect(x: 420, y: 150, width: 600, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "so it settles at the roomier end instead")
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
+@Test("Margins are measured on the display, not on the host window")
+func placementMeasuresMarginsOnTheDisplay() {
+    // A window hanging off the left edge of the display, with a tall block
+    // selected in it. The margin that matters is the one on screen beside the
+    // words, not the part of the window nobody can see.
+    let host = CGRect(x: -400, y: 0, width: 1440, height: 900)
+    let selection = CGRect(x: 500, y: 150, width: 100, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true, selectionRect: selection))
+
+    #expect(
+        resolved.anchor == .rightOfSelection,
+        "832pt of display beside the block, whatever the window's own edge says")
+    #expect(!resolved.frame.intersects(selection), "screen clamping must not move the lane across the words")
+    #expect(resolved.frame.minX == selection.maxX + RibbonPlacement.selectionClearance)
+    #expect(resolved.frame.maxX <= ribbonScreen.maxX, "and it stays on the display")
+}
+
+@Test("A lane in the margin keeps its clearance as it grows")
+func placementMarginLaneGrowsWithoutReachingTheText() {
+    // The review gate has opened on a lane standing beside the block.
+    let context = RibbonPlacement.Context(
+        screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+        selectionRect: tallSelection, establishedAnchor: .rightOfSelection)
+    let resolved = RibbonPlacement.resolve(height: 260, in: context)
+
+    #expect(resolved.anchor == .rightOfSelection)
+    #expect(!resolved.frame.intersects(tallSelection), "the pinned edge is the one facing the words")
+    #expect(resolved.frame.minX == tallSelection.maxX + RibbonPlacement.selectionClearance)
+    #expect(resolved.frame.minY >= ribbonVisible.minY, "and it stays inside the band while it grows")
+}
+
+@Test("A lane in the margin is only as wide as the margin can hold")
+func placementMarginLaneFitsTheMarginItStandsIn() {
+    // 700pt of margin to the right: wider than the lane's minimum, narrower
+    // than its cap, so the lane takes the margin exactly.
+    let selection = CGRect(x: 20, y: 150, width: 712, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .rightOfSelection)
+    #expect(resolved.frame.width == 700, "a lane wider than its margin would reach back over the text")
+    #expect(resolved.frame.maxX == ribbonVisible.maxX)
+}
+
+// MARK: - Ribbon placement: the cramped end
+
+@Test("A block spanning the host settles at its roomier end rather than trekking to the top")
+func placementTakesTheRoomierEndWhenNoMarginIsLeft() {
+    // Full width and 500pt tall: no margin either side, and neither end can
+    // hold a grown lane. The old rule sent the lane to the menu bar, which
+    // covered the head of the very block it was invoked on.
+    let selection = CGRect(x: 0, y: 200, width: 1440, height: 500)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .aboveSelection, "167pt above beats 132pt below")
+    #expect(!resolved.frame.intersects(selection), "the lane as it opens still stands clear of the words")
+    #expect(resolved.frame.minY == selection.maxY + RibbonPlacement.selectionClearance)
+    #expect(
+        resolved.frame.maxY < ribbonVisible.maxY - 100,
+        "and nowhere near the menu bar, which is where it used to go")
+}
+
+@Test("The cramped end is chosen by room, so a block low on the screen sits under it")
+func placementTakesTheCrampedEndWithTheMostRoom() {
+    let selection = CGRect(x: 0, y: 250, width: 1440, height: 450)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "182pt below beats 167pt above")
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
 @Test("A selection with nowhere beside it keeps the predictable position")
 func placementKeepsItsPlaceWhenNeitherSideFits() {
-    // Everything on screen selected: any move covers it just as thoroughly.
+    // Everything on screen selected: no end, no margin, and any move covers it
+    // just as thoroughly as any other.
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2078,19 +2342,24 @@ func placementSitsUnderTheSelectionWithinAFullScreenHost() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
-@Test("A lane sitting against the selection is still centered on its host")
-func placementDoesNotChaseTheSelectionSideways() {
+@Test("A lane sitting against the selection follows it sideways too")
+func placementFollowsTheSelectionSideways() {
     let resting = RibbonPlacement.resolve(
         height: 56,
         in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+    // The same display, with a span selected well to the right of center.
+    let selection = CGRect(x: 900, y: 600, width: 300, height: 16)
     let beside = RibbonPlacement.resolve(
         height: 56,
         in: .init(
             screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
-            selectionRect: selectionUnderTheMenuBar))
+            selectionRect: selection))
 
-    #expect(beside.frame.minX == resting.frame.minX, "vertical position follows the selection; horizontal does not")
-    #expect(beside.frame.width == resting.frame.width)
+    #expect(beside.frame.midX == selection.midX, "both axes follow the selection")
+    #expect(beside.frame.minX != resting.frame.minX, "which is not where the resting lane would be")
+    #expect(
+        resting.frame.midX == ribbonVisible.midX,
+        "and with nothing selected the resting lane is still screen-centered")
 }
 
 // MARK: - Ribbon placement: stepping off the applied text
@@ -2161,4 +2430,103 @@ func longerResultReopensTheAnchor() {
 
     #expect(!dodged.frame.intersects(updated!), "the lane steps off the words it just wrote")
     #expect(dodged.anchor == .belowSelection, "and sits back against them from the near side")
+}
+
+// MARK: - App version
+
+@Test("The version comes from the bundle, never a Swift literal")
+func appVersionReadsBundleInfo() {
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": "1.2.3"]) == "1.2.3")
+    // Unbundled (`swift run Mancia`) has no Info.plist to read.
+    #expect(AppVersion.short(from: nil) == AppVersion.unbundled)
+    #expect(AppVersion.short(from: [:]) == AppVersion.unbundled)
+    // A blank value is missing, not a version.
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": "   "]) == AppVersion.unbundled)
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": 3]) == AppVersion.unbundled)
+    // The fallback must never look like a release.
+    #expect(AppVersion.unbundled.rangeOfCharacter(from: .decimalDigits) == nil)
+}
+
+@Test("The About string shows the build number only when it differs")
+func appVersionDisplayString() {
+    #expect(
+        AppVersion.displayString(
+            from: ["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "0.2.2"]) == "0.2.2",
+        "a matching build number is noise")
+    #expect(
+        AppVersion.displayString(
+            from: ["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "17"]) == "0.2.2 (17)")
+    #expect(
+        AppVersion.displayString(from: ["CFBundleShortVersionString": "0.2.2"]) == "0.2.2")
+}
+
+@Test("The About panel carries the bundle version, not a hardcoded one")
+@MainActor
+func aboutPanelOptionsUseBundleVersion() {
+    let options = AboutPanel.options(
+        info: ["CFBundleShortVersionString": "9.9.9", "CFBundleVersion": "9.9.9"], icon: nil)
+    #expect(options[.applicationName] as? String == "Mancia")
+    #expect(options[.applicationVersion] as? String == "9.9.9")
+    #expect(options[.applicationIcon] == nil, "a missing icon is omitted, not faked")
+}
+
+@Test("The About diagnostic reads visible nested panel text")
+@MainActor
+func aboutPanelDisplayedText() {
+    let root = NSView()
+    let container = NSView()
+    container.addSubview(NSTextField(labelWithString: "Version 9.9.9"))
+    container.addSubview(NSTextField(labelWithString: "Copyright"))
+    root.addSubview(container)
+
+    let hidden = NSTextField(labelWithString: "stale 0.1.0")
+    hidden.isHidden = true
+    root.addSubview(hidden)
+
+    let panel = NSPanel()
+    panel.contentView = root
+
+    #expect(AboutPanel.displayedText(in: panel) == ["Version 9.9.9", "Copyright"])
+}
+
+/// `Support/Info.plist` is the one place a version number lives. These guard
+/// the sync: the release workflow rewrites both plist keys from the git tag,
+/// and the release commit bumps the changelog to the same number.
+@Test("Support/Info.plist keeps its two version keys in step")
+func infoPlistVersionKeysAgree() throws {
+    let info = try repoInfoPlist()
+    let short = try #require(info["CFBundleShortVersionString"] as? String)
+    let build = try #require(info["CFBundleVersion"] as? String)
+    #expect(short == build, "CFBundleShortVersionString and CFBundleVersion have drifted")
+}
+
+@Test("The changelog's newest release matches the bundle version")
+func changelogMatchesInfoPlist() throws {
+    let info = try repoInfoPlist()
+    let short = try #require(info["CFBundleShortVersionString"] as? String)
+    let changelog = try String(contentsOf: repoRoot.appending(path: "CHANGELOG.md"), encoding: .utf8)
+    // The first `## [x.y.z]` heading, skipping `## [Unreleased]`.
+    let newest = changelog
+        .split(separator: "\n")
+        .compactMap { line -> String? in
+            guard line.hasPrefix("## ["), let close = line.firstIndex(of: "]") else { return nil }
+            let name = String(line[line.index(line.startIndex, offsetBy: 4)..<close])
+            return name == "Unreleased" ? nil : name
+        }
+        .first
+    #expect(newest == short, "CHANGELOG.md's newest release should be the bundled version")
+}
+
+private var repoRoot: URL {
+    URL(filePath: #filePath)  // Tests/ManciaTests/ManciaTests.swift
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private func repoInfoPlist() throws -> [String: Any] {
+    let url = repoRoot.appending(path: "Support/Info.plist")
+    let data = try Data(contentsOf: url)
+    let parsed = try PropertyListSerialization.propertyList(from: data, format: nil)
+    return parsed as? [String: Any] ?? [:]
 }

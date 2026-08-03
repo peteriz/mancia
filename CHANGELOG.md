@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Run did nothing when clicked. Its label was hidden so the drawn word could be
+  reinstated outside the dimming `disabled` applies, and a plain button's hit
+  region *is* its label — so the lane's one primary control rendered perfectly
+  and answered no mouse. The label is now transparent rather than hidden, and
+  carries the hit shape itself. Return always worked, which is why this went
+  unnoticed: it is the mouse path that was dead, from every action.
+- About reported 0.1.0 while the shipped bundle was 0.2.2. The panel now reads
+  `CFBundleShortVersionString` from the bundle, so it follows the version the
+  release workflow writes instead of a Swift literal that had to be remembered.
+  `Support/Info.plist` is now the only place a version number lives, and tests
+  fail if its two version keys or the changelog's newest release drift apart.
+
+### Changed
+
+- The menu says "About Mancia" and "Quit Mancia", matching the spec and the
+  platform convention.
+- The ribbon answers a selected *block* as well as it answered a selected
+  line. A paragraph or quote too tall to leave room at either end used to send
+  the lane back to the menu bar, on top of the head of the very block it was
+  invoked on; it now stands in the margin beside the block, on the roomier
+  flank, level with its middle and as wide as that margin can hold — covering
+  no text at all.
+- A block with no margin either side settles at whichever of its ends has more
+  room, rather than making the trek to the top of the screen. The predictable
+  resting place is now the last resort, kept for a selection with nowhere at
+  all beside it.
+
+### Added
+
+- `--about-check` opens the About panel, checks the version it reports, and
+  clicks its red close button on both a first open and a reopen — the title bar
+  a unit test cannot reach.
+- `--ribbon-click-check` clicks the lane's Run control the way a user does and
+  asks the model what ran, with the default action and with a preset pinned. A
+  control that draws but takes no hits is invisible to `swift test`; this is
+  the check that would have caught it.
+
 ## [0.2.2] - 2026-08-03
 
 ### Changed

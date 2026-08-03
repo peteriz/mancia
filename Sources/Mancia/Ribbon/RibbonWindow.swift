@@ -10,7 +10,7 @@ import SwiftUI
 /// its **height comes from content**, so the view is measured at the resolved
 /// width before the frame is set.
 @MainActor
-final class RibbonWindow {
+final class RibbonWindow: NSObject {
     private let model: PanelModel
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?
@@ -44,6 +44,7 @@ final class RibbonWindow {
 
     init(model: PanelModel) {
         self.model = model
+        super.init()
     }
 
     /// The lane's entrance: it slides down from behind the menu bar, which is
@@ -85,8 +86,9 @@ final class RibbonWindow {
             context.duration = reduced ? Motion.fade : Motion.exit
             context.timingFunction = Motion.curve
             if !reduced {
+                let offset = hiddenOffset(for: resting)
                 panel.animator().setFrame(
-                    resting.offsetBy(dx: 0, dy: hiddenOffset(for: resting)), display: true)
+                    resting.offsetBy(dx: offset.width, dy: offset.height), display: true)
             }
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
@@ -201,9 +203,10 @@ final class RibbonWindow {
             // Start a lane's height off its home edge and slide into it. The
             // lane sits below `.mainMenu`, so hanging from the menu bar it
             // genuinely emerges from behind the menu bar rather than over it;
-            // sitting on the screen floor, or over the selection, it rises
-            // from below instead.
-            panel.setFrame(frame.offsetBy(dx: 0, dy: hiddenOffset(for: frame)), display: false)
+            // sitting over the selection it rises from below instead, and
+            // standing in the margin it slides out sideways.
+            let offset = hiddenOffset(for: frame)
+            panel.setFrame(frame.offsetBy(dx: offset.width, dy: offset.height), display: false)
             panel.alphaValue = 0
             panel.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
@@ -220,12 +223,19 @@ final class RibbonWindow {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// How far off screen the lane starts and ends its slide. Each anchor
-    /// enters from the side it is pinned to: up from behind the menu bar or
-    /// from under the selection it hangs beneath, down from the screen floor
-    /// or from over the selection it sits above.
-    private func hiddenOffset(for frame: CGRect) -> CGFloat {
-        (currentAnchor?.entersFromBelow ?? false) ? -frame.height : frame.height
+    /// How far off its home the lane starts and ends its slide. Each anchor
+    /// enters from the edge it is pinned to: down from behind the menu bar or
+    /// from under the selection it hangs beneath, up from over the selection
+    /// it sits above, and sideways out from under a selection it sits beside.
+    ///
+    /// One travel distance for all of them, and it is the lane's *height* even
+    /// on the horizontal anchors. Vertically that is the distance that hides
+    /// the lane completely behind its edge; horizontally nothing is hiding it,
+    /// so the same number reads as a short slide in the direction it settles —
+    /// where its own width would be a 600pt lurch across the screen.
+    private func hiddenOffset(for frame: CGRect) -> CGSize {
+        let direction = (currentAnchor ?? .screen).entranceDirection
+        return CGSize(width: -direction.dx * frame.height, height: -direction.dy * frame.height)
     }
 
     // MARK: - Placement
@@ -308,19 +318,19 @@ final class RibbonWindow {
         return UserDefaults.standard.bool(forKey: "_HIHideMenuBar")
     }
 
-    /// The screen holding the frontmost host window — deliberately not
+    /// The screen holding the text being edited — deliberately not
     /// `NSScreen.main`, which is the screen with the key window and for a
     /// menu-bar app is regularly the wrong one.
     ///
-    /// The selection sits between the host and the mouse as a signal. It is the
-    /// weaker of the two rectangles — a caret gives a sliver, and some hosts
-    /// report nothing — but it is *about the text being edited*, whereas the
-    /// pointer is wherever the hand left it. On a second display that is the
-    /// difference between the lane opening over the words and opening over
-    /// whatever the mouse was last near.
+    /// The selection leads, because it is what the lane is placed against: a
+    /// window straddling two displays holds most of its area on one of them
+    /// and the selected sentence can be on the other. The host window stands
+    /// in when no selection rect came back — some hosts report none — and the
+    /// pointer only when neither did, since it is wherever the hand left it
+    /// rather than where the words are.
     private func targetScreen() -> NSScreen? {
-        if let screen = screenOverlapping(hostWindow?.frame) { return screen }
         if let screen = screenOverlapping(selectionRect) { return screen }
+        if let screen = screenOverlapping(hostWindow?.frame) { return screen }
         let mouse = NSEvent.mouseLocation
         if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
             return underMouse
@@ -388,8 +398,9 @@ final class RibbonWindow {
         )
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        // Unlike the panel, the lane has a computed home and must not be
-        // draggable out of it.
+        // Placement is the lane's contract; dragging would detach it from the
+        // selection or resting edge it was resolved against.
+        panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true

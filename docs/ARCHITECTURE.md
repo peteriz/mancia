@@ -12,7 +12,8 @@ Sources/Mancia/
 ├── main.swift                    NSApplication bootstrap; routes to DebugCLI
 │                                 before any UI is created (LSUIElement, no Dock icon)
 ├── AppDelegate.swift             Wires status item, hotkey, coordinator, settings window
-├── StatusBarController.swift     NSStatusItem + menu (Edit / Provider status / Settings / Quit)
+├── StatusBarController.swift     NSStatusItem + menu (Edit / Provider status / Settings /
+│                                 About / Quit)
 ├── HotkeyManager.swift           Registers the global hotkey (KeyboardShortcuts pkg)
 ├── Permissions.swift             AXIsProcessTrusted() checks + System Settings deep link
 ├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
@@ -20,7 +21,10 @@ Sources/Mancia/
 │                                 posted to the target app's pid (CGEvent.postToPid)
 ├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
-├── DebugCLI.swift                --provider-check / --complete headless entry points
+├── DebugCLI.swift                --provider-check / --complete / --about-check /
+│                                 --ribbon-click-check headless and UI entry points
+├── AboutPanel.swift              The standard About panel's options, icon, and presentation
+├── AppVersion.swift              Reads the version from the bundle; no version literal in Swift
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
 ├── Panel/
 │   ├── PanelModel.swift          @Observable state shared between coordinator and view
@@ -35,7 +39,8 @@ Sources/Mancia/
 │   ├── RibbonWindow.swift        Hosts the lane: measures the view at the resolved width,
 │   │                             sets the frame, animates entry/exit, tracks screen changes
 │   ├── RibbonPlacement.swift     Pure placement resolver — sits against the selection when
-│   │                             the host reports one, else under the menu bar or the
+│   │                             the host reports one (under it, over it, or in the margin
+│   │                             beside a tall block), else under the menu bar or the
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
@@ -97,10 +102,15 @@ wired to call `coordinator.start()`.
 
    When the host reports where the selected text is, the lane **sits just
    under the selection** — or just over it, when the selection is too near the
-   foot of the host to fit beneath. That is the ordinary case, and it is the
+   foot of the display to fit beneath. That is the ordinary case, and it is the
    point of the rule: the command the user is composing sits next to the words
-   it will rewrite. When there is no selection rectangle — a bare caret, or a
-   host that cannot answer — the lane takes a predictable place instead:
+   it will rewrite. When the block is too tall for either end — a paragraph, a
+   long quote — the lane **stands in the margin beside it**, on the roomier
+   flank, as wide as that margin can hold. A tall selection is usually a
+   narrow one, so the margin is nearly always there, and a lane standing in it
+   covers no text at all. When there is no selection rectangle — a bare caret,
+   so the whole document is the target, or a host that cannot answer — the lane
+   takes a predictable place instead:
    - **screen-anchored** — flush under the menu bar, when the menu bar is
      reserving a strip at the top of the screen;
    - **host-anchored** — under the frontmost window's title bar, when it is
@@ -108,29 +118,42 @@ wired to call `coordinator.start()`.
      nowhere safe to sit, and on a notched display the top of the screen is
      not addressable at all.
 
-   That predictable place is also the fallback for a selection with nowhere
-   beside it — the whole document selected, say. A move that buys nothing is
-   worse than staying where the user expects.
+   That predictable place is the last resort, and only for a selection with
+   nowhere at all beside it — everything on screen selected, say, where every
+   position covers the text as thoroughly as the next. Before it comes the
+   **cramped end**: a block with no margin either side still gets the lane at
+   whichever end can hold it as it opens (`crampedRoom`), because covering the
+   head of a block from the far end of the screen is worse than standing
+   against its foot. A move that buys nothing is worse than staying where the
+   user expects; a move that buys the whole point of the rule is not.
 
-   Whichever edge the lane hangs from is the edge it **pins**, so it grows
-   away from the selection and a review gate can never creep back over the
-   line it was invoked on. The room beside the selection is judged against
-   `projectedHeight`, the tallest ordinary state, not the height the lane
-   opens at: a 48pt row fits into gaps a ~195pt review gate does not. The
-   anchor is then **established for the session** and fed back through
+   Whichever edge faces the selection is the edge the lane **pins**, so it
+   grows away from the text. An end with room for `projectedHeight`, or a
+   margin the lane owns outright, stays clear as the review gate opens. The
+   cramped-end fallback is the deliberate exception: its opening row clears
+   the words, but screen clamping can move a grown gate back over the block's
+   far end. The anchor is **established for the session** and fed back through
    `Context.establishedAnchor`, so a lane that grew mid-run does not leap
    across the screen and leap back when the region closes. A bare caret is not
    a selection: with nothing selected the target is the whole document and
    there is no line to sit against.
 
-   Vertical position follows the selection; horizontal does not. The lane's
-   **width is imposed by placement** (700pt throughout every buttons-only phase
-   or up to 900pt for Custom, host-clamped and centered) and only its **height
-   comes from content**, so the view is
-   measured at the resolved width before the frame is set. `HostWindowProbe`
-   supplies the host window's frame and full-screen state through
-   Accessibility; every failure path returns `nil` and placement degrades to
-   the screen rather than failing the session.
+   Vertical *and* horizontal position follow the selection: the lane is
+   centered on the selected span, and the room at its ends and flanks is
+   measured against the **display's band**, never the host window. The lane
+   floats over its host rather than inside it, so a window much wider than the
+   sentence is no reason to put the lane half a screen from it, and a window
+   shorter than the room below the words is no reason to send the lane over
+   them. The lane's **width is imposed by placement**: buttons-only states ask
+   for the stable 600pt standard width and Custom asks for up to 900pt, then an
+   end anchor bounds that request by the selected span, a margin anchor by its
+   available flank, and a resting anchor by the window or screen. Every result
+   stays between `minimumWidth` and `maximumWidth`. Only the lane's **height
+   comes from content**, so the view is measured at the resolved width before
+   the frame is set.
+   `HostWindowProbe` supplies the host window's frame and full-screen state
+   through Accessibility; every failure path returns `nil` and placement
+   degrades to the screen rather than failing the session.
 
    The lane is a cyclical **edit session**. Target, five tight Action buttons and
    Run sit on a **single row**, dimmed and disabled while a request runs.
@@ -274,17 +297,20 @@ To add a new provider:
    its price class. Check what the picker will show with
    `swift run Mancia --list-models`.
 
-   **Keep the catalog free of hardcoded model ids.** Everything the picker
-   does — tiering, ordering, and the first-run recommendation
-   (`recommendedFastModel`) — is derived from what the backend advertises:
-   the latency class, the price class, and the premium-request multiplier
-   (`_meta.copilotUsage`, live only). A model released tomorrow is tiered,
-   ranked, and can become the recommended default with no code change, and a
-   retired one disappears on its own. Named-id lists rot silently as models
-   come and go, so add signals rather than special cases. Unknown enum values
-   (a new latency class, price class, or reasoning-effort level) must degrade
-   to a sensible default instead of dropping the model. The reasoning-effort
-   picker
+   **Keep the catalog free of hardcoded model ids.** Tiering and the first-run
+   recommendation (`recommendedFastModel`) are derived from what the backend
+   advertises: the latency class, the price class, and the premium-request
+   multiplier (`_meta.copilotUsage`, live only). Within each tier, picker rows
+   group by the model name's leading provider-family prefix, providers sort
+   A-Z, and each provider's models sort newest/highest first by natural name.
+   Copilot exposes no provider field, so an unknown prefix simply forms its own
+   group rather than requiring an allowlist. A model released tomorrow is
+   tiered, ordered, and can become the recommended default with no code change,
+   and a retired one disappears on its own. Named-id lists rot silently as
+   models come and go, so add signals rather than special cases. Unknown enum
+   values (a new latency class, price class, or reasoning-effort level) must
+   degrade to a sensible default instead of dropping the model. The
+   reasoning-effort picker
    narrows to the selected model's `supportedReasoningEfforts` and is passed
    to the CLI as `--reasoning-effort`.
 3. Add a real provider-selection path in `AppSettings` and `SettingsView`
