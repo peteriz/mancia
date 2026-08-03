@@ -1804,6 +1804,27 @@ func placementFollowsAClearSelection() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
+@Test("A selection-anchored lane stays horizontally with its window")
+func placementKeepsSelectionAnchorsWithTheHostWindow() {
+    let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    let host = CGRect(x: 1964, y: 402, width: 673, height: 439)
+    let selection = CGRect(x: 1974, y: 793, width: 354, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 48,
+        in: .init(
+            screenFrame: screen, visibleFrame: visible,
+            hostWindowFrame: host, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(
+        resolved.frame.maxX == screen.maxX,
+        "the host is against the screen edge, so its lane should clamp there with it")
+    #expect(
+        resolved.frame.maxX > selection.minX && resolved.frame.minX < selection.maxX,
+        "the lane must remain horizontally adjacent to the selected text")
+}
+
 @Test("A caret is not a selection, so the lane takes its predictable place")
 func placementIgnoresACaret() {
     let caret = CGRect(x: 20, y: 840, width: 0, height: 14)

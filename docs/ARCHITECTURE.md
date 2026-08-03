@@ -133,15 +133,17 @@ wired to call `coordinator.start()`.
    a selection: with nothing selected the target is the whole document and
    there is no line to sit against.
 
-   Vertical position follows the selection; horizontal does not, except at the
-   margin anchors, where the margin is the only place the text does not
-   already occupy. The lane's **width is imposed by placement** (the host's
-   width, clamped to a maximum and centered — or the margin's width, when it
-   stands in one) and only its **height comes from content**, so the view is
-   measured at the resolved width before the frame is set. `HostWindowProbe`
-   supplies the host window's frame and full-screen state through
-   Accessibility; every failure path returns `nil` and placement degrades to
-   the screen rather than failing the session.
+   Vertical position follows the selection; horizontal follows its host window
+   at the end anchors rather than chasing the caret. Margin anchors use the
+   only flank the text does not already occupy; the resting screen anchor stays
+   predictably screen-centered. The lane's **width is imposed by placement**
+   (the host window's width at a selection end, the screen's width at rest, or
+   the margin's width beside a tall block, each clamped to its limits) and only
+   its **height comes from content**, so the view is measured at the resolved
+   width before the frame is set. `HostWindowProbe` supplies the host window's
+   frame and full-screen state through Accessibility; every failure path
+   returns `nil` and placement degrades to the screen rather than failing the
+   session.
 
    The lane is a cyclical **edit session**. Target, Action, Direction and Run
    sit on a **single row**, dimmed and disabled while a request runs. Each

@@ -122,6 +122,17 @@ re-grant Accessibility after each `make app` (`CLAUDE.md`).
 | P12 | Repeat P11 with Reduce Motion enabled | Open and close fade without horizontal travel |
 | P13 | Drag the lane from its background at each margin anchor | Lane does not move from its computed anchor |
 
+#### Manual run — 2026-08-03
+
+- P11 and P13 passed in TextEdit on both margin anchors: entry moved away
+  from the selected block, close moved back toward it, and background dragging
+  did not detach the lane.
+- P12 passed with Reduce Motion enabled: both presentation and close used fades
+  without horizontal travel.
+- A window-edge regression run passed with TextEdit on the right of a
+  2560×1440 display: a selection-end anchor stayed horizontally with TextEdit
+  instead of centering on the display.
+
 > **Superseding P2.** P2's expectation — that the lane covers the title bar and
 > not the text — turned out to be unachievable: a title bar is 28pt and the
 > lane is 56pt, growing to ~91pt with the review region open, so a lane hanging

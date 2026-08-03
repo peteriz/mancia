@@ -41,11 +41,12 @@ import CoreGraphics
 /// fallback is the deliberate exception: its opening row clears the words,
 /// but screen clamping can move a grown gate back over the far end.
 ///
-/// Horizontal position is imposed by the host, not by the caret, at the three
-/// anchors that hang over it — the lane never chases a caret sideways along a
-/// line, and its controls stay where the hand expects them. A lane in the
-/// margin is the one exception, and it is not chasing anything: it is the only
-/// place left that the text does not already occupy.
+/// Horizontal position is imposed by the host window, not by the caret, at the
+/// two selection-end anchors — the lane stays with the window without chasing
+/// a caret sideways along a line. The resting screen anchor keeps its
+/// predictable screen-centered width. A lane in the margin is the one
+/// exception, and it is not chasing anything: it is the only place left that
+/// the text does not already occupy.
 ///
 /// One amendment after each apply: pasting can put words where the opening
 /// geometry never described them — a longer result flows past the old
@@ -223,9 +224,10 @@ enum RibbonPlacement {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
         let menuBarReservesStrip = topGap > 1 && !context.menuBarHidden
 
-        let host = menuBarReservesStrip
+        let restingHost = menuBarReservesStrip
             ? context.visibleFrame
             : (context.hostWindowFrame ?? context.screenFrame)
+        let selectionHost = context.hostWindowFrame ?? restingHost
 
         let clearance = menuBarReservesStrip
             ? 0
@@ -238,15 +240,17 @@ enum RibbonPlacement {
 
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
-        let width = max(minimumWidth, min(host.width, maximumWidth))
-        let x = host.minX + (host.width - width) / 2   // centered on the host
+        let restingWidth = max(minimumWidth, min(restingHost.width, maximumWidth))
+        let restingX = restingHost.minX + (restingHost.width - restingWidth) / 2
+        let selectionWidth = max(minimumWidth, min(selectionHost.width, maximumWidth))
+        let selectionX = selectionHost.minX + (selectionHost.width - selectionWidth) / 2
 
         // The band the lane is allowed to occupy.
-        let ceiling = host.maxY - clearance
-        let floor = host.minY + floorClearance
+        let ceiling = restingHost.maxY - clearance
+        let floor = restingHost.minY + floorClearance
         let selection = avoidedSelection(in: context)
         let resting: Anchor = menuBarReservesStrip ? .screen : .hostWindow
-        let onScreenHost = host.intersection(context.screenFrame)
+        let onScreenHost = restingHost.intersection(context.screenFrame)
 
         /// The margin between one flank of the selection and the edge of the
         /// on-screen host. A host can extend beyond its target display; counting
@@ -282,14 +286,19 @@ enum RibbonPlacement {
         /// against. A cramped end can still be clamped back over the far edge
         /// once the review gate outgrows the room accepted at open.
         func frame(_ anchor: Anchor, _ h: CGFloat) -> CGRect {
-            let restingFrame = CGRect(x: x, y: ceiling - h, width: width, height: h)
+            let restingFrame = CGRect(
+                x: restingX, y: ceiling - h, width: restingWidth, height: h)
             let rect: CGRect = switch anchor {
             case .screen, .hostWindow:
                 restingFrame
             case .belowSelection:
-                CGRect(x: x, y: (selection?.minY ?? ceiling) - h, width: width, height: h)
+                CGRect(
+                    x: selectionX, y: (selection?.minY ?? ceiling) - h,
+                    width: selectionWidth, height: h)
             case .aboveSelection:
-                CGRect(x: x, y: selection?.maxY ?? floor, width: width, height: h)
+                CGRect(
+                    x: selectionX, y: selection?.maxY ?? floor,
+                    width: selectionWidth, height: h)
             case .leftOfSelection, .rightOfSelection:
                 marginFrame(anchor, h) ?? restingFrame
             }
