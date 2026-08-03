@@ -258,7 +258,10 @@ so it comes to front). Sections:
   prompt=true and show an explanatory alert; menu item deep-links to
   `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`.
 - Info.plist: `LSUIElement = true`, `NSHumanReadableCopyright`, bundle id
-  `io.github.peteriz.mancia`, version 0.1.0. No sandbox (needed for CGEvent +
+  `io.github.peteriz.mancia`. `CFBundleShortVersionString`/`CFBundleVersion` are
+  the single source of truth for the version — the release workflow rewrites
+  them from the git tag, and the About panel reads them back, so no version
+  number is written in Swift or restated here. No sandbox (needed for CGEvent +
   spawning copilot).
 
 ## Build

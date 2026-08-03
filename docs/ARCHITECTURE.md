@@ -12,7 +12,8 @@ Sources/Mancia/
 ├── main.swift                    NSApplication bootstrap; routes to DebugCLI
 │                                 before any UI is created (LSUIElement, no Dock icon)
 ├── AppDelegate.swift             Wires status item, hotkey, coordinator, settings window
-├── StatusBarController.swift     NSStatusItem + menu (Edit / Provider status / Settings / Quit)
+├── StatusBarController.swift     NSStatusItem + menu (Edit / Provider status / Settings /
+│                                 About / Quit)
 ├── HotkeyManager.swift           Registers the global hotkey (KeyboardShortcuts pkg)
 ├── Permissions.swift             AXIsProcessTrusted() checks + System Settings deep link
 ├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
@@ -20,7 +21,10 @@ Sources/Mancia/
 │                                 posted to the target app's pid (CGEvent.postToPid)
 ├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
-├── DebugCLI.swift                --provider-check / --complete headless entry points
+├── DebugCLI.swift                --provider-check / --complete / --about-check headless
+│                                 and UI entry points
+├── AboutPanel.swift              The standard About panel's options, icon, and presentation
+├── AppVersion.swift              Reads the version from the bundle; no version literal in Swift
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
 ├── Panel/
 │   ├── PanelModel.swift          @Observable state shared between coordinator and view
