@@ -174,8 +174,9 @@ enum CopilotModelCatalog {
     /// Group models into latency tiers, fastest to slowest, for the settings
     /// picker. The special "auto" entry (id "auto", no category) is excluded —
     /// it is the picker's separate "Default (auto)" row. Within a tier, models
-    /// sort by price category (low, medium, high), then by the premium-request
-    /// multiplier, then by display name.
+    /// group by their leading provider-family name (Claude, Gemini, GPT, and so
+    /// on), providers sort A-Z, and models within each provider sort by natural
+    /// name newest/highest first. Unknown provider prefixes form their own group.
     static func tiered(_ models: [CopilotModel]) -> [ModelTier] {
         let order = ["Fastest", "Balanced", "Most capable"]
         var byTitle: [String: [CopilotModel]] = [:]
@@ -185,15 +186,32 @@ enum CopilotModelCatalog {
         }
         return order.compactMap { title in
             guard let group = byTitle[title], !group.isEmpty else { return nil }
-            let sorted = group.sorted { a, b in
-                let ranks = (priceRank(a.modelPickerPriceCategory), priceRank(b.modelPickerPriceCategory))
-                if ranks.0 != ranks.1 { return ranks.0 < ranks.1 }
-                let usage = (a.usageMultiplier ?? .greatestFiniteMagnitude, b.usageMultiplier ?? .greatestFiniteMagnitude)
-                if usage.0 != usage.1 { return usage.0 < usage.1 }
-                return a.name.localizedStandardCompare(b.name) == .orderedAscending
-            }
+            let sorted = group.sorted(by: pickerOrder)
             return ModelTier(id: title, title: title, models: sorted)
         }
+    }
+
+    /// Copilot exposes model ids and names but no provider field. The leading
+    /// alphabetic token gives each known or future family a stable group without
+    /// maintaining an allowlist; fall back to the id for unusual display names.
+    private static func providerFamily(for model: CopilotModel) -> String {
+        let name = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let namePrefix = String(name.prefix { $0.isLetter })
+        if !namePrefix.isEmpty { return namePrefix.lowercased() }
+
+        let id = model.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let idPrefix = String(id.prefix { $0.isLetter })
+        return (idPrefix.isEmpty ? id : idPrefix).lowercased()
+    }
+
+    /// Provider families A-Z, then natural model names newest/highest first.
+    private static func pickerOrder(_ a: CopilotModel, _ b: CopilotModel) -> Bool {
+        let familyOrder = providerFamily(for: a).localizedStandardCompare(providerFamily(for: b))
+        if familyOrder != .orderedSame { return familyOrder == .orderedAscending }
+
+        let nameOrder = a.name.localizedStandardCompare(b.name)
+        if nameOrder != .orderedSame { return nameOrder == .orderedDescending }
+        return a.id.localizedStandardCompare(b.id) == .orderedAscending
     }
 
     /// The recommended low-latency default, derived entirely from what the

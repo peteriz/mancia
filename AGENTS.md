@@ -23,6 +23,8 @@ pragmatic, and proportionate to the app's size.
 - For provider-only checks, prefer:
   - `swift run Mancia --provider-check`
   - `echo "text" | swift run Mancia --complete rewrite`
+- For the About panel, run it against the bundle so it can read a real version:
+  - `build/Mancia.app/Contents/MacOS/Mancia --about-check`
 
 ## Coding Guidelines
 
