@@ -30,12 +30,10 @@ final class EditCoordinator {
     /// The post-apply auto-close beat (hybrid behavior). Cancelled on any panel
     /// key press so the user can keep editing.
     private var autoCloseTask: Task<Void, Never>?
-    /// Iteration history: versions[0] is the session original (reset when the
-    /// user makes a fresh selection or manual edit mid-session), followed by
-    /// one entry per applied result.
-    private var versions: [String] = []
-    /// Which version the document currently shows.
-    private var currentIndex = 0
+    /// Iteration history and every rule about which text a cycle sends. Pure
+    /// and separately tested; this class exists to answer its questions.
+    private var session = EditSession(
+        ownPid: NSRunningApplication.current.processIdentifier)
     /// Guards against overlapping version-restore keystroke sequences.
     private var navigating = false
     /// True from the moment a session begins starting until the panel closes,
@@ -80,8 +78,7 @@ final class EditCoordinator {
         pendingNote = nil
         pendingApply = nil
         capture = nil
-        versions = []
-        currentIndex = 0
+        session.begin(capturedText: nil, targetPid: nil)
         navigating = false
         capturing = true
         // Optimistically assume a selection until capture proves otherwise;
@@ -95,6 +92,9 @@ final class EditCoordinator {
             let result = await SelectionCapture.captureSelection()
             if Task.isCancelled { return }
             self.capture = result
+            session.begin(
+                capturedText: result.text,
+                targetPid: result.targetApp?.processIdentifier)
             self.capturing = false
             let hasSelection = result.text != nil
             model.capturing = false
@@ -111,17 +111,6 @@ final class EditCoordinator {
     }
 
     // MARK: - Actions
-
-    /// How an apply cycle replaces text in the target document.
-    private enum ApplyStrategy {
-        /// ⌘A + ⌘V (entire-document scope; every cycle).
-        case entireDocument
-        /// ⌘V over the live selection (first cycle or fresh user selection).
-        case liveSelection
-        /// ⌘Z first (undo the previous paste, which restores and re-selects
-        /// the replaced text in NSTextView-based apps), then ⌘V over it.
-        case undoThenPaste
-    }
 
     private func perform(_ action: EditAction, note: String? = nil) {
         // Fired before the background capture finished: queue it and show the
@@ -187,7 +176,7 @@ final class EditCoordinator {
     }
 
     /// Perform the actual text replacement for a resolved strategy.
-    private func applyResolved(output: String, strategy: ApplyStrategy, capture: SelectionCaptureResult) async {
+    private func applyResolved(output: String, strategy: EditSession.ApplyStrategy, capture: SelectionCaptureResult) async {
         switch strategy {
         case .entireDocument:
             await SelectionCapture.apply(text: output, to: capture, entireDocument: true)
@@ -211,11 +200,7 @@ final class EditCoordinator {
     /// Record an applied result in the iteration history and move to the applied
     /// phase (shared by the immediate and confirmed apply paths).
     private func recordApplied(output: String, baseline: String) {
-        // Record the iteration: drop any forward history, then append.
-        if versions.isEmpty { versions = [baseline] }
-        versions = Array(versions.prefix(currentIndex + 1))
-        versions.append(output)
-        currentIndex = versions.count - 1
+        session.recordApplied(output: output, baseline: baseline)
         syncIterationState()
         model.restoreDefaultAction()
         model.phase = .applied
@@ -257,69 +242,62 @@ final class EditCoordinator {
 
     /// Determine this cycle's input text and apply strategy.
     ///
-    /// - Document scope: if the session started without selected text, first
-    ///   probe for a fresh live selection. Otherwise re-capture via ⌘A+⌘C every
-    ///   cycle, so manual edits the user made between cycles (and the
-    ///   navigation position) are respected; text that differs from the
-    ///   currently shown version becomes the new session baseline.
-    /// - Selection scope, first cycle: the text captured when the session
-    ///   started; the original selection is still live in the target app.
-    /// - Selection scope, later cycles: probe with a fresh ⌘C — a new user
-    ///   selection becomes the new session baseline. Otherwise the input is
-    ///   versions[currentIndex] (what the document shows), replaced via
-    ///   undo-then-paste.
-    private func resolveInput() async -> (text: String, strategy: ApplyStrategy)? {
-        // Ahead of both scope branches: a run belongs to the app the user is
-        // actually in, and neither branch can tell that the session's target
-        // went stale underneath it.
-        if let retargeted = await retargetToFrontmostApp() { return retargeted }
-        guard let capture else { return nil }
-        if model.scope == .document {
-            if !model.hasSelection,
-               let fresh = await SelectionCapture.captureFreshSelection(from: capture),
-               !fresh.isEmpty,
-               versions.isEmpty || fresh != versions[currentIndex] {
-                adoptFreshSelection(fresh)
-                resetBaseline(to: fresh)
-                return (fresh, .liveSelection)
+    /// The rules are `EditSession`'s, and are documented and tested there.
+    /// This drives it: the session asks for one observation at a time, this
+    /// goes and finds out, and the loop ends at a run or an abort.
+    private func resolveInput() async -> EditSession.Run? {
+        // A capture made for a re-target is held here until the session says
+        // the re-target committed. If the new app turns out to have nothing
+        // selected, the session stays where it is and this is dropped.
+        var newTarget: SelectionCaptureResult?
+        var observation = EditSession.Observation.start(
+            scope: sessionScope, hasSelection: model.hasSelection)
+        while true {
+            switch session.next(after: observation) {
+            case .probeFrontmost:
+                observation = .frontmost(
+                    pid: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+
+            case .captureNewTarget:
+                // A full capture rather than a bare probe: the new app needs
+                // its own pasteboard snapshot to restore after the paste, and
+                // its own `targetApp` for every keystroke from here on.
+                let result = await SelectionCapture.captureSelection()
+                newTarget = result
+                observation = .newTarget(
+                    text: result.text, pid: result.targetApp?.processIdentifier)
+
+            case .probeFreshSelection:
+                guard let capture else { return nil }
+                observation = .freshSelection(
+                    await SelectionCapture.captureFreshSelection(from: capture))
+
+            case .captureDocument:
+                guard let capture else { return nil }
+                observation = .document(
+                    await SelectionCapture.captureEntireDocument(from: capture))
+
+            case .run(let run):
+                if run.committedNewTarget, let newTarget { capture = newTarget }
+                if run.adoptedSelection { adoptFreshSelection(run.text) }
+                syncIterationState()
+                return run
+
+            case .abort:
+                return nil
             }
-            let text = await SelectionCapture.captureEntireDocument(from: capture)
-            guard let text, !text.isEmpty else { return nil }
-            if versions.isEmpty || text != versions[currentIndex] {
-                resetBaseline(to: text)
-            }
-            return (text, .entireDocument)
         }
-        if versions.isEmpty {
-            guard let text = capture.text, !text.isEmpty else { return nil }
-            return (text, .liveSelection)
-        }
-        // Later cycle: check for a fresh user selection first.
-        if let fresh = await SelectionCapture.captureFreshSelection(from: capture), !fresh.isEmpty {
-            // Unconditional, and ahead of the baseline check: even text
-            // identical to the last result can have been re-selected somewhere
-            // else, and the Target chip has to describe the span this run will
-            // actually send, not the one the session opened on.
-            adoptFreshSelection(fresh)
-            if fresh != versions[currentIndex] {
-                // A genuinely new selection starts a new session baseline.
-                resetBaseline(to: fresh)
-            }
-            return (fresh, .liveSelection)
-        }
-        let text = versions[currentIndex]
-        guard !text.isEmpty else { return nil }
-        return (text, .undoThenPaste)
+    }
+
+    private var sessionScope: EditSession.Scope {
+        model.scope == .document ? .document : .selection
     }
 
     /// A freshly captured live selection becomes the session's target.
     ///
-    /// Every place that promotes one — a document-scope session finding a
-    /// selection, a later selection-scope cycle finding a new one, and a
-    /// re-target to another app — has to say the same thing, or the Target
-    /// chip goes on describing the span the session opened on while the run
-    /// sends a different one. Callers own the baseline decision; this only
-    /// states what is now selected.
+    /// The session decides *when* this happens; this only states what is now
+    /// selected, so the Target chip describes the span the run will actually
+    /// send rather than the one the session opened on.
     ///
     /// The target app owns focus at every call site, which is what makes the
     /// selection's bounds readable here.
@@ -330,81 +308,32 @@ final class EditCoordinator {
         ribbon.noteSelectionMoved(SelectionCapture.selectionScreenRect())
     }
 
-    /// The user moved to a different app and selected text there while the
-    /// lane was up.
-    ///
-    /// `capture` — and with it the pid every synthetic keystroke is posted to
-    /// — is frozen when the session starts, so without this the run would pull
-    /// the *original* app forward and edit whatever was still selected in it,
-    /// with nothing on screen saying so.
-    ///
-    /// Re-targeting always goes through `resetBaseline`, which clears the
-    /// version history. That history describes edits Mancia made in the old
-    /// app; replaying it through `.undoThenPaste` would post ⌘Z into an app
-    /// Mancia never pasted into and undo an edit of the user's own.
-    ///
-    /// Only a live selection re-targets. With nothing selected in the new app
-    /// there is no evidence about what the user wants edited, so the session
-    /// stays where it is rather than guessing at a whole-document rewrite.
-    private func retargetToFrontmostApp() async -> (text: String, strategy: ApplyStrategy)? {
-        guard let frontmost = NSWorkspace.shared.frontmostApplication,
-              frontmost.processIdentifier != capture?.targetApp?.processIdentifier,
-              // Never re-target onto Mancia. The lane takes key without
-              // activating the app, so this is normally impossible — but ⌘,
-              // and the permission alert both make Mancia frontmost, and
-              // posting ⌘C to ourselves would capture nothing and strand the
-              // session on the wrong pid.
-              frontmost.processIdentifier != NSRunningApplication.current.processIdentifier
-        else { return nil }
-        // A full capture rather than a bare probe: the new app needs its own
-        // pasteboard snapshot to restore after the paste, and its own
-        // `targetApp` for every keystroke from here on.
-        let result = await SelectionCapture.captureSelection()
-        guard let text = result.text, !text.isEmpty else { return nil }
-        capture = result
-        adoptFreshSelection(text)
-        resetBaseline(to: text)
-        return (text, .liveSelection)
-    }
-
-    /// A fresh selection or manual edit becomes the new session baseline.
-    private func resetBaseline(to text: String) {
-        versions = [text]
-        currentIndex = 0
-        syncIterationState()
-    }
-
     private func syncIterationState() {
-        model.versionCount = versions.count
-        model.currentIndex = currentIndex
+        model.versionCount = session.versionCount
+        model.currentIndex = session.currentIndex
     }
 
-    /// Replace the document text with versions[index].
+    /// Step the document to another version in the session's history.
     ///
     /// - Selection scope: ⌘Z (undo of the outstanding paste restores and
     ///   re-selects the replaced region in NSTextView-based apps) followed by
-    ///   ⌘V with versions[index] — always undo-then-paste, including for
-    ///   index 0, so exactly one paste stays outstanding.
-    /// - Document scope: ⌘A + ⌘V with versions[index], which stays correct
-    ///   even when the user manually edited between cycles.
+    ///   ⌘V — always undo-then-paste, including for index 0, so exactly one
+    ///   paste stays outstanding.
+    /// - Document scope: ⌘A + ⌘V, which stays correct even when the user
+    ///   manually edited between cycles.
+    ///
+    /// Which text that is, and how it goes back, are `EditSession`'s to say.
     @discardableResult
     private func restoreVersion(at index: Int) -> Bool {
-        guard let capture, model.phase == .applied, !navigating,
-              index >= 0, index < versions.count, index != currentIndex else { return false }
+        guard let capture, model.phase == .applied, !navigating else { return false }
+        guard let run = session.navigate(to: index, scope: sessionScope) else { return false }
         autoCloseTask?.cancel()
         autoCloseTask = nil
         navigating = true
-        currentIndex = index
         syncIterationState()
         currentTask = Task {
             defer { navigating = false }
-            let text = versions[index]
-            if model.scope == .document {
-                await SelectionCapture.apply(text: text, to: capture, entireDocument: true)
-            } else {
-                await SelectionCapture.undo(in: capture)
-                await SelectionCapture.apply(text: text, to: capture, entireDocument: false)
-            }
+            await applyResolved(output: run.text, strategy: run.strategy, capture: capture)
             dodgeAppliedText()
             ribbon.focus()
         }
@@ -415,7 +344,7 @@ final class EditCoordinator {
     /// edits `restoreVersion` still leaves exactly one target-app paste on its
     /// undo stack, preserving the existing safe replacement behavior.
     private func undoLastVersion() -> Bool {
-        restoreVersion(at: currentIndex - 1)
+        restoreVersion(at: session.currentIndex - 1)
     }
 
     /// Retry after an error by running what the ribbon currently describes.
@@ -444,7 +373,7 @@ final class EditCoordinator {
         // Discard any result awaiting confirmation and return to a resting state.
         pendingApply = nil
         model.pendingResultPreview = ""
-        model.phase = versions.count > 1 ? .applied : .idle
+        model.phase = session.versionCount > 1 ? .applied : .idle
         ribbon.focus()
     }
 
