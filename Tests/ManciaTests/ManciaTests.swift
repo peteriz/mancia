@@ -1817,12 +1817,14 @@ func placementFollowsAClearSelection() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
-@Test("A selection-anchored lane stays horizontally with its window")
-func placementKeepsSelectionAnchorsWithTheHostWindow() {
+@Test("A selection-anchored lane spans the selection, not the window around it")
+func placementSpansTheSelectionNotTheHostWindow() {
     let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
     let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
-    let host = CGRect(x: 1964, y: 402, width: 673, height: 439)
-    let selection = CGRect(x: 1974, y: 793, width: 354, height: 16)
+    // A window three times the width of the text selected inside it: centering
+    // the lane on the window would put it half a screen from the words.
+    let host = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    let selection = CGRect(x: 1800, y: 793, width: 354, height: 16)
     let resolved = RibbonPlacement.resolve(
         height: 48,
         in: .init(
@@ -1830,12 +1832,80 @@ func placementKeepsSelectionAnchorsWithTheHostWindow() {
             hostWindowFrame: host, selectionRect: selection))
 
     #expect(resolved.anchor == .belowSelection)
+    #expect(resolved.frame.midX == selection.midX, "the span is what the lane is centered on")
     #expect(
-        resolved.frame.maxX == screen.maxX,
-        "the host is against the screen edge, so its lane should clamp there with it")
+        resolved.frame.width == RibbonPlacement.minimumWidth,
+        "a span narrower than the row needs still gets a legible row, not a window-wide one")
+}
+
+@Test("A selection near the screen edge keeps its lane on the display")
+func placementClampsASelectionAnchoredLaneToTheScreen() {
+    let screen = CGRect(x: 0, y: 0, width: 2560, height: 1440)
+    let visible = CGRect(x: 0, y: 0, width: 2560, height: 1410)
+    let host = CGRect(x: 1964, y: 402, width: 673, height: 439)
+    let selection = CGRect(x: 2200, y: 793, width: 340, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 48,
+        in: .init(
+            screenFrame: screen, visibleFrame: visible,
+            hostWindowFrame: host, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(resolved.frame.maxX == screen.maxX, "centering alone would hang it off the right edge")
     #expect(
         resolved.frame.maxX > selection.minX && resolved.frame.minX < selection.maxX,
         "the lane must remain horizontally adjacent to the selected text")
+}
+
+@Test("A wide selection widens the lane, up to the cap")
+func placementWidensTheLaneToTheSelection() {
+    let selection = CGRect(x: 300, y: 500, width: 760, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection)
+    #expect(
+        resolved.frame.width == selection.width + 2 * RibbonPlacement.selectionClearance,
+        "the lane spans the words it is about to rewrite")
+    #expect(resolved.frame.midX == selection.midX)
+}
+
+@Test("A selection wider than the cap does not widen the lane past it")
+func placementCapsAWideSelectionsLane() {
+    let selection = CGRect(x: 100, y: 500, width: 1200, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.frame.width == RibbonPlacement.maximumWidth)
+    #expect(resolved.frame.midX == selection.midX, "still centered on the span it edits")
+}
+
+@Test("A small host window neither shrinks the lane nor bounds the room beside the text")
+func placementIgnoresASmallHostWindowBesideTheSelection() {
+    // A short window on a large display, its menu bar auto-hidden so the host
+    // window is what the resting anchor would hang from. The old rule measured
+    // the room at the selection's ends against that window's own edges, so a
+    // selection near its foot was pushed above the words even though the
+    // display below them was empty.
+    let host = CGRect(x: 400, y: 300, width: 340, height: 260)
+    let selection = CGRect(x: 500, y: 320, width: 200, height: 16)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonScreen,
+            hostWindowFrame: host, menuBarHidden: true, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "there is room on the display, whatever the window says")
+    #expect(
+        resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance,
+        "the lane floats over its host; it is not clipped to it")
+    #expect(resolved.frame.minY < host.minY, "so it may hang past the window's foot to stay with the words")
+    #expect(resolved.frame.width == RibbonPlacement.minimumWidth, "and it is not squeezed to the window")
+    #expect(resolved.frame.midX == selection.midX)
 }
 
 @Test("A caret is not a selection, so the lane takes its predictable place")
@@ -1937,8 +2007,11 @@ func placementIgnoresAMarginTooNarrowToStandIn() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
-@Test("Off-screen host area does not count as margin")
-func placementMeasuresMarginsInsideTheTargetDisplay() {
+@Test("Margins are measured on the display, not on the host window")
+func placementMeasuresMarginsOnTheDisplay() {
+    // A window hanging off the left edge of the display, with a tall block
+    // selected in it. The margin that matters is the one on screen beside the
+    // words, not the part of the window nobody can see.
     let host = CGRect(x: -400, y: 0, width: 1440, height: 900)
     let selection = CGRect(x: 500, y: 150, width: 100, height: 670)
     let resolved = RibbonPlacement.resolve(
@@ -1948,9 +2021,11 @@ func placementMeasuresMarginsInsideTheTargetDisplay() {
             hostWindowFrame: host, menuBarHidden: true, selectionRect: selection))
 
     #expect(
-        resolved.anchor == .belowSelection,
-        "the 400pt beyond the left edge must not make that flank appear wide enough")
+        resolved.anchor == .rightOfSelection,
+        "832pt of display beside the block, whatever the window's own edge says")
     #expect(!resolved.frame.intersects(selection), "screen clamping must not move the lane across the words")
+    #expect(resolved.frame.minX == selection.maxX + RibbonPlacement.selectionClearance)
+    #expect(resolved.frame.maxX <= ribbonScreen.maxX, "and it stays on the display")
 }
 
 @Test("A lane in the margin keeps its clearance as it grows")
@@ -2074,19 +2149,24 @@ func placementSitsUnderTheSelectionWithinAFullScreenHost() {
     #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
 }
 
-@Test("A lane sitting against the selection is still centered on its host")
-func placementDoesNotChaseTheSelectionSideways() {
+@Test("A lane sitting against the selection follows it sideways too")
+func placementFollowsTheSelectionSideways() {
     let resting = RibbonPlacement.resolve(
         height: 56,
         in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
+    // The same display, with a span selected well to the right of center.
+    let selection = CGRect(x: 900, y: 600, width: 300, height: 16)
     let beside = RibbonPlacement.resolve(
         height: 56,
         in: .init(
             screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
-            selectionRect: selectionUnderTheMenuBar))
+            selectionRect: selection))
 
-    #expect(beside.frame.minX == resting.frame.minX, "vertical position follows the selection; horizontal does not")
-    #expect(beside.frame.width == resting.frame.width)
+    #expect(beside.frame.midX == selection.midX, "both axes follow the selection")
+    #expect(beside.frame.minX != resting.frame.minX, "which is not where the resting lane would be")
+    #expect(
+        resting.frame.midX == ribbonVisible.midX,
+        "and with nothing selected the resting lane is still screen-centered")
 }
 
 // MARK: - Ribbon placement: stepping off the applied text

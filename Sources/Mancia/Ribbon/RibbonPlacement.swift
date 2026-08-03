@@ -7,13 +7,14 @@ import CoreGraphics
 ///
 /// The rule the ribbon rests on:
 ///
-/// > When the host reports where the selected text is, sit just under it —
-/// > just over it if the selection is too near the foot of the host to fit
-/// > beneath. When the selection is too tall for either end, sit in the margin
-/// > beside it. Otherwise — a bare caret, or a host that cannot answer — take
-/// > the predictable place: flush below the menu bar when the screen reserves
-/// > a strip for it, or inset below the frontmost window's title bar when it
-/// > does not.
+/// > When the host reports where the selected text is, sit against it: just
+/// > under the span, just over it if it sits too near the foot of the display
+/// > to fit beneath, and in the margin beside it when it is too tall for
+/// > either end. The window around the text has no say in any of that.
+/// > Otherwise — a bare caret, so the whole document is the target, or a host
+/// > that cannot answer — take the predictable place: flush below the menu bar
+/// > when the screen reserves a strip for it, or inset below the frontmost
+/// > window's title bar when it does not.
 ///
 /// The lane used to take the predictable place always, and drop to the *foot
 /// of the host* when it would otherwise cover the selection. That cleared the
@@ -41,12 +42,17 @@ import CoreGraphics
 /// fallback is the deliberate exception: its opening row clears the words,
 /// but screen clamping can move a grown gate back over the far end.
 ///
-/// Horizontal position is imposed by the host window, not by the caret, at the
-/// two selection-end anchors — the lane stays with the window without chasing
-/// a caret sideways along a line. The resting screen anchor keeps its
-/// predictable screen-centered width. A lane in the margin is the one
-/// exception, and it is not chasing anything: it is the only place left that
-/// the text does not already occupy.
+/// The selected span drives *both* axes, and the host window drives neither.
+/// A lane at an end of the selection is centered on the span and as wide as
+/// it, held between `minimumWidth` and `maximumWidth` — a window ten times the
+/// width of the sentence being edited is no reason to put the lane ten
+/// paragraphs away from it, and one narrower than the lane is no reason to
+/// squeeze it. Room is measured against the display's band for the same
+/// reason: the lane floats over its host rather than inside it. A lane in the
+/// margin is the one anchor sized by something else again — the margin it
+/// stands in, so it never reaches back over the words. The window is consulted
+/// for the resting anchors alone, which is where the lane goes when no
+/// selection points anywhere better.
 ///
 /// One amendment after each apply: pasting can put words where the opening
 /// geometry never described them — a longer result flows past the old
@@ -227,50 +233,66 @@ enum RibbonPlacement {
         let restingHost = menuBarReservesStrip
             ? context.visibleFrame
             : (context.hostWindowFrame ?? context.screenFrame)
-        let selectionHost = context.hostWindowFrame ?? restingHost
 
         let clearance = menuBarReservesStrip
             ? 0
             : max(revealClearance, context.safeAreaTop + 4)
-        // How far above the bottom of the host the lane may reach. A
+        // How far above the bottom of the band the lane may reach. A
         // screen-anchored lane measures against the visible frame, which
         // already excludes the Dock; a window-anchored one is floating over
         // its host, so it keeps the same inset it uses at the top.
         let floorClearance = menuBarReservesStrip ? 0 : revealClearance
 
+        // The band a lane sitting against the selection may occupy: the
+        // display, never the host window. The lane is a floating overlay, not
+        // a subview of its host, so a small window is no reason to send the
+        // lane away from the words inside it — and a window bigger than the
+        // selection is no reason to move the lane away from them either.
+        let band = menuBarReservesStrip ? context.visibleFrame : context.screenFrame
+
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
         let restingWidth = max(minimumWidth, min(restingHost.width, maximumWidth))
         let restingX = restingHost.minX + (restingHost.width - restingWidth) / 2
-        let selectionWidth = max(minimumWidth, min(selectionHost.width, maximumWidth))
-        let selectionX = selectionHost.minX + (selectionHost.width - selectionWidth) / 2
 
-        // The band the lane is allowed to occupy.
-        let ceiling = restingHost.maxY - clearance
-        let floor = restingHost.minY + floorClearance
         let selection = avoidedSelection(in: context)
+        // A lane at an end of the selection spans the selection, not the
+        // window around it: as wide as the selected span, held between the
+        // width the row needs to stay legible and the width past which it
+        // stops reading as one sentence. With no selection there is nothing to
+        // span, and the resting width stands in.
+        let selectionWidth = max(minimumWidth, min(selection?.width ?? restingWidth, maximumWidth))
+        // Centered on the span, so the lane is under the words the user
+        // highlighted rather than under the middle of whatever window happens
+        // to contain them.
+        let selectionX = (selection?.midX ?? restingHost.midX) - selectionWidth / 2
+
+        // Where the resting anchors hang from — the one place the host window
+        // still has a say, because it is the place taken when no selection
+        // points anywhere better.
+        let restingTop = restingHost.maxY - clearance
+        let ceiling = band.maxY - clearance
+        let floor = band.minY + floorClearance
         let resting: Anchor = menuBarReservesStrip ? .screen : .hostWindow
-        let onScreenHost = restingHost.intersection(context.screenFrame)
 
         /// The margin between one flank of the selection and the edge of the
-        /// on-screen host. A host can extend beyond its target display; counting
-        /// that off-screen area would let the clamp push the lane back across
-        /// the selection.
+        /// band. Measured on the display, so a host window that extends past
+        /// the display — or one narrower than the room actually beside the
+        /// text — neither invents margin nor hides it.
         func margin(_ side: Anchor) -> CGFloat? {
-            guard let selection, !onScreenHost.isNull else { return nil }
+            guard let selection else { return nil }
             return side == .leftOfSelection
-                ? selection.minX - onScreenHost.minX
-                : onScreenHost.maxX - selection.maxX
+                ? selection.minX - band.minX
+                : band.maxX - selection.maxX
         }
 
         /// A lane in the margin, or `nil` when that margin cannot hold one.
         ///
-        /// It is the one anchor whose width is not the host's: it takes the
-        /// widest lane the margin can hold, so it never reaches across the
-        /// text it is standing beside. And it is the one anchor that grows
-        /// symmetrically — the edge it pins is the vertical one facing the
-        /// selection, and along a margin it owns outright there is nothing
-        /// for the other axis to creep over.
+        /// It takes the widest lane the margin can hold, so it never reaches
+        /// across the text it is standing beside. And it is the one anchor
+        /// that grows symmetrically — the edge it pins is the vertical one
+        /// facing the selection, and along a margin it owns outright there is
+        /// nothing for the other axis to creep over.
         func marginFrame(_ side: Anchor, _ h: CGFloat) -> CGRect? {
             guard let selection, let margin = margin(side), margin >= minimumWidth else { return nil }
             let w = max(minimumWidth, min(margin, maximumWidth))
@@ -287,13 +309,13 @@ enum RibbonPlacement {
         /// once the review gate outgrows the room accepted at open.
         func frame(_ anchor: Anchor, _ h: CGFloat) -> CGRect {
             let restingFrame = CGRect(
-                x: restingX, y: ceiling - h, width: restingWidth, height: h)
+                x: restingX, y: restingTop - h, width: restingWidth, height: h)
             let rect: CGRect = switch anchor {
             case .screen, .hostWindow:
                 restingFrame
             case .belowSelection:
                 CGRect(
-                    x: selectionX, y: (selection?.minY ?? ceiling) - h,
+                    x: selectionX, y: (selection?.minY ?? restingTop) - h,
                     width: selectionWidth, height: h)
             case .aboveSelection:
                 CGRect(
@@ -313,15 +335,14 @@ enum RibbonPlacement {
             // above the menu bar — is not something to sit against.
             guard selection.minY <= ceiling, selection.maxY >= floor else { return resting }
 
-            // Deliberately measured against the screen band, not the host
-            // window, even though `host` is the window in the no-menu-bar case.
-            // The lane is a floating overlay; it is not clipped to its host, and
-            // a short window high on a large display has plenty of room beneath
-            // it. Bounding the fit by the window would send the lane back to the
-            // resting anchor at the top of the screen precisely when the
-            // selection is near the window's foot — the long trek this rule
-            // exists to remove. Spilling past a short host's bottom edge keeps
-            // the lane 8pt from the words; retreating to the menu bar does not.
+            // Measured against the display's band, never the host window. The
+            // lane is a floating overlay; it is not clipped to its host, and a
+            // short window high on a large display has plenty of room beneath
+            // it. Bounding the fit by the window would send the lane back to
+            // the resting anchor precisely when the selection is near the
+            // window's foot — the long trek this rule exists to remove.
+            // Spilling past a short host's bottom edge keeps the lane 8pt from
+            // the words; retreating to the menu bar does not.
             let below = selection.minY - floor
             let above = ceiling - selection.maxY
 
@@ -343,10 +364,10 @@ enum RibbonPlacement {
                 return right >= left ? .rightOfSelection : .leftOfSelection
             }
 
-            // No margin either: the block spans the host in both directions.
-            // Sit at whichever end can still hold the lane as it opens — see
-            // `crampedRoom` — rather than covering the head of the block from
-            // the far end of the screen.
+            // No margin either: the block spans the display in both
+            // directions. Sit at whichever end can still hold the lane as it
+            // opens — see `crampedRoom` — rather than covering the head of the
+            // block from the far end of the screen.
             if max(below, above) >= crampedRoom {
                 return below >= above ? .belowSelection : .aboveSelection
             }
