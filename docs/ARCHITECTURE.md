@@ -21,8 +21,8 @@ Sources/Mancia/
 │                                 posted to the target app's pid (CGEvent.postToPid)
 ├── EditCoordinator.swift         Orchestrates a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
-├── DebugCLI.swift                --provider-check / --complete / --about-check headless
-│                                 and UI entry points
+├── DebugCLI.swift                --provider-check / --complete / --about-check /
+│                                 --ribbon-click-check headless and UI entry points
 ├── AboutPanel.swift              The standard About panel's options, icon, and presentation
 ├── AppVersion.swift              Reads the version from the bundle; no version literal in Swift
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
