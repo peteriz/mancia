@@ -350,6 +350,13 @@ enum RibbonPlacement {
         return Resolution(frame: frame(anchor, height), anchor: anchor)
     }
 
+    /// Resize a lane the user has moved without taking its position back.
+    /// A floating lane grows down from the top edge, matching its ordinary
+    /// screen- and window-anchored layout.
+    static func resizedUserFrame(_ frame: CGRect, width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(x: frame.minX, y: frame.maxY - height, width: width, height: height)
+    }
+
     /// The span the applied text occupies once a paste has landed, judged
     /// from the two rectangles the session can still read: the selection the
     /// result replaced and the caret that now ends it. Pasting collapses the

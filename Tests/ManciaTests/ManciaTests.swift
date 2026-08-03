@@ -1764,6 +1764,17 @@ func placementFallsBackToTheScreenWithNoHostWindow() {
             "with no host to hang from, the screen edge stands in — inset all the same")
 }
 
+@Test("A user-positioned lane keeps its top-left position while content grows")
+func placementResizesAroundTheUserPosition() {
+    let moved = CGRect(x: 275, y: 420, width: 700, height: 56)
+    let resized = RibbonPlacement.resizedUserFrame(moved, width: 700, height: 180)
+
+    #expect(resized.minX == moved.minX)
+    #expect(resized.maxY == moved.maxY)
+    #expect(resized.width == 700)
+    #expect(resized.height == 180)
+}
+
 // MARK: - Ribbon placement: sitting against the selection
 
 /// A selection on the first line of a window sitting flush under the menu bar.
