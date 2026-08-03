@@ -64,14 +64,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         settings.target = self
         menu.addItem(settings)
 
-        let about = NSMenuItem(title: "About", action: #selector(openAbout), keyEquivalent: "")
+        let about = NSMenuItem(
+            title: "About Mancia", action: #selector(openAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
-            title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            title: "Quit Mancia", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
     }
 

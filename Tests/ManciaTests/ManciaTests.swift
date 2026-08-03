@@ -2003,3 +2003,102 @@ func longerResultReopensTheAnchor() {
     #expect(!dodged.frame.intersects(updated!), "the lane steps off the words it just wrote")
     #expect(dodged.anchor == .belowSelection, "and sits back against them from the near side")
 }
+
+// MARK: - App version
+
+@Test("The version comes from the bundle, never a Swift literal")
+func appVersionReadsBundleInfo() {
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": "1.2.3"]) == "1.2.3")
+    // Unbundled (`swift run Mancia`) has no Info.plist to read.
+    #expect(AppVersion.short(from: nil) == AppVersion.unbundled)
+    #expect(AppVersion.short(from: [:]) == AppVersion.unbundled)
+    // A blank value is missing, not a version.
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": "   "]) == AppVersion.unbundled)
+    #expect(AppVersion.short(from: ["CFBundleShortVersionString": 3]) == AppVersion.unbundled)
+    // The fallback must never look like a release.
+    #expect(AppVersion.unbundled.rangeOfCharacter(from: .decimalDigits) == nil)
+}
+
+@Test("The About string shows the build number only when it differs")
+func appVersionDisplayString() {
+    #expect(
+        AppVersion.displayString(
+            from: ["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "0.2.2"]) == "0.2.2",
+        "a matching build number is noise")
+    #expect(
+        AppVersion.displayString(
+            from: ["CFBundleShortVersionString": "0.2.2", "CFBundleVersion": "17"]) == "0.2.2 (17)")
+    #expect(
+        AppVersion.displayString(from: ["CFBundleShortVersionString": "0.2.2"]) == "0.2.2")
+}
+
+@Test("The About panel carries the bundle version, not a hardcoded one")
+@MainActor
+func aboutPanelOptionsUseBundleVersion() {
+    let options = AboutPanel.options(
+        info: ["CFBundleShortVersionString": "9.9.9", "CFBundleVersion": "9.9.9"], icon: nil)
+    #expect(options[.applicationName] as? String == "Mancia")
+    #expect(options[.applicationVersion] as? String == "9.9.9")
+    #expect(options[.applicationIcon] == nil, "a missing icon is omitted, not faked")
+}
+
+@Test("The About diagnostic reads visible nested panel text")
+@MainActor
+func aboutPanelDisplayedText() {
+    let root = NSView()
+    let container = NSView()
+    container.addSubview(NSTextField(labelWithString: "Version 9.9.9"))
+    container.addSubview(NSTextField(labelWithString: "Copyright"))
+    root.addSubview(container)
+
+    let hidden = NSTextField(labelWithString: "stale 0.1.0")
+    hidden.isHidden = true
+    root.addSubview(hidden)
+
+    let panel = NSPanel()
+    panel.contentView = root
+
+    #expect(AboutPanel.displayedText(in: panel) == ["Version 9.9.9", "Copyright"])
+}
+
+/// `Support/Info.plist` is the one place a version number lives. These guard
+/// the sync: the release workflow rewrites both plist keys from the git tag,
+/// and the release commit bumps the changelog to the same number.
+@Test("Support/Info.plist keeps its two version keys in step")
+func infoPlistVersionKeysAgree() throws {
+    let info = try repoInfoPlist()
+    let short = try #require(info["CFBundleShortVersionString"] as? String)
+    let build = try #require(info["CFBundleVersion"] as? String)
+    #expect(short == build, "CFBundleShortVersionString and CFBundleVersion have drifted")
+}
+
+@Test("The changelog's newest release matches the bundle version")
+func changelogMatchesInfoPlist() throws {
+    let info = try repoInfoPlist()
+    let short = try #require(info["CFBundleShortVersionString"] as? String)
+    let changelog = try String(contentsOf: repoRoot.appending(path: "CHANGELOG.md"), encoding: .utf8)
+    // The first `## [x.y.z]` heading, skipping `## [Unreleased]`.
+    let newest = changelog
+        .split(separator: "\n")
+        .compactMap { line -> String? in
+            guard line.hasPrefix("## ["), let close = line.firstIndex(of: "]") else { return nil }
+            let name = String(line[line.index(line.startIndex, offsetBy: 4)..<close])
+            return name == "Unreleased" ? nil : name
+        }
+        .first
+    #expect(newest == short, "CHANGELOG.md's newest release should be the bundled version")
+}
+
+private var repoRoot: URL {
+    URL(filePath: #filePath)  // Tests/ManciaTests/ManciaTests.swift
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private func repoInfoPlist() throws -> [String: Any] {
+    let url = repoRoot.appending(path: "Support/Info.plist")
+    let data = try Data(contentsOf: url)
+    let parsed = try PropertyListSerialization.propertyList(from: data, format: nil)
+    return parsed as? [String: Any] ?? [:]
+}
