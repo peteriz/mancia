@@ -2257,3 +2257,328 @@ private func repoInfoPlist() throws -> [String: Any] {
     let parsed = try PropertyListSerialization.propertyList(from: data, format: nil)
     return parsed as? [String: Any] ?? [:]
 }
+
+// MARK: - Edit session rules
+
+private let sessionOwnPid: pid_t = 99
+private let sessionHostPid: pid_t = 501
+private let sessionOtherPid: pid_t = 777
+
+private func startedSession(
+    capturedText: String? = "original", targetPid: pid_t = sessionHostPid
+) -> EditSession {
+    var session = EditSession(ownPid: sessionOwnPid)
+    session.begin(capturedText: capturedText, targetPid: targetPid)
+    return session
+}
+
+/// Drive a resolution and return every step it took, so the *order* of the
+/// probes is asserted rather than just the answer they arrive at.
+private func sessionSteps(
+    _ session: inout EditSession, _ observations: [EditSession.Observation]
+) -> [EditSession.Step] {
+    observations.map { session.next(after: $0) }
+}
+
+private func liveRun(
+    _ text: String, adopted: Bool = true, committedTarget: Bool = false
+) -> EditSession.Step {
+    .run(.init(
+        text: text, strategy: .liveSelection,
+        adoptedSelection: adopted, committedNewTarget: committedTarget))
+}
+
+@Test("The frontmost app is checked ahead of both scope branches")
+func sessionChecksFrontmostBeforeScope() {
+    var selection = startedSession()
+    #expect(selection.next(after: .start(scope: .selection, hasSelection: true)) == .probeFrontmost)
+
+    var document = startedSession(capturedText: nil)
+    #expect(document.next(after: .start(scope: .document, hasSelection: false)) == .probeFrontmost)
+}
+
+@Test("Only a live selection re-targets to the app the user moved to")
+func sessionRetargetsOnlyOnALiveSelection() {
+    var adopted = startedSession()
+    #expect(sessionSteps(&adopted, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionOtherPid),
+        .newTarget(text: "over here", pid: sessionOtherPid),
+    ]) == [.probeFrontmost, .captureNewTarget, liveRun("over here", committedTarget: true)])
+
+    // Nothing selected in the new app is no evidence about what to edit, so the
+    // session stays on the text it opened against.
+    var declined = startedSession()
+    #expect(sessionSteps(&declined, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionOtherPid),
+        .newTarget(text: nil, pid: sessionOtherPid),
+    ]) == [.probeFrontmost, .captureNewTarget, liveRun("original", adopted: false)])
+
+    var empty = startedSession()
+    #expect(sessionSteps(&empty, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionOtherPid),
+        .newTarget(text: "", pid: sessionOtherPid),
+    ]).last == liveRun("original", adopted: false))
+}
+
+@Test("Re-targeting clears the history, so no undo can reach the new app")
+func sessionRetargetClearsHistory() {
+    var session = startedSession()
+    session.recordApplied(output: "v1", baseline: "original")
+    session.recordApplied(output: "v2", baseline: "v1")
+    #expect(session.versionCount == 3)
+
+    let steps = sessionSteps(&session, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionOtherPid),
+        .newTarget(text: "elsewhere", pid: sessionOtherPid),
+    ])
+
+    #expect(steps.last == liveRun("elsewhere", committedTarget: true))
+    #expect(session.versions == ["elsewhere"], "history describes edits made in the old app")
+    // The danger this guards: ⌘Z posted into an app Mancia never pasted into
+    // would undo an edit of the user's own.
+    guard case .run(let run)? = steps.last else { return #expect(Bool(false)) }
+    #expect(run.strategy != .undoThenPaste)
+}
+
+@Test("Mancia's own pid never re-targets the session onto itself")
+func sessionNeverRetargetsOntoItself() {
+    var session = startedSession()
+    // ⌘, and the permission alert both make Mancia frontmost mid-session.
+    #expect(sessionSteps(&session, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionOwnPid),
+    ]) == [.probeFrontmost, liveRun("original", adopted: false)])
+
+    // The session's own target is likewise not a move.
+    var same = startedSession()
+    #expect(sessionSteps(&same, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+    ]).last == liveRun("original", adopted: false))
+}
+
+@Test("Document scope with nothing selected probes for a selection before ⌘A")
+func sessionDocumentScopeProbesForSelectionFirst() {
+    var promoted = startedSession(capturedText: nil)
+    #expect(sessionSteps(&promoted, [
+        .start(scope: .document, hasSelection: false),
+        .frontmost(pid: sessionHostPid),
+        .freshSelection("just selected"),
+    ]) == [.probeFrontmost, .probeFreshSelection, liveRun("just selected")])
+    #expect(promoted.versions == ["just selected"])
+
+    // Still nothing selected: fall back to the whole document.
+    var fallback = startedSession(capturedText: nil)
+    #expect(sessionSteps(&fallback, [
+        .start(scope: .document, hasSelection: false),
+        .frontmost(pid: sessionHostPid),
+        .freshSelection(nil),
+    ]) == [.probeFrontmost, .probeFreshSelection, .captureDocument])
+
+    // A session that already knows it has a selection goes straight to ⌘A.
+    var direct = startedSession()
+    #expect(sessionSteps(&direct, [
+        .start(scope: .document, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+    ]) == [.probeFrontmost, .captureDocument])
+}
+
+@Test("A manual edit between document cycles becomes the new baseline")
+func sessionDocumentScopeAdoptsManualEdits() {
+    var session = startedSession()
+    session.recordApplied(output: "generated", baseline: "original")
+    #expect(session.versions == ["original", "generated"])
+
+    var edited = session
+    #expect(sessionSteps(&edited, [
+        .start(scope: .document, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+        .document("the user typed over it"),
+    ]).last == .run(.init(
+        text: "the user typed over it", strategy: .entireDocument,
+        adoptedSelection: false, committedNewTarget: false)))
+    #expect(edited.versions == ["the user typed over it"], "a manual edit restarts the history")
+
+    // Unchanged text leaves the history alone.
+    var untouched = session
+    #expect(sessionSteps(&untouched, [
+        .start(scope: .document, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+        .document("generated"),
+    ]).last?.isRun == true)
+    #expect(untouched.versions == ["original", "generated"])
+}
+
+@Test("A fresh selection is adopted even when identical to the last result")
+func sessionAdoptsIdenticalFreshSelection() {
+    var session = startedSession()
+    session.recordApplied(output: "same words", baseline: "original")
+
+    let steps = sessionSteps(&session, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+        .freshSelection("same words"),
+    ])
+
+    // Adoption is unconditional and ahead of the baseline check: the same text
+    // can have been re-selected somewhere else, and the Target chip has to
+    // describe the span this run will actually send.
+    #expect(steps.last == liveRun("same words"))
+    #expect(session.versions == ["original", "same words"], "identical text is not a new baseline")
+
+    // Genuinely different text does restart the baseline.
+    var moved = startedSession()
+    moved.recordApplied(output: "same words", baseline: "original")
+    #expect(sessionSteps(&moved, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+        .freshSelection("a different sentence"),
+    ]).last == liveRun("a different sentence"))
+    #expect(moved.versions == ["a different sentence"])
+}
+
+@Test("The first selection cycle pastes over the live selection, later ones undo first")
+func sessionSelectionStrategyFollowsTheCycle() {
+    var first = startedSession()
+    #expect(sessionSteps(&first, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+    ]).last == liveRun("original", adopted: false), "the original selection is still live")
+
+    var later = startedSession()
+    later.recordApplied(output: "v1", baseline: "original")
+    #expect(sessionSteps(&later, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+        .freshSelection(nil),
+    ]) == [.probeFrontmost, .probeFreshSelection, .run(.init(
+        text: "v1", strategy: .undoThenPaste,
+        adoptedSelection: false, committedNewTarget: false))],
+    "exactly one paste stays outstanding")
+}
+
+@Test("Recording an applied result drops any forward history")
+func sessionRecordAppliedTruncatesForwardHistory() {
+    var session = startedSession()
+    session.recordApplied(output: "v1", baseline: "original")
+    session.recordApplied(output: "v2", baseline: "v1")
+    #expect(session.versions == ["original", "v1", "v2"])
+    #expect(session.currentIndex == 2)
+
+    _ = session.navigate(to: 1, scope: .selection)
+    session.recordApplied(output: "v3", baseline: "v1")
+    #expect(session.versions == ["original", "v1", "v3"])
+    #expect(session.currentIndex == 2)
+
+    // A first result seeds the original from the baseline it replaced.
+    var seeded = startedSession()
+    seeded.recordApplied(output: "only", baseline: "the original text")
+    #expect(seeded.versions == ["the original text", "only"])
+}
+
+@Test("Navigation strategy follows the scope, including back to index 0")
+func sessionNavigationStrategyFollowsScope() {
+    var session = startedSession()
+    session.recordApplied(output: "v1", baseline: "original")
+    session.recordApplied(output: "v2", baseline: "v1")
+
+    // Selection scope always undoes first, index 0 included, so exactly one
+    // paste stays outstanding.
+    #expect(session.navigate(to: 0, scope: .selection)?.strategy == .undoThenPaste)
+    #expect(session.currentIndex == 0)
+    #expect(session.navigate(to: 2, scope: .document)?.strategy == .entireDocument)
+    #expect(session.navigate(to: 1, scope: .selection)?.text == "v1")
+
+    // Nowhere to go.
+    #expect(session.navigate(to: 1, scope: .selection) == nil, "already there")
+    #expect(session.navigate(to: -1, scope: .selection) == nil)
+    #expect(session.navigate(to: 3, scope: .selection) == nil)
+    #expect(session.currentIndex == 1, "a refused move leaves the position alone")
+}
+
+@Test("Nothing to edit aborts rather than sending empty text")
+func sessionAbortsWithNothingToEdit() {
+    var noCapture = startedSession(capturedText: nil)
+    #expect(sessionSteps(&noCapture, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+    ]).last == .abort)
+
+    var emptyCapture = startedSession(capturedText: "")
+    #expect(sessionSteps(&emptyCapture, [
+        .start(scope: .selection, hasSelection: true),
+        .frontmost(pid: sessionHostPid),
+    ]).last == .abort)
+
+    for empty: String? in [nil, ""] {
+        var document = startedSession()
+        #expect(sessionSteps(&document, [
+            .start(scope: .document, hasSelection: true),
+            .frontmost(pid: sessionHostPid),
+            .document(empty),
+        ]).last == .abort)
+    }
+}
+
+@Test("Every resolution reaches a run or an abort, whatever the target reports")
+func sessionResolutionAlwaysTerminates() {
+    let answers: [String?] = [nil, "", "text"]
+    let pids: [pid_t?] = [nil, sessionHostPid, sessionOtherPid, sessionOwnPid]
+
+    for scope in [EditSession.Scope.selection, .document] {
+        for hasSelection in [true, false] {
+            for captured in answers {
+                for frontmost in pids {
+                    for newTarget in answers {
+                        for fresh in answers {
+                            for document in answers {
+                                var session = startedSession(capturedText: captured)
+                                session.recordApplied(output: "v1", baseline: "seed")
+                                var observation = EditSession.Observation
+                                    .start(scope: scope, hasSelection: hasSelection)
+                                var taken = 0
+                                var finished = false
+                                while taken < 8, !finished {
+                                    taken += 1
+                                    switch session.next(after: observation) {
+                                    case .probeFrontmost:
+                                        observation = .frontmost(pid: frontmost)
+                                    case .captureNewTarget:
+                                        observation = .newTarget(text: newTarget, pid: sessionOtherPid)
+                                    case .probeFreshSelection:
+                                        observation = .freshSelection(fresh)
+                                    case .captureDocument:
+                                        observation = .document(document)
+                                    case .run, .abort:
+                                        finished = true
+                                    }
+                                }
+                                #expect(finished, """
+                                    never settled — scope \(scope), hasSelection \(hasSelection), \
+                                    captured \(String(describing: captured)), \
+                                    frontmost \(String(describing: frontmost))
+                                    """)
+                                // The longest legitimate path: probe the
+                                // frontmost app, capture a new target that
+                                // turns out to hold no selection, probe for a
+                                // fresh selection, fall back to ⌘A, then run.
+                                #expect(taken <= 5, "a cycle should never need more than five steps")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension EditSession.Step {
+    var isRun: Bool {
+        if case .run = self { return true }
+        return false
+    }
+}
