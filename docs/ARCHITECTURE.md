@@ -39,7 +39,8 @@ Sources/Mancia/
 │   ├── RibbonWindow.swift        Hosts the lane: measures the view at the resolved width,
 │   │                             sets the frame, animates entry/exit, tracks screen changes
 │   ├── RibbonPlacement.swift     Pure placement resolver — sits against the selection when
-│   │                             the host reports one, else under the menu bar or the
+│   │                             the host reports one (under it, over it, or in the margin
+│   │                             beside a tall block), else under the menu bar or the
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
@@ -103,8 +104,12 @@ wired to call `coordinator.start()`.
    under the selection** — or just over it, when the selection is too near the
    foot of the host to fit beneath. That is the ordinary case, and it is the
    point of the rule: the command the user is composing sits next to the words
-   it will rewrite. When there is no selection rectangle — a bare caret, or a
-   host that cannot answer — the lane takes a predictable place instead:
+   it will rewrite. When the block is too tall for either end — a paragraph, a
+   long quote — the lane **stands in the margin beside it**, on the roomier
+   flank, as wide as that margin can hold. A tall selection is usually a
+   narrow one, so the margin is nearly always there, and a lane standing in it
+   covers no text at all. When there is no selection rectangle — a bare caret,
+   or a host that cannot answer — the lane takes a predictable place instead:
    - **screen-anchored** — flush under the menu bar, when the menu bar is
      reserving a strip at the top of the screen;
    - **host-anchored** — under the frontmost window's title bar, when it is
@@ -112,28 +117,37 @@ wired to call `coordinator.start()`.
      nowhere safe to sit, and on a notched display the top of the screen is
      not addressable at all.
 
-   That predictable place is also the fallback for a selection with nowhere
-   beside it — the whole document selected, say. A move that buys nothing is
-   worse than staying where the user expects.
+   That predictable place is the last resort, and only for a selection with
+   nowhere at all beside it — everything on screen selected, say, where every
+   position covers the text as thoroughly as the next. Before it comes the
+   **cramped end**: a block with no margin either side still gets the lane at
+   whichever end can hold it as it opens (`crampedRoom`), because covering the
+   head of a block from the far end of the screen is worse than standing
+   against its foot. A move that buys nothing is worse than staying where the
+   user expects; a move that buys the whole point of the rule is not.
 
-   Whichever edge the lane hangs from is the edge it **pins**, so it grows
-   away from the selection and a review gate can never creep back over the
-   line it was invoked on. The room beside the selection is judged against
-   `projectedHeight`, the tallest ordinary state, not the height the lane
-   opens at: a 48pt row fits into gaps a ~195pt review gate does not. The
-   anchor is then **established for the session** and fed back through
+   Whichever edge faces the selection is the edge the lane **pins**, so it
+   grows away from the text. An end with room for `projectedHeight`, or a
+   margin the lane owns outright, stays clear as the review gate opens. The
+   cramped-end fallback is the deliberate exception: its opening row clears
+   the words, but screen clamping can move a grown gate back over the block's
+   far end. The anchor is **established for the session** and fed back through
    `Context.establishedAnchor`, so a lane that grew mid-run does not leap
    across the screen and leap back when the region closes. A bare caret is not
    a selection: with nothing selected the target is the whole document and
    there is no line to sit against.
 
-   Vertical position follows the selection; horizontal does not. The lane's
-   **width is imposed by placement** (the host's width, clamped to a maximum
-   and centered) and only its **height comes from content**, so the view is
-   measured at the resolved width before the frame is set. `HostWindowProbe`
-   supplies the host window's frame and full-screen state through
-   Accessibility; every failure path returns `nil` and placement degrades to
-   the screen rather than failing the session.
+   Vertical position follows the selection; horizontal follows its host window
+   at the end anchors rather than chasing the caret. Margin anchors use the
+   only flank the text does not already occupy; the resting screen anchor stays
+   predictably screen-centered. The lane's **width is imposed by placement**
+   (the host window's width at a selection end, the screen's width at rest, or
+   the margin's width beside a tall block, each clamped to its limits) and only
+   its **height comes from content**, so the view is measured at the resolved
+   width before the frame is set. `HostWindowProbe` supplies the host window's
+   frame and full-screen state through Accessibility; every failure path
+   returns `nil` and placement degrades to the screen rather than failing the
+   session.
 
    The lane is a cyclical **edit session**. Target, Action, Direction and Run
    sit on a **single row**, dimmed and disabled while a request runs. Each

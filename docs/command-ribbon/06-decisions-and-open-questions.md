@@ -147,6 +147,47 @@ oversight, so the reasoning lives in a comment in `choose()`. Doc 02 gives no
 ruling either way — it predates the selection-anchored rule and defines only the
 resting anchors.
 
+## Q8 — where a lane goes when the selection is too tall for either end
+
+**Raised by use:** the selection-anchored rule answers a *line* well and a
+*block* badly. `choose()` needed `projectedHeight` — 200pt — clear at one end
+of the selection, so a selected paragraph, quote or code block on a 900pt
+display left it nothing at either end and it fell back to the resting anchor.
+That is the long trek Q7 exists to prevent, arriving by another route, and it
+lands the lane *on* the head of the block it was invoked on.
+
+**A tall selection is usually a narrow one.** A paragraph is a column of text
+with a margin either side of it, and a lane standing in that margin covers no
+text at all — strictly better than any position at either end, which is why the
+margin is tried before the cramped end and before the resting anchor. Two new
+anchors, `.leftOfSelection` and `.rightOfSelection`: the roomier flank wins, the
+lane takes the widest lane that margin can hold (never reaching back across the
+text), and it sits level with the middle of the block, where the eye already is.
+It is the one anchor whose width is not the host's, and the one that grows
+symmetrically — along a margin it owns outright there is nothing to creep over.
+
+**A block with no margin either gets the cramped end, not the menu bar.** Full
+width *and* too tall for `projectedHeight` — a wide editor, a long selection —
+leaves only the ends, and the rule now takes the roomier one provided it can
+hold the lane as it opens (`crampedRoom`, one command row). The trade Q7 could
+answer cleanly and this cannot: a review gate opening on a cramped lane *can*
+reach back over the far end of the block, because the clamp will not let it run
+off the screen. That is accepted deliberately. The gate only opens on a
+whole-document run, which from a selection means one the user retargeted by
+hand, and the alternative — covering the *head* of the same block from the far
+end of the screen, on every run — is worse for every other case.
+
+**Still the resting anchor when nothing is left:** everything on screen
+selected, or a selection scrolled clean out of the band. There every position
+covers the text as thoroughly as the next, so predictability wins.
+
+**Consequence worth knowing:** `Anchor` now has six cases, and anything
+switching over it — the corner treatment in `RibbonView.shape`, the entrance
+direction in `Anchor.entranceDirection` — has to answer for the horizontal pair.
+The entrance travel stays the lane's *height* on all six: vertically that is the
+distance that hides the lane behind its edge, horizontally it is a short slide,
+where the lane's own 600pt-plus width would be a lurch across the screen.
+
 ## Reference material
 
 - **The design review:** `../mancia-design-review.html` — open the ribbon tab.

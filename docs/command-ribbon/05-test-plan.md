@@ -118,6 +118,20 @@ re-grant Accessibility after each `make app` (`CLAUDE.md`).
 | P8 | Drag host between displays, then invoke | Lane follows to the host's display |
 | P9 | Unplug a display while the lane is open | Lane repositions, stays on screen |
 | P10 | MacBook Pro notched display, full-screen | Clearance clears the camera housing |
+| P11 | Tall narrow selection with more room on the right, then on the left | Lane uses the roomier margin; opens away from the text and closes back toward it |
+| P12 | Repeat P11 with Reduce Motion enabled | Open and close fade without horizontal travel |
+| P13 | Drag the lane from its background at each margin anchor | Lane does not move from its computed anchor |
+
+#### Manual run — 2026-08-03
+
+- P11 and P13 passed in TextEdit on both margin anchors: entry moved away
+  from the selected block, close moved back toward it, and background dragging
+  did not detach the lane.
+- P12 passed with Reduce Motion enabled: both presentation and close used fades
+  without horizontal travel.
+- A window-edge regression run passed with TextEdit on the right of a
+  2560×1440 display: a selection-end anchor stayed horizontally with TextEdit
+  instead of centering on the display.
 
 > **Superseding P2.** P2's expectation — that the lane covers the title bar and
 > not the text — turned out to be unachievable: a title bar is 28pt and the

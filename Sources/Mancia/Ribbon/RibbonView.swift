@@ -98,7 +98,7 @@ struct RibbonView: View {
             UnevenRoundedRectangle(
                 topLeadingRadius: 0, bottomLeadingRadius: 12,
                 bottomTrailingRadius: 12, topTrailingRadius: 0, style: .continuous)
-        case .hostWindow, .belowSelection, .aboveSelection:
+        case .hostWindow, .belowSelection, .aboveSelection, .leftOfSelection, .rightOfSelection:
             UnevenRoundedRectangle(
                 topLeadingRadius: 12, bottomLeadingRadius: 12,
                 bottomTrailingRadius: 12, topTrailingRadius: 12, style: .continuous)
