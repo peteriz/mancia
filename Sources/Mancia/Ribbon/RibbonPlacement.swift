@@ -9,7 +9,8 @@ import CoreGraphics
 ///
 /// > When the host reports where the selected text is, sit just under it —
 /// > just over it if the selection is too near the foot of the host to fit
-/// > beneath. Otherwise — a bare caret, or a host that cannot answer — take
+/// > beneath. When the selection is too tall for either end, sit in the margin
+/// > beside it. Otherwise — a bare caret, or a host that cannot answer — take
 /// > the predictable place: flush below the menu bar when the screen reserves
 /// > a strip for it, or inset below the frontmost window's title bar when it
 /// > does not.
@@ -23,15 +24,29 @@ import CoreGraphics
 /// doing it, and it puts the command the user is composing next to the words
 /// it will rewrite.
 ///
-/// Whichever edge the lane hangs from is the edge it *pins*, so it grows away
-/// from the selection: a review gate opening under a lane that sits beneath
-/// the text can never creep back over the line it was invoked on. Which is
-/// also why the room beside the selection is judged at `projectedHeight`
-/// rather than the height the lane opens at.
+/// A selection tall enough to leave no room at either end used to send the
+/// lane back to that predictable place — the same overshoot in a new costume,
+/// and worse, because the lane then landed *on* the head of the block it was
+/// invoked on. A tall selection is usually a narrow one: a paragraph is a
+/// column of text with a margin either side of it. So before retreating, the
+/// rule looks along the selection's flanks, where a lane covers nothing at
+/// all. Only a block with no room at its ends *and* no margin beside it — a
+/// select-all in a maximized window, where every position covers the text
+/// equally — falls back, and then it takes the roomier end anyway if the lane
+/// can stand clear of the words there as it opens.
 ///
-/// Vertical position follows the selection; horizontal does not. The lane
-/// stays centered on its host at every anchor, so it never chases the caret
-/// sideways and its controls stay where the hand expects them.
+/// Whichever edge faces the selection is the edge the lane *pins*, so it grows
+/// away from the text: a review gate opening under a lane that sits beneath
+/// the text can never creep back over the line it was invoked on, and one
+/// opening beside it grows along a margin it already owns. Which is also why
+/// the room at the selection's ends is judged at `projectedHeight` rather than
+/// the height the lane opens at.
+///
+/// Horizontal position is imposed by the host, not by the caret, at the three
+/// anchors that hang over it — the lane never chases a caret sideways along a
+/// line, and its controls stay where the hand expects them. A lane in the
+/// margin is the one exception, and it is not chasing anything: it is the only
+/// place left that the text does not already occupy.
 ///
 /// One amendment after each apply: pasting can put words where the opening
 /// geometry never described them — a longer result flows past the old
@@ -122,12 +137,29 @@ enum RibbonPlacement {
         case belowSelection
         /// Floating just over it, when there was no room underneath.
         case aboveSelection
+        /// In the margin to the left of the selection, when the block is too
+        /// tall to sit at either end of.
+        case leftOfSelection
+        /// In the margin to its right, which is the roomier flank more often
+        /// than not — text starts at the left of its column.
+        case rightOfSelection
 
-        /// True where the lane slides up into place rather than down. Each
-        /// anchor enters from the side it is pinned to, so a lane hanging from
-        /// the menu bar genuinely emerges from behind it, and one sitting on
-        /// top of the selection rises into place over it.
-        var entersFromBelow: Bool { self == .aboveSelection }
+        /// The way the lane travels as it slides into place, as a unit vector
+        /// in AppKit coordinates.
+        ///
+        /// Every anchor moves *away* from the edge it pins, so it emerges from
+        /// behind whatever it hangs off: a lane hanging from the menu bar
+        /// drops out from behind it, one sitting on top of the selection rises
+        /// off the line it covers, and one in the margin slides out sideways
+        /// from under the words rather than dropping past them.
+        var entranceDirection: CGVector {
+            switch self {
+            case .screen, .hostWindow, .belowSelection: CGVector(dx: 0, dy: -1)
+            case .aboveSelection: CGVector(dx: 0, dy: 1)
+            case .leftOfSelection: CGVector(dx: -1, dy: 0)
+            case .rightOfSelection: CGVector(dx: 1, dy: 0)
+            }
+        }
     }
 
     struct Resolution: Equatable {
@@ -160,8 +192,22 @@ enum RibbonPlacement {
     static let maximumWidth: CGFloat = 900
 
     /// Breathing room left between the lane's edge and the selection it sits
-    /// against, so the two never touch.
+    /// against, so the two never touch. Applied on both axes: the lane sits
+    /// against the flanks of a tall selection as readily as against its ends.
     static let selectionClearance: CGFloat = 8
+
+    /// The least room an *end* of the selection has to offer before the lane
+    /// will settle against it anyway — the last stop before the predictable
+    /// place, taken only once no end can hold `projectedHeight` and no flank
+    /// can hold the lane at all.
+    ///
+    /// It is one command row: the lane as it opens still stands clear of the
+    /// words, and only a review gate reaches back over them — which, on a
+    /// selection, means a run the user deliberately retargeted at the whole
+    /// document. Staying against the text is worth that much, because the
+    /// alternative covers the head of the same block from the far end of the
+    /// screen.
+    static let crampedRoom: CGFloat = 56
 
     /// The height every fit decision is taken against, whatever the lane
     /// currently measures.
@@ -169,9 +215,9 @@ enum RibbonPlacement {
     /// The lane opens as a single command row and grows later — a status word
     /// costs it nothing, but a review gate takes it to about 195pt, measured.
     /// Placement is decided at open, on a lane barely 50pt tall, and then held
-    /// for the session. Judging the room beside the selection on that opening
-    /// height would let the lane claim a gap it cannot actually fit into, and
-    /// discover it only once a result arrived.
+    /// for the session. Judging the room at the selection's ends on that
+    /// opening height would let the lane claim a gap it cannot actually fit
+    /// into, and discover it only once a result arrived.
     static let projectedHeight: CGFloat = 200
 
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
@@ -202,23 +248,60 @@ enum RibbonPlacement {
         let selection = avoidedSelection(in: context)
         let resting: Anchor = menuBarReservesStrip ? .screen : .hostWindow
 
+        /// The margin between one flank of the selection and the edge of the
+        /// host, measured — like the room at its ends — against the band the
+        /// lane may occupy rather than against the selection's own window.
+        func margin(_ side: Anchor) -> CGFloat? {
+            guard let selection else { return nil }
+            return side == .leftOfSelection
+                ? selection.minX - host.minX
+                : host.maxX - selection.maxX
+        }
+
+        /// A lane in the margin, or `nil` when that margin cannot hold one.
+        ///
+        /// It is the one anchor whose width is not the host's: it takes the
+        /// widest lane the margin can hold, so it never reaches across the
+        /// text it is standing beside. And it is the one anchor that grows
+        /// symmetrically — the edge it pins is the vertical one facing the
+        /// selection, and along a margin it owns outright there is nothing
+        /// for the other axis to creep over.
+        func marginFrame(_ side: Anchor, _ h: CGFloat) -> CGRect? {
+            guard let selection, let margin = margin(side), margin >= minimumWidth else { return nil }
+            let w = max(minimumWidth, min(margin, maximumWidth))
+            let x = side == .leftOfSelection ? selection.minX - w : selection.maxX
+            // Level with the middle of the block, which is where the eye is,
+            // then held inside the band.
+            let y = min(max(selection.midY - h / 2, floor), max(floor, ceiling - h))
+            return CGRect(x: x, y: y, width: w, height: h)
+        }
+
         /// Where an anchor puts a lane of a given height. Each pins the edge
-        /// it hangs from, so the lane always grows away from what it sits
-        /// against — a review region opening below the selection can never
-        /// creep back over the line it was invoked on.
+        /// facing the selection, so the lane always grows away from what it
+        /// sits against — a review region opening below the selection can
+        /// never creep back over the line it was invoked on.
         func frame(_ anchor: Anchor, _ h: CGFloat) -> CGRect {
-            let y: CGFloat = switch anchor {
-            case .screen, .hostWindow: ceiling - h
-            case .belowSelection: (selection?.minY ?? ceiling) - h
-            case .aboveSelection: selection?.maxY ?? floor
+            let restingFrame = CGRect(x: x, y: ceiling - h, width: width, height: h)
+            let rect: CGRect = switch anchor {
+            case .screen, .hostWindow:
+                restingFrame
+            case .belowSelection:
+                CGRect(x: x, y: (selection?.minY ?? ceiling) - h, width: width, height: h)
+            case .aboveSelection:
+                CGRect(x: x, y: selection?.maxY ?? floor, width: width, height: h)
+            case .leftOfSelection, .rightOfSelection:
+                marginFrame(anchor, h) ?? restingFrame
             }
-            return clamp(CGRect(x: x, y: y, width: width, height: h), to: context.screenFrame)
+            return clamp(rect, to: context.screenFrame)
         }
 
         func choose() -> Anchor {
             guard let selection else { return resting }
             // Judged at the lane's tallest ordinary state — see `projectedHeight`.
             let tall = max(height, projectedHeight)
+            // A selection scrolled clean out of the band — behind the Dock,
+            // above the menu bar — is not something to sit against.
+            guard selection.minY <= ceiling, selection.maxY >= floor else { return resting }
 
             // Deliberately measured against the screen band, not the host
             // window, even though `host` is the window in the no-menu-bar case.
@@ -229,18 +312,37 @@ enum RibbonPlacement {
             // selection is near the window's foot — the long trek this rule
             // exists to remove. Spilling past a short host's bottom edge keeps
             // the lane 8pt from the words; retreating to the menu bar does not.
-            //
+            let below = selection.minY - floor
+            let above = ceiling - selection.maxY
+
             // Under the selection: the closest place to the text that is also
             // out of its way, and where growth heads away from it.
-            if selection.minY <= ceiling, selection.minY - tall >= floor {
-                return .belowSelection
-            }
+            if below >= tall { return .belowSelection }
             // Over it, when the selection sits too near the floor to fit beneath.
-            if selection.maxY >= floor, selection.maxY + tall <= ceiling {
-                return .aboveSelection
+            if above >= tall { return .aboveSelection }
+
+            // Neither end has room for a grown lane, which means the block is
+            // tall — and a tall block is usually a narrow one. The margin
+            // beside it costs the text nothing at all, so it beats both a
+            // cramped end and the trek back to the top of the screen. The
+            // roomier flank wins, so the lane is the least likely to be
+            // squeezed below its natural width.
+            let left = margin(.leftOfSelection) ?? 0
+            let right = margin(.rightOfSelection) ?? 0
+            if max(left, right) >= minimumWidth {
+                return right >= left ? .rightOfSelection : .leftOfSelection
             }
-            // Neither side has room: a selection spanning most of the host, or
-            // one scrolled off it. Nowhere to hide, so predictability wins.
+
+            // No margin either: the block spans the host in both directions.
+            // Sit at whichever end can still hold the lane as it opens — see
+            // `crampedRoom` — rather than covering the head of the block from
+            // the far end of the screen.
+            if max(below, above) >= crampedRoom {
+                return below >= above ? .belowSelection : .aboveSelection
+            }
+
+            // Nowhere at all: everything on screen is selected, and every
+            // position covers it as thoroughly as the next. Predictability wins.
             return resting
         }
 
@@ -290,7 +392,7 @@ enum RibbonPlacement {
     /// flush against its edges.
     private static func avoidedSelection(in context: Context) -> CGRect? {
         guard let rect = context.selectionRect, rect.width > 0, rect.height > 0 else { return nil }
-        return rect.insetBy(dx: 0, dy: -selectionClearance)
+        return rect.insetBy(dx: -selectionClearance, dy: -selectionClearance)
     }
 
     /// Keep the lane on the display. Both axes clamp against the *screen*

@@ -85,8 +85,9 @@ final class RibbonWindow {
             context.duration = reduced ? Motion.fade : Motion.exit
             context.timingFunction = Motion.curve
             if !reduced {
+                let offset = hiddenOffset(for: resting)
                 panel.animator().setFrame(
-                    resting.offsetBy(dx: 0, dy: hiddenOffset(for: resting)), display: true)
+                    resting.offsetBy(dx: offset.width, dy: offset.height), display: true)
             }
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
@@ -191,9 +192,10 @@ final class RibbonWindow {
             // Start a lane's height off its home edge and slide into it. The
             // lane sits below `.mainMenu`, so hanging from the menu bar it
             // genuinely emerges from behind the menu bar rather than over it;
-            // sitting on the screen floor, or over the selection, it rises
-            // from below instead.
-            panel.setFrame(frame.offsetBy(dx: 0, dy: hiddenOffset(for: frame)), display: false)
+            // sitting over the selection it rises from below instead, and
+            // standing in the margin it slides out sideways.
+            let offset = hiddenOffset(for: frame)
+            panel.setFrame(frame.offsetBy(dx: offset.width, dy: offset.height), display: false)
             panel.alphaValue = 0
             panel.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { context in
@@ -210,12 +212,19 @@ final class RibbonWindow {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
-    /// How far off screen the lane starts and ends its slide. Each anchor
-    /// enters from the side it is pinned to: up from behind the menu bar or
-    /// from under the selection it hangs beneath, down from the screen floor
-    /// or from over the selection it sits above.
-    private func hiddenOffset(for frame: CGRect) -> CGFloat {
-        (currentAnchor?.entersFromBelow ?? false) ? -frame.height : frame.height
+    /// How far off its home the lane starts and ends its slide. Each anchor
+    /// enters from the edge it is pinned to: down from behind the menu bar or
+    /// from under the selection it hangs beneath, up from over the selection
+    /// it sits above, and sideways out from under a selection it sits beside.
+    ///
+    /// One travel distance for all of them, and it is the lane's *height* even
+    /// on the horizontal anchors. Vertically that is the distance that hides
+    /// the lane completely behind its edge; horizontally nothing is hiding it,
+    /// so the same number reads as a short slide in the direction it settles —
+    /// where its own width would be a 600pt lurch across the screen.
+    private func hiddenOffset(for frame: CGRect) -> CGSize {
+        let direction = (currentAnchor ?? .screen).entranceDirection
+        return CGSize(width: -direction.dx * frame.height, height: -direction.dy * frame.height)
     }
 
     // MARK: - Placement

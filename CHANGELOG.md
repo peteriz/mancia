@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The ribbon answers a selected *block* as well as it answered a selected
+  line. A paragraph or quote too tall to leave room at either end used to send
+  the lane back to the menu bar, on top of the head of the very block it was
+  invoked on; it now stands in the margin beside the block, on the roomier
+  flank, level with its middle and as wide as that margin can hold — covering
+  no text at all.
+- A block with no margin either side settles at whichever of its ends has more
+  room, rather than making the trek to the top of the screen. The predictable
+  resting place is now the last resort, kept for a selection with nowhere at
+  all beside it.
+
 ## [0.2.2] - 2026-08-03
 
 ### Changed

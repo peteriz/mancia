@@ -1850,9 +1850,125 @@ func placementJudgesRoomAtTheHeightItWillGrowTo() {
     #expect(resolved.anchor == .aboveSelection, "but the review gate would not, and the choice is made once")
 }
 
+// MARK: - Ribbon placement: standing in the margin
+
+/// A paragraph selected in a column of text: 670pt tall, so neither end of it
+/// can hold a grown lane, and 520pt wide, so the display has margin to spare
+/// either side. The case the rule used to answer by trekking to the menu bar.
+private let tallSelection = CGRect(x: 80, y: 150, width: 520, height: 670)
+
+@Test("A selection too tall for either end puts the lane in the margin beside it")
+func placementStandsInTheMarginOfATallSelection() {
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: tallSelection))
+
+    #expect(resolved.anchor == .rightOfSelection, "the roomier flank of the two")
+    #expect(!resolved.frame.intersects(tallSelection), "a lane in the margin covers nothing at all")
+    #expect(
+        resolved.frame.minX == tallSelection.maxX + RibbonPlacement.selectionClearance,
+        "flush against the flank, one clearance short of touching it")
+    #expect(resolved.frame.midY == tallSelection.midY, "level with the middle of the block, where the eye is")
+    #expect(resolved.frame.maxX <= ribbonVisible.maxX, "and inside the band it was measured against")
+}
+
+@Test("The lane takes the roomier flank, not always the same one")
+func placementPrefersTheRoomierFlank() {
+    // The same block, moved to the right of the display: now the margin is on
+    // the other side of it.
+    let selection = CGRect(x: 800, y: 150, width: 560, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .leftOfSelection)
+    #expect(!resolved.frame.intersects(selection))
+    #expect(resolved.frame.maxX == selection.minX - RibbonPlacement.selectionClearance)
+}
+
+@Test("A margin narrower than the lane is no margin at all")
+func placementIgnoresAMarginTooNarrowToStandIn() {
+    // 400pt of margin on the roomier side: below the 600pt the row needs to
+    // hold its controls, so squeezing in would cost legibility for nothing.
+    let selection = CGRect(x: 420, y: 150, width: 600, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "so it settles at the roomier end instead")
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
+@Test("A lane in the margin keeps its clearance as it grows")
+func placementMarginLaneGrowsWithoutReachingTheText() {
+    // The review gate has opened on a lane standing beside the block.
+    let context = RibbonPlacement.Context(
+        screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+        selectionRect: tallSelection, establishedAnchor: .rightOfSelection)
+    let resolved = RibbonPlacement.resolve(height: 260, in: context)
+
+    #expect(resolved.anchor == .rightOfSelection)
+    #expect(!resolved.frame.intersects(tallSelection), "the pinned edge is the one facing the words")
+    #expect(resolved.frame.minX == tallSelection.maxX + RibbonPlacement.selectionClearance)
+    #expect(resolved.frame.minY >= ribbonVisible.minY, "and it stays inside the band while it grows")
+}
+
+@Test("A lane in the margin is only as wide as the margin can hold")
+func placementMarginLaneFitsTheMarginItStandsIn() {
+    // 700pt of margin to the right: wider than the lane's minimum, narrower
+    // than its cap, so the lane takes the margin exactly.
+    let selection = CGRect(x: 20, y: 150, width: 712, height: 670)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .rightOfSelection)
+    #expect(resolved.frame.width == 700, "a lane wider than its margin would reach back over the text")
+    #expect(resolved.frame.maxX == ribbonVisible.maxX)
+}
+
+// MARK: - Ribbon placement: the cramped end
+
+@Test("A block spanning the host settles at its roomier end rather than trekking to the top")
+func placementTakesTheRoomierEndWhenNoMarginIsLeft() {
+    // Full width and 500pt tall: no margin either side, and neither end can
+    // hold a grown lane. The old rule sent the lane to the menu bar, which
+    // covered the head of the very block it was invoked on.
+    let selection = CGRect(x: 0, y: 200, width: 1440, height: 500)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .aboveSelection, "167pt above beats 132pt below")
+    #expect(!resolved.frame.intersects(selection), "the lane as it opens still stands clear of the words")
+    #expect(resolved.frame.minY == selection.maxY + RibbonPlacement.selectionClearance)
+    #expect(
+        resolved.frame.maxY < ribbonVisible.maxY - 100,
+        "and nowhere near the menu bar, which is where it used to go")
+}
+
+@Test("The cramped end is chosen by room, so a block low on the screen sits under it")
+func placementTakesTheCrampedEndWithTheMostRoom() {
+    let selection = CGRect(x: 0, y: 250, width: 1440, height: 450)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
+
+    #expect(resolved.anchor == .belowSelection, "182pt below beats 167pt above")
+    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+}
+
 @Test("A selection with nowhere beside it keeps the predictable position")
 func placementKeepsItsPlaceWhenNeitherSideFits() {
-    // Everything on screen selected: any move covers it just as thoroughly.
+    // Everything on screen selected: no end, no margin, and any move covers it
+    // just as thoroughly as any other.
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(

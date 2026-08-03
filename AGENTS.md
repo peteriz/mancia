@@ -44,10 +44,10 @@ pragmatic, and proportionate to the app's size.
   synthetic `cmd-C`, `cmd-A`, and `cmd-V`.
 - The command ribbon should stay lightweight, fast, and menu-bar-app
   appropriate. It sits against the text being edited — just under the selection,
-  or just over it when the selection is near the foot of its window. With no
-  selection, or no room beside one, it falls back to a predictable resting place
-  under the menu bar or the frontmost window's title bar. It never chases the
-  caret.
+  just over it when the selection is near the foot of its window, or in the
+  margin beside a block too tall for either end. With no selection, or no room
+  anywhere beside one, it falls back to a predictable resting place under the
+  menu bar or the frontmost window's title bar. It never chases the caret.
 - GitHub Copilot CLI is the only provider today; the provider layer is the
   extension point for future backends.
 - Development builds are ad-hoc signed, so Accessibility permission may need to
