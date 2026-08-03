@@ -25,6 +25,8 @@ pragmatic, and proportionate to the app's size.
   - `echo "text" | swift run Mancia --complete rewrite`
 - For the About panel, run it against the bundle so it can read a real version:
   - `build/Mancia.app/Contents/MacOS/Mancia --about-check`
+- After touching the ribbon's controls, check they still answer the mouse:
+  - `swift run Mancia --ribbon-click-check`
 
 ## Coding Guidelines
 

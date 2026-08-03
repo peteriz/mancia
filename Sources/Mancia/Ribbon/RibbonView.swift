@@ -365,12 +365,19 @@ struct RibbonView: View {
     /// the lane's one accent control became the least readable thing on it.
     private var runControl: some View {
         Button { model.runPrimary() } label: {
-            // Hidden, not absent: the button still takes its size from the
-            // real label, so the two cannot drift apart. What is drawn is the
-            // overlay below.
+            // Invisible, not hidden and not absent: the button still takes its
+            // size from the real label, so the two cannot drift apart, and the
+            // drawn word is the overlay below. `hidden()` would be the obvious
+            // way to say this and is the wrong one — a hidden view takes no
+            // hits, and a plain button's hit region *is* its label, so the one
+            // control the lane is named for quietly stopped answering the
+            // mouse. `contentShape` has to ride inside the label for the same
+            // reason: outside the button it shapes the wrapper, not the region
+            // the button's own gesture watches.
             runLabel
-                .hidden()
+                .opacity(0)
                 .frame(minWidth: 72, minHeight: controlHeight)
+                .contentShape(controlShape)
         }
         .buttonStyle(.plain)
         // The fill and the running border hang off the button rather than off
