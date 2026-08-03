@@ -34,6 +34,7 @@ struct GhostButton: View {
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityLabel(title)
     }
 }
@@ -74,56 +75,9 @@ struct AccentButton: View {
     }
 }
 
-/// Back / counter / forward through the iteration history. Identical on both
-/// surfaces apart from its colors.
-struct VersionNav: View {
-    @Bindable var model: PanelModel
-    var tint: Color = Palette.textSecondary
-    var faint: Color = Palette.textFaint
-
-    var body: some View {
-        // No spacing: the 28pt frames around the 10pt chevrons already carry
-        // ~9pt of clear space on each side, which is the gap the counter needs.
-        HStack(spacing: 0) {
-            Button { model.onNavigate?(model.currentIndex - 1) } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 10, weight: .semibold))
-                    // A 10pt glyph is not a target. The spec's 28×28 minimum is
-                    // the frame around it, and `contentShape` is what makes the
-                    // empty part of that frame answer the mouse.
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(model.currentIndex == 0 ? faint : tint)
-            .disabled(model.currentIndex == 0)
-            .accessibilityLabel("Previous version")
-            .accessibilityIdentifier("IterBack")
-
-            Text("\(model.currentIndex + 1)/\(model.versionCount)")
-                .font(.system(size: 11, weight: .medium))
-                .monospacedDigit()
-                .foregroundStyle(tint)
-                .accessibilityIdentifier("IterCounter")
-
-            Button { model.onNavigate?(model.currentIndex + 1) } label: {
-                Image(systemName: "chevron.forward")
-                    .font(.system(size: 10, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(model.currentIndex >= model.versionCount - 1 ? faint : tint)
-            .disabled(model.currentIndex >= model.versionCount - 1)
-            .accessibilityLabel("Next version")
-            .accessibilityIdentifier("IterForward")
-        }
-    }
-}
-
 /// The "working" signal: a spark of light running around a shape's edge over a
 /// steady ember, both spilling onto the surface behind them. The panel rode it
-/// on the instruction field's capsule; the ribbon rides it on the Run control.
+/// on the instruction field's capsule; the ribbon rides it on the primary action.
 ///
 /// The lap is driven by `TimelineView(.animation)` off the wall clock rather
 /// than a repeating `withAnimation`, which keeps the rate constant however the

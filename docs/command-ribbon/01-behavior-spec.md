@@ -16,7 +16,7 @@ left to right as one sentence:
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ Target          │ Action          │ Direction                 │          │
-│ Selection ⌄     │ Improve ⌄       │ Optional instruction…     │  Run ↵   │
+│ Selection ⌄     │ Improve · Sharpen · Plan first · Tighten · Custom │ Improving │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -106,10 +106,11 @@ Bound to `PanelModel.instruction`. Focused on open. Return triggers
 `runPrimary()`. Locked and dimmed while `phase == .running || .confirm`,
 matching `fieldLocked` in the current view.
 
-### Run
+### Primary action
 
-The single vermilion control. Label `Run ↵`. Calls `runPrimary()`.
-Never disabled in `.idle` — an empty field is a valid Improve.
+The single fixed-width vermilion control. It names the selected action using
+its progress verb and calls `runPrimary()`. While running, hover changes its
+label to `Cancel` and clicking it calls `onCancelRun`.
 
 ## States
 
@@ -129,9 +130,9 @@ allow (it dims the whole field).
 | `PanelModel.Phase` | Status strip | Notes |
 |---|---|---|
 | `.idle` | hidden — or `Reading selection…` while `capturing` | Command row live |
-| `.running` | `⟳ {runningTitle}…` + `Cancel` | Command row dimmed + locked |
+| `.running` | Primary action border animates; hover reveals `Cancel` | Other command controls dimmed + locked |
 | `.confirm` | `Replace entire document?` + delta | Review region opens; see below |
-| `.applied` | `✓ Improved` + version nav when `versionCount > 1` | Auto-close per `postApplyBehavior` |
+| `.applied` | No separate status or version navigation | ⌘Z restores the previous version; auto-close per `postApplyBehavior` |
 | `.error` | `✕ {errorText}` + `Details` + `Copy` + `Retry` | See error handling |
 
 ### The review gate (`.confirm`)
@@ -204,9 +205,9 @@ The ribbon is the keyboard-first direction; this table is its contract.
 | Tab / ⇧Tab | Move Target → Action → Direction → Run | New, stage 7 |
 | ⌘1…⌘4 | Pin the nth preset | New `PanelKeyCommand` case |
 | ⌘T | Switch the target | New `PanelKeyCommand` case |
-| ← / → | Version navigation in `.applied` with empty Direction | Existing `handleKeyDown` |
+| ⌘Z | Field undo first, then previous applied version | `KeyablePanel` / `EditCoordinator` |
 | ⌘, | Settings | Existing |
-| ⌘A/C/V/X/Z/⇧⌘Z | Field editing | Existing `PanelKeyCommand` |
+| ⌘A/C/V/X/⇧⌘Z | Field editing | Existing `PanelKeyCommand` |
 
 Focus lands in Direction on open, and returns there after every phase
 transition — carried by the existing `sessionSeq` / `focusSeq` counters, which
@@ -222,7 +223,7 @@ Exact strings. Sentence case, no terminal periods on labels.
 | Action caption | `Action` |
 | Direction caption | `Direction` |
 | Direction placeholder | `Optional instruction…` |
-| Run | `Run ↵` |
+| Primary action | `Improving` / `Sharpening` / `Planning` / `Tightening` / `Working` |
 | Capturing | `Reading selection…` |
 | Running | `{runningTitle}…` (existing `EditAction.progressLabel`) |
 | Cancel | `Cancel` |
@@ -230,7 +231,7 @@ Exact strings. Sentence case, no terminal periods on labels.
 | Review preview toggle | `Show result` / `Hide result` |
 | Review secondary | `Keep editing` |
 | Review primary | `Replace ↵` |
-| Applied | `Improved` |
+| Running hover | `Cancel` |
 | Error actions | `Details` · `Copy` · `Retry` |
 
 Never name the provider in ribbon copy; the provider's own error text may name

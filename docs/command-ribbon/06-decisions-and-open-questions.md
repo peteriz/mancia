@@ -39,7 +39,7 @@ top-centered — while keeping the command sentence readable as a sentence.
 
 ### Q2 — Auto-close in the ribbon (stage 9)
 
-`postApplyBehavior` defaults to `.hybrid`: flash "Improved", auto-close after
+`postApplyBehavior` defaults to `.hybrid`: show completion, auto-close after
 1200ms, any keypress cancels the close (`EditCoordinator.swift:414`). That was
 tuned for a small panel next to the caret.
 

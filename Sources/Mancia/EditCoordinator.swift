@@ -1,8 +1,8 @@
 import AppKit
 
 /// Orchestrates a cyclical edit session: capture selection → show the ribbon →
-/// run provider → apply inline → navigate between iterations or run further
-/// actions, until the user closes the session. Owns the ribbon and the
+/// run provider → apply inline → undo or run further actions, until the
+/// user closes the session. Owns the ribbon and the
 /// in-flight task. The ribbon stays visible throughout — synthetic keystrokes
 /// are posted to the target app's pid, so they can't be swallowed by it.
 @MainActor
@@ -22,22 +22,19 @@ final class EditCoordinator {
 
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
-    private var lastAction: EditAction?
-    /// Guidance typed alongside `lastAction`, so a retry replays the same request.
-    private var lastNote: String?
     /// True while the selection is being captured after an instant show; an
     /// action fired during this window is queued in `pendingAction`.
     private var capturing = false
     private var pendingAction: EditAction?
     private var pendingNote: String?
     /// The post-apply auto-close beat (hybrid behavior). Cancelled on any panel
-    /// key press so the user can keep iterating.
+    /// key press so the user can keep editing.
     private var autoCloseTask: Task<Void, Never>?
     /// Iteration history and every rule about which text a cycle sends. Pure
     /// and separately tested; this class exists to answer its questions.
     private var session = EditSession(
         ownPid: NSRunningApplication.current.processIdentifier)
-    /// Guards against overlapping navigation keystroke sequences.
+    /// Guards against overlapping version-restore keystroke sequences.
     private var navigating = false
     /// True from the moment a session begins starting until the panel closes,
     /// so a repeated hotkey/menu trigger can't spawn an overlapping capture.
@@ -56,7 +53,7 @@ final class EditCoordinator {
 
     private func wire() {
         model.onPerform = { [weak self] action, note in self?.perform(action, note: note) }
-        model.onNavigate = { [weak self] in self?.navigate(to: $0) }
+        model.onUndoVersion = { [weak self] in self?.undoLastVersion() ?? false }
         model.onRetry = { [weak self] in self?.retry() }
         model.onConfirmApply = { [weak self] in self?.confirmApply() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
@@ -119,16 +116,12 @@ final class EditCoordinator {
         // Fired before the background capture finished: queue it and show the
         // spinner; it runs the moment the selection is ready.
         if capturing {
-            lastAction = action
-            lastNote = note
             pendingAction = action
             pendingNote = note
             model.runningTitle = action.progressLabel
             model.phase = .running
             return
         }
-        lastAction = action
-        lastNote = note
         currentTask?.cancel()
         autoCloseTask?.cancel()
         autoCloseTask = nil
@@ -209,7 +202,7 @@ final class EditCoordinator {
     private func recordApplied(output: String, baseline: String) {
         session.recordApplied(output: output, baseline: baseline)
         syncIterationState()
-        model.instruction = ""
+        model.restoreDefaultAction()
         model.phase = .applied
         ribbon.focus()
         scheduleAutoCloseIfHybrid()
@@ -322,10 +315,18 @@ final class EditCoordinator {
 
     /// Step the document to another version in the session's history.
     ///
+    /// - Selection scope: ⌘Z (undo of the outstanding paste restores and
+    ///   re-selects the replaced region in NSTextView-based apps) followed by
+    ///   ⌘V — always undo-then-paste, including for index 0, so exactly one
+    ///   paste stays outstanding.
+    /// - Document scope: ⌘A + ⌘V, which stays correct even when the user
+    ///   manually edited between cycles.
+    ///
     /// Which text that is, and how it goes back, are `EditSession`'s to say.
-    private func navigate(to index: Int) {
-        guard let capture, model.phase == .applied, !navigating else { return }
-        guard let run = session.navigate(to: index, scope: sessionScope) else { return }
+    @discardableResult
+    private func restoreVersion(at index: Int) -> Bool {
+        guard let capture, model.phase == .applied, !navigating else { return false }
+        guard let run = session.navigate(to: index, scope: sessionScope) else { return false }
         autoCloseTask?.cancel()
         autoCloseTask = nil
         navigating = true
@@ -336,21 +337,21 @@ final class EditCoordinator {
             dodgeAppliedText()
             ribbon.focus()
         }
+        return true
     }
 
-    /// Retry after an error, honoring any edit the user made to the field since.
-    ///
-    /// A preset replays with the field text as its guidance. A custom
-    /// instruction — or no prior action — goes back through the primary path,
-    /// where the field text *is* the instruction and an empty field means
-    /// Improve, so Retry always runs what the panel currently describes.
+    /// ⌘Z walks backward through Mancia's applied versions. For selection
+    /// edits `restoreVersion` still leaves exactly one target-app paste on its
+    /// undo stack, preserving the existing safe replacement behavior.
+    private func undoLastVersion() -> Bool {
+        restoreVersion(at: session.currentIndex - 1)
+    }
+
+    /// Retry after an error by running what the ribbon currently describes.
+    /// Switching to Custom first therefore retries with the newly typed request;
+    /// hidden draft text never rides along with a preset.
     private func retry() {
-        guard let lastAction, !lastAction.isCustom else {
-            model.runPrimary()
-            return
-        }
-        let typed = model.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        perform(lastAction, note: typed.isEmpty ? nil : typed)
+        model.runPrimary()
     }
 
     /// Stop the in-flight action but keep the session open.
@@ -410,8 +411,9 @@ final class EditCoordinator {
 
     // MARK: - Post-apply behavior
 
-    /// After an edit lands, hybrid behavior flashes "Improved" then auto-closes
-    /// the panel after a short beat. `stayOpen` leaves it up for version nav.
+    /// After an edit lands, hybrid behavior flashes completion then auto-closes
+    /// the panel after a short beat. `stayOpen` leaves it up for another action
+    /// or ⌘Z.
     private func scheduleAutoCloseIfHybrid() {
         autoCloseTask?.cancel()
         guard settings.postApplyBehavior == .hybrid else {
@@ -435,11 +437,9 @@ final class EditCoordinator {
     }
 
     /// Handle a key press routed to the panel. Always cancels the post-apply
-    /// auto-close beat so the user can keep iterating. When an edit has been
-    /// applied and the field is empty, ← / → navigate between versions (the
-    /// keyboard cohort's counterpart to the on-screen chevrons); the event is
-    /// consumed so the focused field doesn't just move its caret. Returns
-    /// whether the event was consumed.
+    /// auto-close beat so the user can keep editing. Version undo is a key
+    /// equivalent handled by `KeyablePanel`, after the instruction field's own
+    /// undo stack has had first refusal. Returns whether the event was consumed.
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         autoCloseTask?.cancel()
         autoCloseTask = nil
@@ -451,15 +451,7 @@ final class EditCoordinator {
             }
             return false
         }
-        guard model.phase == .applied,
-              model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        switch event.keyCode {
-        case 123: navigate(to: session.currentIndex - 1); return true // ←
-        case 124: navigate(to: session.currentIndex + 1); return true // →
-        default: return false
-        }
+        return false
     }
 
     private func fail(_ message: String) {

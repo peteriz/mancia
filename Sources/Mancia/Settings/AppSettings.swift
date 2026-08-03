@@ -7,7 +7,7 @@ enum PostApplyBehavior: String, CaseIterable, Identifiable, Sendable {
     /// Flash "Improved", then auto-close after a short beat; any keypress during
     /// the beat keeps the panel open so the user can iterate.
     case hybrid
-    /// Keep the panel open with version navigation until the user closes it.
+    /// Keep the panel open for another action or ⌘Z until the user closes it.
     case stayOpen
 
     var id: String { rawValue }

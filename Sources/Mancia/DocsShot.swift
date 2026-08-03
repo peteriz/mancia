@@ -22,6 +22,7 @@ enum DocsShot {
         let model = PanelModel()
         model.hasSelection = true
         model.selectionCharCount = Copy.selection.joined(separator: " ").count
+        model.selectCustomInstruction()
         // Run rather than Direction: a focused `TextField` renders its contents
         // selected, and a wash over the typed instruction is a rendering
         // artifact, not something a user ever sees. The instruction itself is

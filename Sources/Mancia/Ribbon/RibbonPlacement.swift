@@ -44,15 +44,15 @@ import CoreGraphics
 ///
 /// The selected span drives *both* axes, and the host window drives neither.
 /// A lane at an end of the selection is centered on the span and as wide as
-/// it, held between `minimumWidth` and `maximumWidth` — a window ten times the
-/// width of the sentence being edited is no reason to put the lane ten
-/// paragraphs away from it, and one narrower than the lane is no reason to
-/// squeeze it. Room is measured against the display's band for the same
-/// reason: the lane floats over its host rather than inside it. A lane in the
-/// margin is the one anchor sized by something else again — the margin it
-/// stands in, so it never reaches back over the words. The window is consulted
-/// for the resting anchors alone, which is where the lane goes when no
-/// selection points anywhere better.
+/// its current content asks for, bounded by the span and held between
+/// `minimumWidth` and `maximumWidth` — a window ten times the width of the
+/// sentence being edited is no reason to put the lane ten paragraphs away from
+/// it, and one narrower than the lane is no reason to squeeze it. Room is
+/// measured against the display's band for the same reason: the lane floats
+/// over its host rather than inside it. A lane in the margin is bounded by that
+/// margin instead, so it never reaches back over the words. The window is
+/// consulted for the resting anchors alone, which is where the lane goes when
+/// no selection points anywhere better.
 ///
 /// One amendment after each apply: pasting can put words where the opening
 /// geometry never described them — a longer result flows past the old
@@ -98,9 +98,8 @@ enum RibbonPlacement {
         var selectionRect: CGRect?
         /// The anchor the lane settled on when it opened, once it has opened.
         ///
-        /// Placement is decided once and then held. The lane grows and shrinks
-        /// while a request runs — a status word, a review gate, an expanded
-        /// error — and each of those re-resolves the frame. Re-deciding the
+        /// Placement is decided once and then held. The lane can grow vertically
+        /// for a review gate or expanded error, and each re-resolves the frame. Re-deciding the
         /// anchor every time would let a lane leap across the screen mid-run
         /// and leap back when the region closed. Feeding the established
         /// anchor back in pins the decision to the geometry that was true at
@@ -110,6 +109,10 @@ enum RibbonPlacement {
         /// mid-session selection moves the work somewhere else, and when a
         /// landed paste leaves the lane covering the text it just wrote.
         var establishedAnchor: Anchor?
+        /// Content's requested width before anchor geometry and screen safety
+        /// clamping. The button strip asks for the stable standard width;
+        /// Custom asks for the expanded maximum.
+        var preferredWidth: CGFloat
 
         init(
             screenFrame: CGRect,
@@ -118,7 +121,8 @@ enum RibbonPlacement {
             safeAreaTop: CGFloat = 0,
             menuBarHidden: Bool = false,
             selectionRect: CGRect? = nil,
-            establishedAnchor: Anchor? = nil
+            establishedAnchor: Anchor? = nil,
+            preferredWidth: CGFloat = RibbonPlacement.maximumWidth
         ) {
             self.screenFrame = screenFrame
             self.visibleFrame = visibleFrame
@@ -127,6 +131,7 @@ enum RibbonPlacement {
             self.menuBarHidden = menuBarHidden
             self.selectionRect = selectionRect
             self.establishedAnchor = establishedAnchor
+            self.preferredWidth = preferredWidth
         }
     }
 
@@ -180,10 +185,13 @@ enum RibbonPlacement {
     static let revealClearance: CGFloat = 28
 
     /// Never let the lane get narrower than this; below it the row's controls
-    /// cannot hold their labels. Measured rather than guessed: at rest the two
-    /// menus, the field at its minimum and Run come to a little over 500pt, and
-    /// a running lane adds a Cancel and a status word on top of that.
+    /// cannot hold their labels.
     static let minimumWidth: CGFloat = 600
+
+    /// The fixed width for every buttons-only state. The selected action and
+    /// in-flight Cancel affordance share one fixed-width primary button, so no
+    /// phase needs spare horizontal room or resizes the panel.
+    static let standardWidth: CGFloat = 600
 
     /// …and never let it get wider than this. On a 5K or ultrawide display a
     /// full-width lane is thousands of points of mostly empty ink with `Run` a
@@ -218,8 +226,8 @@ enum RibbonPlacement {
     /// The height every fit decision is taken against, whatever the lane
     /// currently measures.
     ///
-    /// The lane opens as a single command row and grows later — a status word
-    /// costs it nothing, but a review gate takes it to about 195pt, measured.
+    /// The lane opens as a single command row and grows later — phase labels
+    /// stay inside that row, but a review gate takes it to about 195pt, measured.
     /// Placement is decided at open, on a lane barely 50pt tall, and then held
     /// for the session. Judging the room at the selection's ends on that
     /// opening height would let the lane claim a gap it cannot actually fit
@@ -252,16 +260,17 @@ enum RibbonPlacement {
 
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
-        let restingWidth = max(minimumWidth, min(restingHost.width, maximumWidth))
+        let requestedWidth = min(context.preferredWidth, maximumWidth)
+        let restingWidth = max(minimumWidth, min(restingHost.width, requestedWidth))
         let restingX = restingHost.minX + (restingHost.width - restingWidth) / 2
 
         let selection = avoidedSelection(in: context)
-        // A lane at an end of the selection spans the selection, not the
-        // window around it: as wide as the selected span, held between the
-        // width the row needs to stay legible and the width past which it
-        // stops reading as one sentence. With no selection there is nothing to
-        // span, and the resting width stands in.
-        let selectionWidth = max(minimumWidth, min(selection?.width ?? restingWidth, maximumWidth))
+        // A lane at an end of the selection follows the selected span, not the
+        // window around it, while honoring the width its current content asks
+        // for. With no selection there is nothing to span, and the resting
+        // width stands in.
+        let selectionWidth = max(
+            minimumWidth, min(selection?.width ?? restingWidth, requestedWidth))
         // Centered on the span, so the lane is under the words the user
         // highlighted rather than under the middle of whatever window happens
         // to contain them.
@@ -295,7 +304,7 @@ enum RibbonPlacement {
         /// nothing for the other axis to creep over.
         func marginFrame(_ side: Anchor, _ h: CGFloat) -> CGRect? {
             guard let selection, let margin = margin(side), margin >= minimumWidth else { return nil }
-            let w = max(minimumWidth, min(margin, maximumWidth))
+            let w = max(minimumWidth, min(margin, requestedWidth))
             let x = side == .leftOfSelection ? selection.minX - w : selection.maxX
             // Level with the middle of the block, which is where the eye is,
             // then held inside the band.

@@ -16,18 +16,18 @@
   <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
 </p>
 
-Select text anywhere on your Mac, press a shortcut, and say what you want
-changed. Mancia runs the edit through GitHub Copilot CLI and replaces the text
-in place — no chat window, no copy-paste round trip.
+Select text anywhere on your Mac, press a shortcut or click an action, and say
+what you want changed. Mancia runs the edit through GitHub Copilot CLI and
+replaces the text in place — no chat window, no copy-paste round trip.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. The Mancia command ribbon sits just below the selection, reading Selection · 204, Your instruction, the typed direction 'make it decisive, one sentence', and a Run button." width="880">
+  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. The expanded Mancia command ribbon sits below it with Custom selected, a typed instruction, four visible built-in action buttons, and a Working button." width="880">
 </p>
 
 - Works in any app with standard **Copy**, **Select All** and **Paste**.
 - The ribbon opens **against the text you selected**, not in a corner of the screen.
-- One-tap **Improve**, three more presets, or a free-form instruction.
-- Step back and forth between versions until one is right.
+- Five visible action buttons: **Improve**, three focused presets, and **Custom**.
+- Press **⌘Z** to step back through applied versions.
 - Your clipboard is snapshotted and restored after every edit.
 - No telemetry, no Dock icon, no direct calls to any AI API.
 
@@ -74,9 +74,10 @@ signed, so macOS asks again after each rebuild.
 
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
-3. Press <kbd>Return</kbd> to **Improve**, or type an instruction first —
-   *“make it decisive, one sentence”*, *“rewrite in a friendlier tone”*,
-   *“turn these notes into bullets”*.
+3. Click a built-in action or press <kbd>⌘1</kbd>…<kbd>⌘4</kbd> to run it
+   immediately. Click **Custom** or press <kbd>⌘5</kbd> to expand the ribbon and
+   type what you need — *“make it decisive, one sentence”*, *“rewrite in a
+   friendlier tone”*, *“turn these notes into bullets”*.
 
 The result replaces the selection in place. With nothing selected, Mancia takes
 the whole document and asks before overwriting it.
@@ -86,8 +87,8 @@ the whole document and asks before overwriting it.
 | <kbd>Return</kbd> | Run the edit |
 | <kbd>←</kbd> / <kbd>→</kbd> | Step between versions |
 | <kbd>Tab</kbd> | Move between the ribbon's cells |
-| <kbd>⌘1</kbd>…<kbd>⌘4</kbd> | Pick an action: Improve, Sharpen, Plan first, Tighten |
-| <kbd>⌘0</kbd> | Back to using your own instruction |
+| <kbd>⌘1</kbd> / <kbd>⌘2</kbd> / <kbd>⌘3</kbd> / <kbd>⌘4</kbd> | Run Improve / Sharpen / Plan first / Tighten immediately |
+| <kbd>⌘5</kbd> | Select Custom and reveal its field |
 | <kbd>⌘T</kbd> | Switch target: selection ↔ whole document |
 | <kbd>⌘,</kbd> | Settings |
 | <kbd>Esc</kbd> | Close the ribbon |

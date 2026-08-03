@@ -230,7 +230,7 @@ enum DebugCLI {
 
     @MainActor
     private static func checkRibbonClick() async {
-        let width: CGFloat = 720
+        let width = RibbonPlacement.standardWidth
         let height: CGFloat = 48
         let model = PanelModel()
         model.hasSelection = true
@@ -256,9 +256,9 @@ enum DebugCLI {
         panel.makeKeyAndOrderFront(nil)
         await settle()
 
-        // Run is the trailing control: 12pt in from the lane's edge, 72pt wide
+        // Run is the trailing control: 12pt in from the lane's edge, 96pt wide
         // and 32pt tall, 8pt down from its top.
-        let center = NSPoint(x: width - 12 - 36, y: height - 8 - 16)
+        let center = NSPoint(x: width - 12 - 48, y: height - 8 - 16)
         var failures: [String] = []
         // Self-check on that arithmetic. Run is the lane's one vermilion
         // control, so if the point is not sitting on vermilion the layout has

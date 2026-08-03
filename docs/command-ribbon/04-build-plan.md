@@ -140,14 +140,11 @@ region for `.confirm`, both per [01-behavior-spec.md](01-behavior-spec.md).
 
 Reuse, do not reimplement. Four small components live in `EditPanelView.swift`
 and are all `private` to that file: `SwooshBorder` (:454), `GhostButton`
-(:393), `AccentButton` (:420), `PresetMenuButton` (:355), plus the version-nav
-chevrons and counter, which are inline rather than extracted.
+(:393), `AccentButton` (:420), and `PresetMenuButton` (:355).
 
 Move them into `Sources/Mancia/Ribbon/RibbonControls.swift` as **internal**
 types and have `EditPanelView` import them from there — one definition, two
-call sites, no duplication to reconcile at stage 11. Extract the version nav
-into a `VersionNav` view at the same time; it is used identically by both
-surfaces.
+call sites, no duplication to reconcile at stage 11.
 
 Also add `ApplyConfirmation.detailedSummary(originalCharacters:resultCharacters:)`
 per [01-behavior-spec.md](01-behavior-spec.md) — the existing `summary` is
@@ -188,10 +185,9 @@ confirms; error `Copy` puts the full text on `NSPasteboard.general`.
   is in flight — they are resolved above the SwiftUI tree, so they never see
   the `disabled` on the cells.
 
-`EditCoordinator` change permitted here: **none expected.** ← / → version
-navigation already works through `handleKeyDown`
-(`EditCoordinator.swift:434`). If you find you need a change, that is a signal
-to re-read the spec, not to edit the coordinator.
+Route ⌘Z through `KeyablePanel`: the instruction field's undo manager gets
+first refusal, then `EditCoordinator.undoLastVersion()` restores the previous
+applied version. Do not add arrow-key or on-screen iteration navigation.
 
 **Acceptance:** the full keyboard table in
 [01-behavior-spec.md](01-behavior-spec.md) works, verified by hand, with
