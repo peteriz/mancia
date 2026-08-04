@@ -8,7 +8,11 @@ import AppKit
 /// why both presentations — the floating panel and the command ribbon — share
 /// exactly this one, rather than each growing its own.
 final class KeyablePanel: NSPanel {
+    /// ⌘W and any other explicit dismissal — always closes the session.
     var onCancel: (() -> Void)?
+    /// Esc, which backs out of a run before it backs out of the session.
+    /// Falls back to `onCancel` when a host does not distinguish the two.
+    var onEscape: (() -> Void)?
     var onKeyDown: ((NSEvent) -> Bool)?
     var onOpenSettings: (() -> Void)?
     var onSubmit: (() -> Void)?
@@ -22,7 +26,7 @@ final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
-        onCancel?()
+        (onEscape ?? onCancel)?()
     }
 
     /// Observe key presses so the coordinator can cancel the post-apply beat.

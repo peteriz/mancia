@@ -10,8 +10,8 @@ import SwiftUI
 /// only thing invented is the document underneath, which stands in for whatever
 /// app the user is actually writing in.
 ///
-/// The geometry mirrors `RibbonPlacement`: the lane takes the host window's
-/// width up to `maximumWidth`, sits centered on it, and hangs
+/// The geometry mirrors `RibbonPlacement`: the lane takes its fixed
+/// content width, sits centered on the host, and hangs
 /// `selectionClearance` below the selected text.
 @MainActor
 enum DocsShot {
@@ -22,7 +22,10 @@ enum DocsShot {
         let model = PanelModel()
         model.hasSelection = true
         model.selectionCharCount = Copy.selection.joined(separator: " ").count
-        model.focusedCell = .run
+        // The shipping ribbon does not choose a button for the user. Keep the
+        // documentation shot equally neutral rather than manufacturing a focus
+        // ring.
+        model.focusedCell = .none
 
         let scene = ShotScene(model: model)
         let host = NSHostingView(rootView: scene)
@@ -87,8 +90,8 @@ enum DocsShot {
 /// lane lands exactly `RibbonPlacement.selectionClearance` under the last
 /// selected line rather than wherever a stack happens to put it.
 private enum Layout {
-    static let canvas = CGSize(width: 1160, height: 574)
-    static let window = CGRect(x: 80, y: 44, width: 1000, height: 486)
+    static let canvas = CGSize(width: 1080, height: 520)
+    static let window = CGRect(x: 40, y: 28, width: 1000, height: 464)
     static let titleBar: CGFloat = 40
     static let bodyInset: CGFloat = 40
     static let lineHeight: CGFloat = 30
@@ -105,19 +108,19 @@ private enum Layout {
 }
 
 private enum Copy {
-    static let title = "New Message"
-    static let heading = "Re: Thursday rollout"
+    static let title = "Cyberdyne memo"
+    static let heading = "Re: August 29 launch"
     static let lead = [
-        "Thanks for the notes, everyone — genuinely useful, and between them they",
-        "cover most of what came up in the review last week. Two things are still",
-        "open, and I have put both of them below.",
+        "Thanks for the prototype. The learning system is impressive, but we should",
+        "not connect it to defense infrastructure until the safeguards are reviewed.",
+        "One point needs to be unambiguous before tomorrow's meeting.",
     ]
     static let selection = [
-        "I think it is probably fine for us to go ahead and ship on Thursday,",
-        "assuming nothing else comes up between now and then, though we can",
-        "obviously revisit this if anyone feels strongly about it either way.",
+        "I think it may be sensible to postpone the launch while we double-check",
+        "whether a self-improving defense network is really the kind of thing we",
+        "want making decisions on its own.",
     ]
-    static let sign = "— Dana"
+    static let sign = "— Sarah"
 }
 
 private enum Ink {

@@ -113,6 +113,10 @@ enum RibbonPlacement {
         /// clamping. The button strip asks for the stable standard width;
         /// Custom asks for the expanded maximum.
         var preferredWidth: CGFloat
+        /// The width the content must retain even when its host or selected span
+        /// is narrower. Custom uses its full requested width so its field and
+        /// inline Run control never collapse.
+        var minimumContentWidth: CGFloat
 
         init(
             screenFrame: CGRect,
@@ -122,7 +126,8 @@ enum RibbonPlacement {
             menuBarHidden: Bool = false,
             selectionRect: CGRect? = nil,
             establishedAnchor: Anchor? = nil,
-            preferredWidth: CGFloat = RibbonPlacement.maximumWidth
+            preferredWidth: CGFloat = RibbonPlacement.maximumWidth,
+            minimumContentWidth: CGFloat = RibbonPlacement.minimumWidth
         ) {
             self.screenFrame = screenFrame
             self.visibleFrame = visibleFrame
@@ -132,6 +137,7 @@ enum RibbonPlacement {
             self.selectionRect = selectionRect
             self.establishedAnchor = establishedAnchor
             self.preferredWidth = preferredWidth
+            self.minimumContentWidth = minimumContentWidth
         }
     }
 
@@ -186,18 +192,21 @@ enum RibbonPlacement {
 
     /// Never let the lane get narrower than this; below it the row's controls
     /// cannot hold their labels.
-    static let minimumWidth: CGFloat = 600
+    static let minimumWidth: CGFloat = 558
 
-    /// The fixed width for every buttons-only state. The selected action and
-    /// in-flight Cancel affordance share one fixed-width primary button, so no
-    /// phase needs spare horizontal room or resizes the panel.
-    static let standardWidth: CGFloat = 600
+    /// The fixed width for every buttons-only state. Each action reserves room
+    /// for its running label, so no phase needs spare horizontal room or resizes
+    /// the panel.
+    static let standardWidth: CGFloat = 558
 
-    /// …and never let it get wider than this. On a 5K or ultrawide display a
-    /// full-width lane is thousands of points of mostly empty ink with `Run` a
-    /// long way from the Direction field the user just typed in. Capping and
-    /// centering keeps the command sentence readable as a sentence, and the
-    /// lane is still top-centered, so it still opens in one predictable place.
+    /// Custom's fixed width: four icon actions, a 428pt direction group, and equal
+    /// outer margins.
+    static let expandedWidth: CGFloat = 897
+
+    /// …and never let placement get wider than this. On a 5K or ultrawide display a
+    /// full-width lane is thousands of points of mostly empty ink. Capping and
+    /// centering keeps the command sentence readable as a sentence, and the lane
+    /// is still top-centered, so it still opens in one predictable place.
     ///
     /// Once the cell captions went and every control sized to its content, a
     /// 1200pt lane was mostly gap — and the only cell able to absorb it was the
@@ -260,8 +269,11 @@ enum RibbonPlacement {
 
         // The minimum wins over the maximum: a lane too narrow to lay out is a
         // worse failure than one wider than its host, which merely overhangs.
-        let requestedWidth = min(context.preferredWidth, maximumWidth)
-        let restingWidth = max(minimumWidth, min(restingHost.width, requestedWidth))
+        let requestedWidth = max(
+            minimumWidth, min(context.preferredWidth, maximumWidth))
+        let contentFloor = min(
+            requestedWidth, max(minimumWidth, context.minimumContentWidth))
+        let restingWidth = max(contentFloor, min(restingHost.width, requestedWidth))
         let restingX = restingHost.minX + (restingHost.width - restingWidth) / 2
 
         let selection = avoidedSelection(in: context)
@@ -270,7 +282,7 @@ enum RibbonPlacement {
         // for. With no selection there is nothing to span, and the resting
         // width stands in.
         let selectionWidth = max(
-            minimumWidth, min(selection?.width ?? restingWidth, requestedWidth))
+            contentFloor, min(selection?.width ?? restingWidth, requestedWidth))
         // Centered on the span, so the lane is under the words the user
         // highlighted rather than under the middle of whatever window happens
         // to contain them.
@@ -303,8 +315,8 @@ enum RibbonPlacement {
         /// facing the selection, and along a margin it owns outright there is
         /// nothing for the other axis to creep over.
         func marginFrame(_ side: Anchor, _ h: CGFloat) -> CGRect? {
-            guard let selection, let margin = margin(side), margin >= minimumWidth else { return nil }
-            let w = max(minimumWidth, min(margin, requestedWidth))
+            guard let selection, let margin = margin(side), margin >= contentFloor else { return nil }
+            let w = max(contentFloor, min(margin, requestedWidth))
             let x = side == .leftOfSelection ? selection.minX - w : selection.maxX
             // Level with the middle of the block, which is where the eye is,
             // then held inside the band.
@@ -369,7 +381,7 @@ enum RibbonPlacement {
             // squeezed below its natural width.
             let left = margin(.leftOfSelection) ?? 0
             let right = margin(.rightOfSelection) ?? 0
-            if max(left, right) >= minimumWidth {
+            if max(left, right) >= contentFloor {
                 return right >= left ? .rightOfSelection : .leftOfSelection
             }
 

@@ -109,7 +109,7 @@ final class RibbonWindow: NSObject {
     func focus() {
         guard let panel, panel.isVisible else { return }
         panel.makeKeyAndOrderFront(nil)
-        model.focusSeq &+= 1
+        if model.focusedCell != .none { model.focusSeq &+= 1 }
     }
 
     /// Whether the lane still holds key status.
@@ -294,6 +294,7 @@ final class RibbonWindow: NSObject {
         guard let screen = targetScreen() else {
             return .init(screenFrame: .zero, visibleFrame: .zero)
         }
+        let expanded = model.prefersExpandedRibbon
         return .init(
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
@@ -302,9 +303,12 @@ final class RibbonWindow: NSObject {
             menuBarHidden: menuBarHidden,
             selectionRect: selectionRect,
             establishedAnchor: currentAnchor,
-            preferredWidth: model.prefersExpandedRibbon
-                ? RibbonPlacement.maximumWidth
-                : RibbonPlacement.standardWidth
+            preferredWidth: expanded
+                ? RibbonPlacement.expandedWidth
+                : RibbonPlacement.standardWidth,
+            minimumContentWidth: expanded
+                ? RibbonPlacement.expandedWidth
+                : RibbonPlacement.minimumWidth
         )
     }
 
@@ -424,6 +428,7 @@ final class RibbonWindow: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = hosting
         panel.onCancel = { [weak self] in self?.model.onCancel?() }
+        panel.onEscape = { [weak self] in self?.model.escape() }
         panel.onKeyDown = { [weak self] event in
             guard let self else { return false }
             // The coordinator sees every key first, because its first act is to
@@ -440,17 +445,25 @@ final class RibbonWindow: NSObject {
                 model.moveFocus(move)
                 return true
             }
-            // Return is the lane's primary key from every focus stop. The
-            // Direction field answers its own through `onSubmit`, so it is
-            // excluded here or the action would run twice.
+            // Return activates the focused action. Direction answers its own
+            // through `onSubmit`, so it is excluded or Custom would run twice.
             if PanelKeyCommand.isPrimaryReturn(
                 keyCode: event.keyCode, modifiers: event.modifierFlags),
-                model.focusedCell != .direction,
-                model.phase != .running, model.phase != .confirm,
-                model.canRunPrimary
+                model.phase != .running, model.phase != .confirm
             {
-                model.runPrimary()
-                return true
+                switch model.focusedCell {
+                case .none:
+                    return false
+                case .action(let index):
+                    model.activateAction(at: index)
+                    return true
+                case .run:
+                    guard model.canRunPrimary else { return false }
+                    model.runPrimary()
+                    return true
+                case .direction:
+                    return false
+                }
             }
             return false
         }
