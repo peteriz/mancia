@@ -211,15 +211,9 @@ enum DebugCLI {
 
     // MARK: - Ribbon click check
 
-    /// Verify that the lane's Run control answers the mouse.
-    ///
-    /// It once did not: its label was `hidden()`, and a plain button's hit
-    /// region *is* its label, so the one control the lane is named for drew
-    /// perfectly and ran nothing. Nothing in `swift test` can see that — the
-    /// model was wired, the view rendered, only the hit region was empty — so
-    /// the check clicks the button the way a user does and asks the model what
-    /// ran. Once with the default action and once with a preset pinned, which
-    /// is the flow the failure was reported in.
+    /// Verify that the lane's action buttons answer the mouse. Nothing in
+    /// `swift test` can see a SwiftUI button's hit region, so this clicks two
+    /// actions the way a user does and asks the model what ran.
     @MainActor
     private static func ribbonClickCheck() {
         let app = NSApplication.shared
@@ -256,30 +250,24 @@ enum DebugCLI {
         panel.makeKeyAndOrderFront(nil)
         await settle()
 
-        // Run is the trailing control: 12pt in from the lane's edge, 96pt wide
-        // and 32pt tall, 8pt down from its top.
-        let center = NSPoint(x: width - 12 - 48, y: height - 8 - 16)
+        let y: CGFloat = 12
+        let emptyTrailingLane = NSPoint(x: width - 60, y: y)
         var failures: [String] = []
-        // Self-check on that arithmetic. Run is the lane's one vermilion
-        // control, so if the point is not sitting on vermilion the layout has
-        // moved and the clicks below would be testing empty lane.
-        if isAccent(hosting, at: center) {
-            print("Run fill found at (\(Int(center.x)), \(Int(center.y)))")
-        } else {
-            failures.append("no accent fill at (\(Int(center.x)), \(Int(center.y))) — layout moved")
+        if isAccent(hosting, at: emptyTrailingLane) {
+            failures.append("unexpected default accent control in the trailing lane")
         }
 
-        for (label, expected) in [("default", "Improve"), ("Sharpen pinned", "Sharpen")] {
-            if expected == "Sharpen" {
-                model.selectPreset(at: 1)
-                await settle()
-            }
+        let actions = [
+            ("Improve", NSPoint(x: 61, y: y)),
+            ("Sharpen", NSPoint(x: 177, y: y)),
+        ]
+        for (expected, center) in actions {
             ran.removeAll()
             click(panel, at: center)
             await settle()
-            print("click (\(label)): ran \(ran.isEmpty ? "NOTHING" : ran.joined(separator: ", "))")
+            print("click (\(expected)): ran \(ran.isEmpty ? "NOTHING" : ran.joined(separator: ", "))")
             if ran != [expected] {
-                failures.append("click (\(label)): expected \(expected), got \(ran)")
+                failures.append("click (\(expected)): expected \(expected), got \(ran)")
             }
         }
 
@@ -287,7 +275,7 @@ enum DebugCLI {
             for failure in failures { printErr("Error: \(failure)") }
             exit(1)
         }
-        print("Ribbon Run control OK")
+        print("Ribbon action controls OK")
         exit(0)
     }
 

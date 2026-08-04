@@ -4,8 +4,8 @@ import Observation
 /// Observable state shared between the panel view and the coordinator that
 /// drives it. The coordinator wires the closures; the view calls them.
 ///
-/// The ribbon is a cyclical edit session: its action controls stay visible
-/// while the Custom field is disclosed only when selected. A status
+/// The ribbon is a cyclical edit session: its four preset controls stay visible
+/// while Custom replaces its button with a field. A status
 /// strip cycles idle → running → applied → back, until the user closes
 /// the session. Applied versions remain available through ⌘Z.
 @MainActor
@@ -13,9 +13,10 @@ import Observation
 final class PanelModel {
     enum Phase: Equatable { case idle, running, confirm, applied, error }
     enum Scope: Equatable { case selection, document }
-    /// The ribbon's focusable cells. Action carries its stable catalog index so
-    /// all five visible buttons participate independently in the focus ring.
-    enum Cell: Hashable { case target, action(Int), direction, run }
+    /// The ribbon's focusable cells. Action carries its stable catalog index;
+    /// Run exists only inside the disclosed Custom field. None keeps a fresh
+    /// ribbon visually neutral until the user chooses a control.
+    enum Cell: Hashable { case none, action(Int), direction, run }
     /// The action described by the ribbon right now. Explicit selection keeps
     /// an empty Custom field distinct from the default Improve action.
     enum ActionChoice: Equatable { case preset(PanelPreset), custom }
@@ -78,7 +79,7 @@ final class PanelModel {
     /// Lives on the model because Tab is not a key equivalent: it arrives at
     /// the window, which has no way to reach a view-local `@FocusState`. The
     /// view mirrors this into one, in both directions.
-    var focusedCell: Cell = .run
+    var focusedCell: Cell = .none
 
     // Wired by EditCoordinator.
     /// Run an action, optionally with guidance the user typed alongside it.
@@ -93,6 +94,19 @@ final class PanelModel {
     var onCancelRun: (() -> Void)?
     /// Close the whole session (Esc / Done), keeping the document as shown.
     var onCancel: (() -> Void)?
+
+    /// Esc means "back out of the smallest thing in progress".
+    ///
+    /// While an action is running that is the run itself, so the ribbon stays
+    /// up and the user can try something else. With nothing in flight there is
+    /// nothing smaller to leave than the session, so Esc dismisses the ribbon.
+    func escape() {
+        if phase == .running {
+            onCancelRun?()
+        } else {
+            onCancel?()
+        }
+    }
 
     func reset(hasSelection: Bool, charCount: Int) {
         phase = .idle
@@ -111,7 +125,7 @@ final class PanelModel {
         errorDetailsExpanded = false
         versionCount = 0
         currentIndex = 0
-        focusedCell = .run
+        focusedCell = .none
         sessionSeq &+= 1
     }
 
@@ -147,7 +161,7 @@ final class PanelModel {
     }
 
     /// A visible action button or ⌘1…⌘5. Built-ins run immediately; Custom
-    /// selects, moves to the leading edge, and hands focus to its field.
+    /// replaces its button with the field and hands focus to it.
     func activateAction(at index: Int) {
         guard !isLocked else { return }
         if PanelPreset.keyboardActions.indices.contains(index) {
@@ -165,14 +179,20 @@ final class PanelModel {
     /// tree, so they never see the `disabled` that greys the cells out.
     var isLocked: Bool { phase == .running || phase == .confirm }
 
-    /// Hand keyboard focus to the control that completes the selected action:
-    /// the disclosed field for Custom, otherwise Run.
+    /// Hand keyboard focus to the selected action, or to Custom's field.
     func returnFocusToPrimaryControl() {
         focusedCell = primaryFocusCell
         focusSeq &+= 1
     }
 
-    var primaryFocusCell: Cell { isCustomInstructionSelected ? .direction : .run }
+    var primaryFocusCell: Cell {
+        switch actionChoice {
+        case .preset(let preset):
+            return .action(PanelPreset.all.firstIndex(of: preset) ?? 0)
+        case .custom:
+            return .direction
+        }
+    }
 
     /// Tab / ⇧Tab, wrapping at both ends.
     func moveFocus(_ move: PanelKeyCommand.FocusMove) {
@@ -185,33 +205,49 @@ final class PanelModel {
         focusedCell = cells[(current + step) % cells.count]
     }
 
-    /// Target drops out while static. Every visible action is its own stop, in
-    /// visual order; Direction follows Custom only while its field is disclosed.
+    /// Every visible control is its own stop, in visual order. Direction
+    /// replaces Custom while its field is disclosed.
     var focusableCells: [Cell] {
         var cells: [Cell] = []
-        if hasSelection, !capturing { cells.append(.target) }
         for index in actionDisplayOrder {
-            cells.append(.action(index))
             if index == Self.customActionIndex, isCustomInstructionSelected {
                 cells.append(.direction)
+            } else {
+                cells.append(.action(index))
             }
         }
-        cells.append(.run)
+        if isCustomInstructionSelected { cells.append(.run) }
         return cells
     }
 
-    /// Default: four built-ins then Custom. Custom mode moves Custom to the
-    /// leading edge while retaining every built-in to the field's right.
+    /// Four built-ins then Custom, in the same order in every state.
     var actionDisplayOrder: [Int] {
-        let builtIns = Array(PanelPreset.all.indices)
-        return isCustomInstructionSelected
-            ? [Self.customActionIndex] + builtIns
-            : builtIns + [Self.customActionIndex]
+        Self.actionIndices
     }
 
     func actionTitle(at index: Int) -> String? {
         if PanelPreset.all.indices.contains(index) { return PanelPreset.all[index].title }
         return index == Self.customActionIndex ? "Custom" : nil
+    }
+
+    func actionSymbol(at index: Int) -> String? {
+        if PanelPreset.all.indices.contains(index) { return PanelPreset.all[index].action.symbol }
+        return index == Self.customActionIndex ? EditAction.custom("").symbol : nil
+    }
+
+    /// The label shown on an action control in its current phase.
+    func actionLabel(at index: Int) -> String? {
+        guard let title = actionTitle(at: index) else { return nil }
+        guard phase == .running, isActionSelected(at: index) else { return title }
+        return actionProgressLabel(at: index)
+    }
+
+    /// Reserved beside the idle label so status changes never resize the strip.
+    func actionProgressLabel(at index: Int) -> String? {
+        if PanelPreset.all.indices.contains(index) {
+            return PanelPreset.all[index].action.progressLabel
+        }
+        return index == Self.customActionIndex ? EditAction.custom("").progressLabel : nil
     }
 
     func isActionSelected(at index: Int) -> Bool {
@@ -248,18 +284,7 @@ final class PanelModel {
         Self.actionIndices.contains(index) ? "⌘\(index + 1)" : nil
     }
 
-    /// The primary button names the selected action in every resting phase.
-    /// While work is in flight, hovering exposes the cancel action it performs.
-    var runButtonTitle: String {
-        switch actionChoice {
-        case .preset(let preset): return preset.action.progressLabel
-        case .custom: return EditAction.custom("").progressLabel
-        }
-    }
-
-    var runButtonHoverTitle: String? {
-        phase == .running ? "Cancel" : nil
-    }
+    var customSubmitTitle: String { phase == .running ? "Working" : "Run" }
 
     /// Ask the coordinator to walk the applied-version history backward.
     /// Kept on the model so the window's ⌘Z route stays independently testable.
@@ -303,6 +328,6 @@ final class PanelModel {
     func restoreDefaultAction() {
         instruction = ""
         actionChoice = .preset(.improve)
-        focusedCell = .run
+        focusedCell = .none
     }
 }
