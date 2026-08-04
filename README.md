@@ -16,17 +16,17 @@
   <img src="https://img.shields.io/badge/Swift-6-orange?logo=swift" alt="Swift 6">
 </p>
 
-Select text anywhere on your Mac, press a shortcut or click an action, and say
-what you want changed. Mancia runs the edit through GitHub Copilot CLI and
-replaces the text in place — no chat window, no copy-paste round trip.
+Select text anywhere on your Mac, choose the result you need, and Mancia runs
+the edit through GitHub Copilot CLI and replaces the text in place — no chat
+window, no copy-paste round trip.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. The expanded Mancia command ribbon sits below it with Custom selected, a typed instruction, four visible built-in action buttons, and a Working button." width="880">
+  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected and Mancia's command ribbon below it, showing Improve, Sharpen, Plan first, Tighten, Custom, and an Improving button." width="880">
 </p>
 
 - Works in any app with standard **Copy**, **Select All** and **Paste**.
 - The ribbon opens **against the text you selected**, not in a corner of the screen.
-- Five visible action buttons: **Improve**, three focused presets, and **Custom**.
+- **Improve** polishes everyday prose, **Sharpen** turns rough requests into clear instructions, **Plan first** asks an agent to investigate before changing anything, and **Tighten** cuts words without losing requirements.
 - Press **⌘Z** to step back through applied versions.
 - Your clipboard is snapshotted and restored after every edit.
 - No telemetry, no Dock icon, no direct calls to any AI API.
@@ -74,9 +74,10 @@ signed, so macOS asks again after each rebuild.
 
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
-3. Click a built-in action or press <kbd>⌘1</kbd>…<kbd>⌘4</kbd> to run it
-   immediately. Click **Custom** or press <kbd>⌘5</kbd> to expand the ribbon and
-   type what you need — *“make it decisive, one sentence”*, *“rewrite in a
+3. Choose the outcome you need with **Improve**, **Sharpen**, **Plan first** or
+   **Tighten**; click it or press <kbd>⌘1</kbd>…<kbd>⌘4</kbd> to run it
+   immediately. For anything else, click **Custom** or press <kbd>⌘5</kbd> and
+   describe the result — *“make it decisive, one sentence”*, *“rewrite in a
    friendlier tone”*, *“turn these notes into bullets”*.
 
 The result replaces the selection in place. With nothing selected, Mancia takes

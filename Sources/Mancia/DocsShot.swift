@@ -22,11 +22,6 @@ enum DocsShot {
         let model = PanelModel()
         model.hasSelection = true
         model.selectionCharCount = Copy.selection.joined(separator: " ").count
-        model.selectCustomInstruction()
-        // Run rather than Direction: a focused `TextField` renders its contents
-        // selected, and a wash over the typed instruction is a rendering
-        // artifact, not something a user ever sees. The instruction itself is
-        // filled in after the first layout, below, for the same reason.
         model.focusedCell = .run
 
         let scene = ShotScene(model: model)
@@ -47,12 +42,7 @@ enum DocsShot {
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()
         // SwiftUI resolves fonts, symbols and materials over a few turns of the
-        // run loop; drawing before it settles yields a half-built lane. The
-        // instruction lands in the second turn, once the field has taken and
-        // released focus over an empty string, so there is nothing for the
-        // select-all that focus performs to leave a wash over.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        model.instruction = Copy.instruction
+        // run loop; drawing before it settles yields a half-built lane.
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
 
         guard
@@ -102,7 +92,7 @@ private enum Layout {
     static let titleBar: CGFloat = 40
     static let bodyInset: CGFloat = 40
     static let lineHeight: CGFloat = 30
-    static let ribbonWidth = RibbonPlacement.maximumWidth
+    static let ribbonWidth = RibbonPlacement.standardWidth
 
     /// Top of the first body line, below the title bar and the heading.
     static let textTop = window.minY + titleBar + 34 + 42
@@ -128,7 +118,6 @@ private enum Copy {
         "obviously revisit this if anyone feels strongly about it either way.",
     ]
     static let sign = "— Dana"
-    static let instruction = "make it decisive, one sentence"
 }
 
 private enum Ink {
