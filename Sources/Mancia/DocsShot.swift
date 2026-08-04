@@ -10,7 +10,7 @@ import SwiftUI
 /// only thing invented is the document underneath, which stands in for whatever
 /// app the user is actually writing in.
 ///
-/// The geometry mirrors `RibbonPlacement`: the expanded lane takes its fixed
+/// The geometry mirrors `RibbonPlacement`: the lane takes its fixed
 /// content width, sits centered on the host, and hangs
 /// `selectionClearance` below the selected text.
 @MainActor
@@ -22,10 +22,9 @@ enum DocsShot {
         let model = PanelModel()
         model.hasSelection = true
         model.selectionCharCount = Copy.selection.joined(separator: " ").count
-        model.selectCustomInstruction()
         // The shipping ribbon does not choose a button for the user. Keep the
         // documentation shot equally neutral rather than manufacturing a focus
-        // ring just to keep focus out of the instruction field.
+        // ring.
         model.focusedCell = .none
 
         let scene = ShotScene(model: model)
@@ -46,12 +45,7 @@ enum DocsShot {
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()
         // SwiftUI resolves fonts, symbols and materials over a few turns of the
-        // run loop; drawing before it settles yields a half-built lane. The
-        // instruction lands in the second turn, once the field has taken and
-        // released focus over an empty string, so there is nothing for the
-        // select-all that focus performs to leave a wash over.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        model.instruction = Copy.instruction
+        // run loop; drawing before it settles yields a half-built lane.
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
 
         guard
@@ -101,7 +95,7 @@ private enum Layout {
     static let titleBar: CGFloat = 40
     static let bodyInset: CGFloat = 40
     static let lineHeight: CGFloat = 30
-    static let ribbonWidth = RibbonPlacement.expandedWidth
+    static let ribbonWidth = RibbonPlacement.standardWidth
 
     /// Top of the first body line, below the title bar and the heading.
     static let textTop = window.minY + titleBar + 34 + 42
@@ -127,7 +121,6 @@ private enum Copy {
         "want making decisions on its own.",
     ]
     static let sign = "— Sarah"
-    static let instruction = "make it urgent, one sentence"
 }
 
 private enum Ink {
