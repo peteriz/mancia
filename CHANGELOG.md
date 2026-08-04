@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-04
+
 ### Fixed
 
 - Run did nothing when clicked. Its label was hidden so the drawn word could be
@@ -23,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Custom instructions stay tucked away until requested, while the ribbon keeps
+  its core actions visible and exposes keyboard shortcuts on hover.
+- The model picker groups models by provider family and orders versions newest
+  first without changing which model is recommended.
+- The ribbon can be dragged from its background and keeps the user's chosen
+  position while its contents resize.
 - The menu says "About Mancia" and "Quit Mancia", matching the spec and the
   platform convention.
 - The ribbon answers a selected *block* as well as it answered a selected
@@ -139,7 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.2.2...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/peteriz/mancia/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/peteriz/mancia/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/peteriz/mancia/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/peteriz/mancia/compare/0.1.1...0.2.0
