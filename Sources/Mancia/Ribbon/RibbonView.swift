@@ -53,7 +53,12 @@ struct RibbonView: View {
     /// wraps, and everything below it — the failure strip, the review
     /// region — is added by later phases and grows the lane further downward.
     private let rowHeight: CGFloat = 48
+
     var body: some View {
+        ribbonWithLayoutObservers
+    }
+
+    private var ribbonSurface: some View {
         VStack(alignment: .leading, spacing: 0) {
             commandRow
             statusStrip
@@ -68,6 +73,10 @@ struct RibbonView: View {
         }
         .clipShape(shape)
         .overlay(shape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
+    }
+
+    private var ribbonWithFocusObservers: some View {
+        ribbonSurface
         .onExitCommand { model.escape() }
         .onAppear { adopt(model.focusedCell) }
         .onChange(of: model.sessionSeq) { adopt(model.focusedCell) }
@@ -81,6 +90,10 @@ struct RibbonView: View {
             }
             if let focus { model.focusedCell = focus }
         }
+    }
+
+    private var ribbonWithLayoutObservers: some View {
+        ribbonWithFocusObservers
         .onChange(of: model.phase) {
             customRunHovered = false
             announcePhase()
