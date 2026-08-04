@@ -21,13 +21,18 @@ the edit through GitHub Copilot CLI and replaces the text in place — no chat
 window, no copy-paste round trip.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected and Mancia's command ribbon below it, showing Improve, Sharpen, Plan first, Tighten, Custom, and an Improving button." width="880">
+  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected and Mancia's command ribbon below it, showing Improving, Sharpen, Plan first, Tighten, and Custom." width="880">
 </p>
 
 - Works in any app with standard **Copy**, **Select All** and **Paste**.
-- The ribbon opens **against the text you selected**, not in a corner of the screen.
+- The ribbon opens **against the text you selected**: below or above a short
+  selection, beside a tall block, and at a predictable fallback position when
+  there is no room. You can also drag it out of the way.
 - **Improve** polishes everyday prose, **Sharpen** turns rough requests into clear instructions, **Plan first** asks an agent to investigate before changing anything, and **Tighten** cuts words without losing requirements.
-- Press **⌘Z** to step back through applied versions.
+- **Custom** applies a free-form instruction, such as changing tone or format.
+- Press **⌘Z** to restore the previous version applied during the current session.
+- Cancel a running request without closing the ribbon, and retry or copy details
+  when the provider reports an error.
 - Your clipboard is snapshotted and restored after every edit.
 - No telemetry, no Dock icon, no direct calls to any AI API.
 
@@ -74,29 +79,37 @@ signed, so macOS asks again after each rebuild.
 
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
-3. Choose the outcome you need with **Improve**, **Sharpen**, **Plan first** or
-   **Tighten**; click it or press <kbd>⌘1</kbd>…<kbd>⌘4</kbd> to run it
-   immediately. For anything else, click **Custom** or press <kbd>⌘5</kbd> and
-   describe the result — *“make it decisive, one sentence”*, *“rewrite in a
-   friendlier tone”*, *“turn these notes into bullets”*.
+3. Click **Improve**, **Sharpen**, **Plan first**, or **Tighten** to run that
+   action immediately. For anything else, click **Custom**, enter an instruction
+   such as *“make it decisive, one sentence”* or *“turn these notes into bullets”*,
+   then press <kbd>Return</kbd> or click **Run**.
 
-The result replaces the selection in place. With nothing selected, Mancia takes
-the whole document and asks before overwriting it.
+The result replaces the selection in place. If you select a new span while the
+ribbon remains open, the next action uses that span and the ribbon moves with it.
+With nothing selected, Mancia edits the whole document. By default it shows the
+character-count change and lets you inspect the result before replacing the
+document; you can disable that confirmation in Settings.
 
 | Key | Does |
 | --- | --- |
-| <kbd>Return</kbd> | Run the edit |
-| <kbd>←</kbd> / <kbd>→</kbd> | Step between versions |
-| <kbd>Tab</kbd> | Move between the ribbon's cells |
+| <kbd>⌃⌥⌘E</kbd> | Open an edit session (configurable in Settings) |
 | <kbd>⌘1</kbd> / <kbd>⌘2</kbd> / <kbd>⌘3</kbd> / <kbd>⌘4</kbd> | Run Improve / Sharpen / Plan first / Tighten immediately |
-| <kbd>⌘5</kbd> | Select Custom and reveal its field |
-| <kbd>⌘T</kbd> | Switch target: selection ↔ whole document |
-| <kbd>⌘,</kbd> | Settings |
-| <kbd>Esc</kbd> | Close the ribbon |
+| <kbd>⌘5</kbd> | Open and focus the Custom instruction field |
+| <kbd>Return</kbd> | Activate the focused action, submit Custom, or confirm a pending whole-document replacement |
+| <kbd>⌘Return</kbd> | Run the current action from anywhere in the ribbon |
+| <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> | Move forward / backward through the ribbon controls |
+| <kbd>⌘T</kbd> | Switch between the current selection and the whole document when a selection exists |
+| <kbd>⌘Z</kbd> | Undo typing in Custom first; otherwise restore the previous Mancia-applied version |
+| <kbd>⌘⇧Z</kbd> | Redo typing in the Custom field |
+| <kbd>⌘A</kbd> / <kbd>⌘X</kbd> / <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | Edit text in the Custom field |
+| <kbd>⌘,</kbd> | Open Settings |
+| <kbd>Esc</kbd> | Cancel a running request; otherwise close the ribbon |
+| <kbd>⌘W</kbd> | Close the ribbon |
 
-**Settings** (from the menu bar) changes the global shortcut, the Copilot model
-and reasoning effort, the CLI path, launch at login, and whether the ribbon
-closes after an edit.
+**Settings** changes the global shortcut, whole-document confirmation, post-edit
+close behavior, and launch at login. Its Advanced section controls the Copilot
+model, reasoning effort, and CLI path. It also reports shortcut, Accessibility,
+and provider readiness.
 
 ## Privacy
 
