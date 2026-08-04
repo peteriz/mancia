@@ -7,12 +7,12 @@ import SwiftUI
 /// one, it falls back to a predictable resting place at the top — under the
 /// menu bar, or under the frontmost window's title bar. See `RibbonPlacement`.
 ///
-/// The lane reads left to right as one sentence: **Target · Actions · Run**.
-/// All five actions are visible; selecting Custom moves it to the leading edge
-/// and discloses Direction beside it. The cells carry no captions: they were
-/// the first
-/// thing to go when the row was collapsed to one line, and the resolved action
-/// is spelled out in the Action chip itself instead — which is what the panel
+/// The lane is one compact strip of actions.
+/// All five actions are visible; selecting Custom replaces it with Direction
+/// while the four built-in actions stay put. The cells carry no captions: they
+/// were the first thing to go when the row was collapsed to one line, and the
+/// resolved action is spelled out in the Action chip itself instead — which is
+/// what the panel
 /// this replaces got wrong by leaving "an empty field means Improve" implicit.
 ///
 /// The lane's width is imposed by `RibbonPlacement`; its height comes from its
@@ -42,8 +42,9 @@ struct RibbonView: View {
     /// The ring reads the model, which is the stop the keyboard is actually on.
     @FocusState private var focus: PanelModel.Cell?
     @State private var hoveredAction: Int?
-    @State private var runHovered = false
+    @State private var customRunHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     /// The height of every control on the command row, and so the height the
     /// row rests at once its padding is added.
@@ -52,9 +53,6 @@ struct RibbonView: View {
     /// wraps, and everything below it — the failure strip, the review
     /// region — is added by later phases and grows the lane further downward.
     private let rowHeight: CGFloat = 48
-    /// Room for the widest Target value so it does not resize mid-session.
-    private let targetMinWidth: CGFloat = 132
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             commandRow
@@ -65,21 +63,26 @@ struct RibbonView: View {
             }
         }
         .frame(width: width)
-        .background(RibbonPalette.lane)
+        .background {
+            glassSurface(tint: RibbonPalette.laneTint, in: shape)
+        }
         .clipShape(shape)
         .overlay(shape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
-        .onExitCommand { model.onCancel?() }
-        // Without this, SwiftUI picks its own initial focus when the lane
-        // becomes key — the first action button, in practice — after
-        // `focusPrimaryControl` has run, so the model's choice loses the race.
-        .defaultFocus($focus, .run)
-        .onAppear { focus = model.focusedCell }
-        .onChange(of: model.sessionSeq) { focusPrimaryControl() }
-        .onChange(of: model.focusSeq) { focusPrimaryControl() }
+        .onExitCommand { model.escape() }
+        .onAppear { adopt(model.focusedCell) }
+        .onChange(of: model.sessionSeq) { adopt(model.focusedCell) }
+        .onChange(of: model.focusSeq) { adopt(model.focusedCell) }
         .onChange(of: model.focusedCell) { adopt(model.focusedCell) }
-        .onChange(of: focus) { if let focus, isLive { model.focusedCell = focus } }
+        .onChange(of: focus) {
+            guard isLive else { return }
+            guard model.focusedCell != .none else {
+                focus = nil
+                return
+            }
+            if let focus { model.focusedCell = focus }
+        }
         .onChange(of: model.phase) {
-            runHovered = false
+            customRunHovered = false
             announcePhase()
             relayout()
             adopt(model.focusedCell)
@@ -90,6 +93,7 @@ struct RibbonView: View {
         .onChange(of: model.instruction) { relayout() }
         .onChange(of: model.isCustomInstructionSelected) {
             hoveredAction = nil
+            customRunHovered = false
             relayout()
         }
         .onChange(of: model.previewExpanded) { relayout() }
@@ -104,23 +108,23 @@ struct RibbonView: View {
         switch anchor {
         case .screen:
             UnevenRoundedRectangle(
-                topLeadingRadius: 0, bottomLeadingRadius: 12,
-                bottomTrailingRadius: 12, topTrailingRadius: 0, style: .continuous)
+                topLeadingRadius: 0, bottomLeadingRadius: 20,
+                bottomTrailingRadius: 20, topTrailingRadius: 0, style: .continuous)
         case .hostWindow, .belowSelection, .aboveSelection, .leftOfSelection, .rightOfSelection:
             UnevenRoundedRectangle(
-                topLeadingRadius: 12, bottomLeadingRadius: 12,
-                bottomTrailingRadius: 12, topTrailingRadius: 12, style: .continuous)
+                topLeadingRadius: 20, bottomLeadingRadius: 20,
+                bottomTrailingRadius: 20, topTrailingRadius: 20, style: .continuous)
         }
     }
 
-    /// The command row stays visible and readable while a request runs. Target
-    /// and action selection go inert; the primary button stays live as Cancel.
+    /// The command row stays visible and readable while a request runs. Other
+    /// actions go inert; the active action stays live as Cancel.
     private var locked: Bool { model.phase == .running || model.phase == .confirm }
 
     // MARK: - Command row
 
-    /// One line, read left to right: **Target · five Actions**, then the trailing
-    /// primary action. Custom inserts Direction immediately after itself.
+    /// One line of five Actions. Direction and its inline Run control replace
+    /// Custom while it is selected.
     ///
     /// Each cell used to carry a caption above its value. They were the widest
     /// thing on the lane and said the least: "Selection · 22", "Improve" and a
@@ -129,23 +133,12 @@ struct RibbonView: View {
     /// to one and let every control size to its own content instead of to a
     /// fixed width chosen to fit a label.
     private var commandRow: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Group {
-                targetCell
-                actionStrip
-            }
-            .opacity(locked ? 0.5 : 1)
-            .disabled(locked)
-
-            // The field stops at its cap and this takes the rest, keeping what
-            // the user typed from rewrapping underneath them.
-            if model.isCustomInstructionSelected {
-                Spacer(minLength: 0)
-            }
-
-            trailingCluster
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            actionStrip
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .frame(minHeight: rowHeight, alignment: .top)
         .animation(.easeInOut(duration: 0.2), value: model.phase)
@@ -156,96 +149,18 @@ struct RibbonView: View {
 
     // MARK: - Cells
 
-    /// What the edit will touch. A menu while there is a selection to choose
-    /// between; a static chip when the whole document is the only option.
-    ///
-    /// The chip is terse — an icon, one word and the character count — because
-    /// it is the least interesting cell on a lane the user came to type in. The
-    /// menu it opens keeps the unabbreviated wording, where there is room for
-    /// it and the choice has to be unambiguous.
-    @ViewBuilder
-    private var targetCell: some View {
-        if model.capturing {
-            chip {
-                chipLabel("ellipsis", "Reading…", chevron: false, minWidth: targetMinWidth)
-            }
-            .accessibilityLabel("Target, reading selection")
-            .accessibilityIdentifier("Target")
-        } else if model.hasSelection {
-            Menu {
-                Button("Selection · \(model.selectionCharCount)") {
-                    model.setScope(.selection)
-                    model.returnFocusToPrimaryControl()
-                }
-                Button("Entire document") {
-                    model.setScope(.document)
-                    model.returnFocusToPrimaryControl()
-                }
-                Divider()
-                // A hint, not a binding. `KeyablePanel` resolves ⌘T above the
-                // SwiftUI tree and consumes it, so this item never fires; it is
-                // here because the menu is where someone looks for the key.
-                Text("⌘T switches")
-            } label: {
-                targetLabel
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            // The fill hangs off the menu, not off its label: a `Text` wrapped
-            // in a background is rendered as an image, and an image-backed
-            // control has no accessible name left to override.
-            .background(controlShape.fill(RibbonPalette.control))
-            .focusable()
-            .focused($focus, equals: .target)
-            .ribbonFocusRing(model.focusedCell == .target, radius: 8, inset: 0)
-            .accessibilityLabel("Target")
-            .accessibilityValue(targetSpokenValue)
-            .accessibilityIdentifier("Scope")
-        } else {
-            chip {
-                chipLabel("doc.text", "Document", chevron: false, minWidth: targetMinWidth)
-            }
-            .accessibilityLabel("Target")
-            .accessibilityValue("Entire document")
-            .accessibilityIdentifier("Target")
-        }
-    }
-
-    @ViewBuilder
-    private var targetLabel: some View {
-        switch model.scope {
-        case .selection:
-            chipLabel(
-                "selection.pin.in.out", "Selection", detail: "\(model.selectionCharCount)",
-                minWidth: targetMinWidth)
-        case .document:
-            chipLabel("doc.text", "Document", minWidth: targetMinWidth)
-        }
-    }
-
-    /// VoiceOver hears the count and the unabbreviated noun; the chip shows the
-    /// short form.
-    private var targetSpokenValue: String {
-        switch model.scope {
-        case .selection: return "Selection, \(model.selectionCharCount) characters"
-        case .document: return "Entire document"
-        }
-    }
-
-    /// Stable identities let SwiftUI slide Custom from the trailing edge to the
-    /// leading edge instead of replacing it. The 4pt gap and 8pt button padding
-    /// keep five named controls usable at the compact ribbon width.
+    /// The four built-ins keep fixed positions. Direction replaces Custom's
+    /// trailing slot and absorbs the room added by the expanded ribbon.
     private var actionStrip: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
             ForEach(model.actionDisplayOrder, id: \.self) { index in
-                actionButton(at: index)
                 if index == PanelModel.customActionIndex,
                    model.isCustomInstructionSelected
                 {
                     directionCell
                         .transition(directionTransition)
+                } else {
+                    actionButton(at: index)
                 }
             }
         }
@@ -253,33 +168,64 @@ struct RibbonView: View {
 
     private func actionButton(at index: Int) -> some View {
         let title = model.actionTitle(at: index) ?? ""
+        let symbol = model.actionSymbol(at: index) ?? ""
+        let status = model.actionProgressLabel(at: index) ?? title
         let shortcut = model.actionShortcut(at: index) ?? ""
         let selected = model.isActionSelected(at: index)
+        let processing = model.phase == .running && selected
         let isHovered = hoveredAction == index
-        return Button { model.activateAction(at: index) } label: {
-            ZStack {
-                Text(title).opacity(isHovered ? 0 : 1)
-                Text(shortcut).opacity(isHovered ? 1 : 0)
+        let displayedSymbol = processing && isHovered ? "xmark" : symbol
+        let unavailable = model.phase == .confirm || (model.phase == .running && !processing)
+        return Button {
+            if processing {
+                model.onCancelRun?()
+            } else {
+                model.activateAction(at: index)
             }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(RibbonPalette.text)
-                .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(height: controlHeight)
-                .contentShape(Rectangle())
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: displayedSymbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(RibbonPalette.symbol)
+                    .frame(width: 14)
+                ZStack {
+                    Text(title).opacity(!processing && !isHovered ? 1 : 0)
+                    Text(shortcut).opacity(!processing && isHovered ? 1 : 0)
+                    Text(status).opacity(processing && !isHovered ? 1 : 0)
+                    Text("Cancel").opacity(processing && isHovered ? 1 : 0)
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(RibbonPalette.text)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .frame(height: controlHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .fixedSize()
         .background(
-            controlShape.fill(selected ? RibbonPalette.controlSelected : RibbonPalette.control))
-        .overlay(
-            controlShape.strokeBorder(
-                selected ? RibbonPalette.action.opacity(0.65) : RibbonPalette.laneEdge,
-                lineWidth: 1))
+            controlShape.fill(
+                isHovered
+                    ? RibbonPalette.controlHoverTint
+                    : RibbonPalette.controlTint))
+        .overlay {
+            if processing {
+                SwooshBorder(
+                    shape: controlShape,
+                    tint: RibbonPalette.processing,
+                    animated: !reduceMotion,
+                    lineWidth: 2)
+            } else {
+                controlShape.strokeBorder(RibbonPalette.controlEdge, lineWidth: 1)
+            }
+        }
         .focusable()
         .focused($focus, equals: .action(index))
         .ribbonFocusRing(model.focusedCell == .action(index), radius: 8, inset: 0)
-        .help("\(title) (\(shortcut))")
+        .disabled(unavailable)
+        .opacity(unavailable ? 0.5 : 1)
+        .help(processing ? "\(status). Click to cancel." : "\(title) (\(shortcut))")
         .onHover { isHovering in
             guard isLive else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
@@ -290,11 +236,13 @@ struct RibbonView: View {
                 }
             }
         }
-        .accessibilityLabel(title)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
-        .accessibilityHint(index == PanelModel.customActionIndex
-            ? "Command \(index + 1). Opens the custom instruction field."
-            : "Command \(index + 1). Runs immediately.")
+        .accessibilityLabel(processing ? status : title)
+        .accessibilityValue(processing ? "In progress" : selected ? "Selected" : "Not selected")
+        .accessibilityHint(processing
+            ? "Click to cancel."
+            : index == PanelModel.customActionIndex
+                ? "Command \(index + 1). Opens the custom instruction field."
+                : "Command \(index + 1). Runs immediately.")
         .accessibilityIdentifier("Action-\(index + 1)")
     }
 
@@ -309,26 +257,87 @@ struct RibbonView: View {
     /// for a control that already carries a prompt inside it and lights its
     /// border when it has focus.
     private var directionCell: some View {
-        TextField("", text: $model.instruction, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(1...4)
-            .font(directionFont)
-            .foregroundStyle(RibbonPalette.text)
-            .focused($focus, equals: .direction)
-            .onSubmit { model.runPrimary() }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .overlay(alignment: .topLeading) { placeholder }
-            .frame(minWidth: 140, maxWidth: 460, alignment: .leading)
-            .frame(minHeight: controlHeight, alignment: .topLeading)
-            .background(controlShape.fill(RibbonPalette.control))
-            // Past four lines the field scrolls, and without this the line
-            // sliding out of view draws over the field's own top edge.
-            .clipShape(controlShape)
-            .overlay(controlShape.strokeBorder(RibbonPalette.laneEdge, lineWidth: 1))
-            .ribbonFocusRing(model.focusedCell == .direction, radius: 8, inset: 0)
-            .accessibilityLabel("Direction")
-            .accessibilityIdentifier("CustomInstruction")
+        HStack(alignment: .top, spacing: 8) {
+            TextField("", text: $model.instruction, axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...4)
+                .font(directionFont)
+                .foregroundStyle(RibbonPalette.text)
+                .focused($focus, equals: .direction)
+                .onSubmit { model.runPrimary() }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .overlay(alignment: .topLeading) { placeholder }
+                .frame(width: 324, alignment: .leading)
+                .frame(minHeight: controlHeight, alignment: .topLeading)
+                .disabled(locked)
+                .background(controlShape.fill(RibbonPalette.directionTint))
+                // Past four lines the field scrolls, and without this the line
+                // sliding out of view draws over the field's own top edge.
+                .clipShape(controlShape)
+                .overlay(controlShape.strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+                .ribbonFocusRing(model.focusedCell == .direction, radius: 8, inset: 0)
+                .accessibilityLabel("Direction")
+                .accessibilityIdentifier("CustomInstruction")
+
+            customRunControl
+        }
+        .frame(width: 428, alignment: .leading)
+        .frame(minHeight: controlHeight, alignment: .topLeading)
+    }
+
+    private var customRunControl: some View {
+        let processing = model.phase == .running
+        let title = processing && customRunHovered ? "Cancel" : model.customSubmitTitle
+        let symbol = processing ? (customRunHovered ? "xmark" : "sparkles") : "play.fill"
+        return Button {
+            if processing {
+                model.onCancelRun?()
+            } else {
+                model.runPrimary()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 10, weight: .bold))
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(processing ? RibbonPalette.text : RibbonPalette.onCustomRun)
+            .frame(width: 96)
+            .frame(minHeight: controlHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            controlShape.fill(
+                processing
+                    ? (customRunHovered
+                        ? RibbonPalette.controlHoverTint
+                        : RibbonPalette.controlTint)
+                    : RibbonPalette.customRun))
+        .overlay {
+            if processing {
+                SwooshBorder(
+                    shape: controlShape,
+                    tint: RibbonPalette.processing,
+                    animated: !reduceMotion,
+                    lineWidth: 2)
+            }
+        }
+        .disabled(model.phase == .confirm || (!processing && !model.canRunPrimary))
+        .focusable()
+        .focused($focus, equals: .run)
+        .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: 0)
+        .help(processing ? "Cancel custom action" : "Run custom action")
+        .onHover { isHovering in
+            guard isLive else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
+                customRunHovered = processing && isHovering
+            }
+        }
+        .accessibilityLabel(processing ? "Cancel custom action" : title)
+        .accessibilityIdentifier("Run")
     }
 
     private var directionTransition: AnyTransition {
@@ -340,189 +349,31 @@ struct RibbonView: View {
 
     private var directionFont: Font { .system(size: 13, weight: .medium) }
 
-    // MARK: - Trailing cluster
-
-    /// The selected action lives in one fixed-width control. During a request,
-    /// that same control becomes Cancel on hover, so no adjacent status or
-    /// secondary action can resize the regular buttons-only state.
-    private var trailingCluster: some View {
-        runControl.frame(height: controlHeight)
-    }
-
-    /// The lane's one vermilion control, and the only one on this surface.
-    ///
-    /// While a request runs the comet rides this border — the panel wore it on
-    /// its instruction field, but here Run is what the user is waiting on.
-    /// Going inert softens the fill only. Dark ink on a bright fill does not
-    /// survive being dimmed: both ends walk toward the lane together and the
-    /// label's contrast collapses to about 2.5:1, which is how the one word on
-    /// the lane's one accent control became the least readable thing on it.
-    private var runControl: some View {
-        Button {
-            if model.phase == .running {
-                model.onCancelRun?()
-            } else {
-                model.runPrimary()
-            }
-        } label: {
-            // Invisible, not hidden and not absent: the button still takes its
-            // size from the real label, so the two cannot drift apart, and the
-            // drawn word is the overlay below. `hidden()` would be the obvious
-            // way to say this and is the wrong one — a hidden view takes no
-            // hits, and a plain button's hit region *is* its label, so the one
-            // control the lane is named for quietly stopped answering the
-            // mouse. `contentShape` has to ride inside the label for the same
-            // reason: outside the button it shapes the wrapper, not the region
-            // the button's own gesture watches.
-            runLabel
-                .opacity(0)
-                .frame(width: 96)
-                .frame(minHeight: controlHeight)
-                .contentShape(controlShape)
-        }
-        .buttonStyle(.plain)
-        // The fill and the running border hang off the button rather than off
-        // its label: a `Text` wrapped in a background is rendered as an image,
-        // and an image-backed button has no accessible name to override.
-        .background(controlShape.fill(runDisabled ? RibbonPalette.actionInert : RibbonPalette.action))
-        .overlay {
-            if model.phase == .running {
-                // The head is light, not vermilion: the comet is riding the
-                // one control on the lane already filled with the tint, and a
-                // vermilion head there had nothing to be brighter than. The
-                // tail and the halo stay vermilion, so the lane still spends
-                // its accent exactly once.
-                SwooshBorder(
-                    shape: controlShape,
-                    tint: RibbonPalette.action,
-                    animated: !reduceMotion,
-                    head: RibbonPalette.text,
-                    halo: 4,
-                    lineWidth: 2.5
-                )
-                .allowsHitTesting(false)
-            }
-        }
-        .contentShape(controlShape)
-        .focusable()
-        .focused($focus, equals: .run)
-        .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: -3)
-        .disabled(runDisabled)
-        // Drawn *after* `disabled`, and so outside the subtree it dims.
-        // SwiftUI fades a disabled button's label whatever style it wears, and
-        // that fade is the collapse described above; the softened fill is the
-        // signal instead. `disabled` still owns the behaviour — no hit
-        // testing, out of the focus chain, dimmed to VoiceOver.
-        .overlay {
-            runLabel
-                .frame(maxWidth: .infinity, minHeight: controlHeight)
-                .allowsHitTesting(false)
-        }
-        .help(runHelp)
-        .onHover { isHovering in
-            guard isLive else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
-                runHovered = model.phase == .running && isHovering
-            }
-        }
-        .accessibilityLabel(runAccessibilityLabel)
-        .accessibilityValue(runAccessibilityValue)
-        .accessibilityIdentifier("Run")
-    }
-
-    private var runLabel: some View {
-        Text(runLabelText)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(RibbonPalette.onAction)
-            .lineLimit(1)
-    }
-
-    private var runLabelText: String {
-        if runHovered, let hoverTitle = model.runButtonHoverTitle { return hoverTitle }
-        return model.runButtonTitle
-    }
-
-    private var runHelp: String {
-        switch model.phase {
-        case .running: return "Cancel \(runningLabel)"
-        default: return model.runButtonTitle
-        }
-    }
-
-    private var runAccessibilityLabel: String {
-        switch model.phase {
-        case .running: return "Cancel \(model.resolvedActionTitle)"
-        default: return model.runButtonTitle
-        }
-    }
-
-    private var runAccessibilityValue: String {
-        model.phase == .running ? runningLabel : model.resolvedActionTitle
-    }
-
-    private var runDisabled: Bool {
-        model.phase == .confirm || (model.phase != .running && !model.canRunPrimary)
-    }
-
     // MARK: - Control chrome
+
+    /// A frosted surface rather than a liquid one.
+    ///
+    /// Native Liquid Glass is nearly clear, so over a white document the lane
+    /// and its controls vanished into the page. A material base carries the
+    /// blur, and the ink tint above it holds a fixed step of contrast whatever
+    /// is behind the ribbon. Reduce Transparency drops to an opaque surface.
+    @ViewBuilder
+    private func glassSurface<S: Shape>(
+        tint: Color,
+        in shape: S
+    ) -> some View {
+        if reduceTransparency {
+            shape.fill(RibbonPalette.laneOpaque)
+        } else {
+            shape
+                .fill(.regularMaterial)
+                .overlay(shape.fill(tint))
+        }
+    }
 
     /// One radius for every control on the lane.
     private var controlShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-    }
-
-    /// A non-interactive control-shaped surface, for the states where the
-    /// Target cell has nothing to offer a menu.
-    ///
-    /// `fixedSize` matches what `.fixedSize()` does for the menu branch: the
-    /// label carries a trailing spacer so its `minWidth` reservation pushes
-    /// left, and without the clamp that spacer would let the chip swallow every
-    /// point of slack the row has.
-    private func chip(@ViewBuilder content: () -> some View) -> some View {
-        content()
-            .fixedSize()
-            .background(controlShape.fill(RibbonPalette.control))
-            .accessibilityElement(children: .combine)
-    }
-
-    /// Icon, value and — when the control opens a menu — a disclosure chevron.
-    /// The icon does the work the caption used to: it says which cell this is
-    /// before the value says what it holds.
-    ///
-    /// `minWidth` reserves room for the widest thing a cell can say. Without it
-    /// the row shuffles sideways mid-use — the Action chip alone grows by some
-    /// 50pt the instant the user types a first character, dragging the field
-    /// they are typing in along with it.
-    private func chipLabel(
-        _ symbol: String, _ title: String, detail: String? = nil, chevron: Bool = true,
-        minWidth: CGFloat = 0
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(RibbonPalette.caption)
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(RibbonPalette.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if let detail {
-                Text(detail)
-                    .font(.system(size: 11, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(RibbonPalette.caption)
-            }
-            Spacer(minLength: 0)
-            if chevron {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(RibbonPalette.caption)
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(minWidth: minWidth, alignment: .leading)
-        .frame(height: controlHeight)
-        .contentShape(Rectangle())
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
     }
 
     /// The field's own prompt, drawn rather than handed to `TextField`.
@@ -553,8 +404,8 @@ struct RibbonView: View {
 extension RibbonView {
     /// The one phase that still earns a row of its own.
     ///
-    /// Reading lives in Target; working and done live in the primary button. A
-    /// failure cannot: it carries a provider message too long for the command
+    /// Working lives on the active action control. A failure cannot: it carries
+    /// a provider message too long for the command
     /// row and three recoveries to offer, and it is the one state where taking
     /// the user's attention is the point.
     @ViewBuilder
@@ -681,14 +532,6 @@ extension RibbonView {
 
     // MARK: - Focus
 
-    /// Put focus on the control that completes the selected action — on open,
-    /// and whenever the lane retakes key status.
-    fileprivate func focusPrimaryControl() {
-        let cell = model.primaryFocusCell
-        model.focusedCell = cell
-        adopt(cell)
-    }
-
     /// Take the model's focus and hand it to SwiftUI, one turn later.
     ///
     /// Deferred because the cell may still be disabled in the update that
@@ -698,7 +541,7 @@ extension RibbonView {
         guard isLive else { return }
         Task { @MainActor in
             guard model.focusedCell == cell else { return }
-            focus = cell
+            focus = cell == .none ? nil : cell
         }
     }
 }

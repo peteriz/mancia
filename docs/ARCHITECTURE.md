@@ -249,11 +249,14 @@ wired to call `coordinator.start()`.
    - **Cancel** (the primary button on hover while running) stops the in-flight
      `Task` but keeps the session open; **Retry** runs the action the ribbon
      currently describes.
-   - Esc closes the session, keeping whichever version is showing. Hybrid
-     post-apply behavior closes the lane on its own after a beat.
+   - Esc stops an action that is still running and leaves the lane up;
+     with nothing in flight it closes the session, keeping whichever version
+     is showing. Hybrid post-apply behavior closes the lane on its own after
+     a beat.
 
 Esc anywhere in the lane routes through `KeyablePanel.cancelOperation` →
-`model.onCancel` and closes the session in every phase.
+`panel.onEscape` → `model.escape()`, which picks `onCancelRun` while the phase
+is `.running` and `onCancel` otherwise. ⌘W keeps the unconditional close.
 
 ## The `LLMProvider` protocol
 

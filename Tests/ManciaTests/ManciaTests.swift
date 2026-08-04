@@ -1115,41 +1115,66 @@ func panelKeyCommandsResolvePrimaryReturn() {
 // MARK: - Ribbon keyboard model
 
 @MainActor
+@Test("Esc stops a running action and only closes the session when idle")
+func ribbonEscapeBacksOutOfTheRunFirst() {
+    let model = PanelModel()
+    model.reset(hasSelection: true, charCount: 12)
+    var cancelledRuns = 0
+    var closes = 0
+    model.onCancelRun = { cancelledRuns += 1 }
+    model.onCancel = { closes += 1 }
+
+    model.phase = .running
+    model.escape()
+    #expect(cancelledRuns == 1)
+    #expect(closes == 0)
+
+    model.phase = .idle
+    model.escape()
+    #expect(cancelledRuns == 1)
+    #expect(closes == 1)
+
+    // A finished run is not an in-flight one: Esc leaves after it, as before.
+    for phase in [PanelModel.Phase.applied, .error, .confirm] {
+        model.phase = phase
+        model.escape()
+    }
+    #expect(cancelledRuns == 1)
+    #expect(closes == 4)
+}
+
+@MainActor
 @Test("Tab cycles the ribbon's cells in order and wraps")
 func ribbonFocusCycles() {
     let model = PanelModel()
     model.reset(hasSelection: true, charCount: 12)
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .none)
     #expect(model.focusableCells == [
-        .target, .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+        .action(0), .action(1), .action(2), .action(3), .action(4),
     ])
 
     model.moveFocus(.next)
-    #expect(model.focusedCell == .target)
-    model.moveFocus(.next)
     #expect(model.focusedCell == .action(0))
-    model.moveFocus(.next)
-    #expect(model.focusedCell == .action(1))
 
     model.moveFocus(.previous)
-    #expect(model.focusedCell == .action(0))
+    #expect(model.focusedCell == .action(4))
 
     model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
     #expect(model.focusableCells == [
-        .target, .action(4), .direction, .action(0), .action(1), .action(2), .action(3), .run,
+        .action(0), .action(1), .action(2), .action(3), .direction, .run,
     ])
     model.moveFocus(.next)
-    #expect(model.focusedCell == .action(0))
+    #expect(model.focusedCell == .run)
 }
 
 @MainActor
-@Test("Target leaves the focus ring when there is no selection")
-func ribbonFocusSkipsStaticTarget() {
+@Test("Action focus order is unchanged by selection capture")
+func ribbonFocusIgnoresSelectionCapture() {
     let model = PanelModel()
     model.reset(hasSelection: false, charCount: 0)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+        .action(0), .action(1), .action(2), .action(3), .action(4),
     ])
 
     model.moveFocus(.next)
@@ -1159,12 +1184,12 @@ func ribbonFocusSkipsStaticTarget() {
     model.reset(hasSelection: true, charCount: 8)
     model.capturing = true
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4), .run,
+        .action(0), .action(1), .action(2), .action(3), .action(4),
     ])
 
     model.selectCustomInstruction()
     #expect(model.focusableCells == [
-        .action(4), .direction, .action(0), .action(1), .action(2), .action(3), .run,
+        .action(0), .action(1), .action(2), .action(3), .direction, .run,
     ])
 }
 
@@ -1200,7 +1225,7 @@ func ribbonKeyboardActionsRunImmediately() {
         #expect(calls.last?.1 == nil)
         #expect(model.actionChoice == .preset(preset))
         #expect(model.resolvedActionTitle == preset.title)
-        #expect(model.focusedCell == .run)
+        #expect(model.focusedCell == .action(index))
     }
 }
 
@@ -1287,18 +1312,18 @@ func ribbonTargetShortcutWaitsForCapture() {
 }
 
 @MainActor
-@Test("A fresh session asks the view to refocus Run")
-func ribbonResetRefocusesRun() {
+@Test("A fresh session starts without focusing an action")
+func ribbonResetClearsFocus() {
     let model = PanelModel()
     model.focusedCell = .direction
     let before = model.sessionSeq
 
     model.reset(hasSelection: true, charCount: 30)
 
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .none)
     #expect(
         model.sessionSeq == before &+ 1,
-        "the lane's hosting view outlives a session, so the bump is what re-asserts focus")
+        "the lane's hosting view outlives a session, so the bump clears stale focus")
 }
 
 @MainActor
@@ -1317,7 +1342,7 @@ func ribbonActionChoiceReturnsPrimaryFocus() {
         "the bump is what makes the view adopt focus even when the cell already matched")
 
     model.selectPreset(at: 1)
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .action(1))
 }
 
 @MainActor
@@ -1436,7 +1461,7 @@ func presetListShape() {
 }
 
 @MainActor
-@Test("The five action buttons keep stable indices while Custom moves left")
+@Test("The four built-in actions stay put when Custom becomes the input")
 func actionButtonOrder() {
     let model = PanelModel()
 
@@ -1450,7 +1475,7 @@ func actionButtonOrder() {
     model.selectCustomInstruction()
 
     #expect(model.prefersExpandedRibbon)
-    #expect(model.actionDisplayOrder == [4, 0, 1, 2, 3])
+    #expect(model.actionDisplayOrder == [0, 1, 2, 3, 4])
     #expect(model.isActionSelected(at: 4))
     #expect(!model.isActionSelected(at: 0))
 }
@@ -1483,28 +1508,44 @@ func actionShortcutLabels() {
 }
 
 @MainActor
-@Test("The primary button names the selected action and offers Cancel while running")
-func primaryButtonActionLabels() {
+@Test("Every action exposes its matching icon")
+func actionSymbols() {
     let model = PanelModel()
 
-    #expect(model.runButtonTitle == "Improving")
-    #expect(model.runButtonHoverTitle == nil)
+    #expect(PanelModel.actionIndices.map { model.actionSymbol(at: $0) } == [
+        EditAction.improve.symbol,
+        EditAction.sharpen.symbol,
+        EditAction.planFirst.symbol,
+        EditAction.tighten.symbol,
+        EditAction.custom("").symbol,
+    ])
+    #expect(model.actionSymbol(at: -1) == nil)
+    #expect(model.actionSymbol(at: 5) == nil)
+}
+
+@MainActor
+@Test("Only the active action label changes to its running status")
+func actionStatusLabels() {
+    let model = PanelModel()
+
+    #expect(model.actionLabel(at: 0) == "Improve")
+    #expect(model.customSubmitTitle == "Run")
 
     model.selectPreset(at: 1)
-    #expect(model.runButtonTitle == "Sharpening")
+    #expect(model.actionLabel(at: 1) == "Sharpen")
 
     model.phase = .running
-    #expect(model.runButtonTitle == "Sharpening")
-    #expect(model.runButtonHoverTitle == "Cancel")
+    #expect(model.actionLabel(at: 0) == "Improve")
+    #expect(model.actionLabel(at: 1) == "Sharpening")
+    #expect(model.customSubmitTitle == "Working")
 
     model.phase = .applied
-    #expect(model.runButtonTitle == "Sharpening")
-    #expect(model.runButtonHoverTitle == nil)
+    #expect(model.actionLabel(at: 1) == "Sharpen")
 
     model.phase = .idle
     model.selectCustomInstruction()
-    #expect(model.runButtonTitle == "Working")
-    #expect(model.runButtonHoverTitle == nil)
+    model.phase = .running
+    #expect(model.actionLabel(at: PanelModel.customActionIndex) == "Working")
 }
 
 @MainActor
@@ -1671,7 +1712,7 @@ func restoreDefaultActionClearsCustom() {
     #expect(model.actionChoice == .preset(.improve))
     #expect(model.instruction.isEmpty)
     #expect(!model.isCustomInstructionSelected)
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .none)
 }
 
 @Test("A new session restores the buttons-only Improve default")
@@ -1686,7 +1727,7 @@ func resetRestoresDefaultAction() {
     #expect(model.actionChoice == .preset(.improve))
     #expect(model.resolvedActionTitle == "Improve")
     #expect(!model.isCustomInstructionSelected)
-    #expect(model.focusedCell == .run)
+    #expect(model.focusedCell == .none)
 }
 
 // MARK: - Ribbon placement
@@ -1698,7 +1739,7 @@ private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
 
 @Test("Placement honors standard and expanded preferred widths")
 func placementHonorsPreferredWidth() {
-    #expect(RibbonPlacement.standardWidth == 600)
+    #expect(RibbonPlacement.standardWidth == 558)
     let standard = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -1754,6 +1795,23 @@ func placementClampsPreferredWidth() {
 
     #expect(belowMinimum.frame.width == RibbonPlacement.minimumWidth)
     #expect(aboveMaximum.frame.width == RibbonPlacement.maximumWidth)
+}
+
+@Test("Expanded Custom width ignores a narrow host")
+func placementKeepsExpandedCustomWidth() {
+    let host = CGRect(x: 300, y: 200, width: 420, height: 400)
+    let resolved = RibbonPlacement.resolve(
+        height: 56,
+        in: .init(
+            screenFrame: ribbonScreen,
+            visibleFrame: ribbonScreen,
+            hostWindowFrame: host,
+            preferredWidth: RibbonPlacement.expandedWidth,
+            minimumContentWidth: RibbonPlacement.expandedWidth))
+
+    #expect(resolved.anchor == .hostWindow)
+    #expect(resolved.frame.width == RibbonPlacement.expandedWidth)
+    #expect(resolved.frame.midX == host.midX)
 }
 
 @Test("A reserved menu-bar strip anchors the lane flush under the menu bar")
@@ -2186,18 +2244,18 @@ func placementPrefersTheRoomierFlank() {
     #expect(resolved.frame.maxX == selection.minX - RibbonPlacement.selectionClearance)
 }
 
-@Test("A margin narrower than the lane is no margin at all")
-func placementIgnoresAMarginTooNarrowToStandIn() {
-    // 400pt of margin on the roomier side: below the 600pt the row needs to
-    // hold its controls, so squeezing in would cost legibility for nothing.
-    let selection = CGRect(x: 420, y: 150, width: 600, height: 670)
+@Test("The compact ribbon fits a 560pt margin")
+func placementUsesAMarginWideEnoughForTheCompactRibbon() {
+    // The old 600pt ribbon could not stand here; the compact strip can.
+    let selection = CGRect(x: 420, y: 150, width: 452, height: 670)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
             screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
 
-    #expect(resolved.anchor == .belowSelection, "so it settles at the roomier end instead")
-    #expect(resolved.frame.maxY == selection.minY - RibbonPlacement.selectionClearance)
+    #expect(resolved.anchor == .rightOfSelection)
+    #expect(resolved.frame.minX == selection.maxX + RibbonPlacement.selectionClearance)
+    #expect(resolved.frame.maxX == ribbonVisible.maxX)
 }
 
 @Test("Margins are measured on the display, not on the host window")

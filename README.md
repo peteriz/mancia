@@ -21,7 +21,9 @@ what you want changed. Mancia runs the edit through GitHub Copilot CLI and
 replaces the text in place — no chat window, no copy-paste round trip.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. The expanded Mancia command ribbon sits below it with Custom selected, a typed instruction, four visible built-in action buttons, and a Working button." width="880">
+  <img src="docs/assets/mancia-ribbon.png" alt="A Cyberdyne-themed mail draft with a paragraph selected. The expanded Mancia command ribbon sits below it with four built-in actions, a custom instruction, and a slate Run button." width="920">
+  <br>
+  <sub><em>Hasta la vista, wordiness.</em></sub>
 </p>
 
 - Works in any app with standard **Copy**, **Select All** and **Paste**.
