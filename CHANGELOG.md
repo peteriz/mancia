@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The swoosh — the comet that runs a control's border while its action is in
+  flight — now takes a color of your choosing, set in Settings under Editing.
+  It was the one color in the lane with no meaning riding on it: it says
+  "running", which the control's own state already says.
+
 ### Fixed
 
 - Model-specific reasoning choices now refresh from Copilot CLI at launch and

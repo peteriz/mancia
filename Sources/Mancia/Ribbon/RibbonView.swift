@@ -25,6 +25,10 @@ struct RibbonView: View {
     let width: CGFloat
     /// Which edge the lane hangs from, which drives the corner treatment.
     let anchor: RibbonPlacement.Anchor
+    /// The color the swoosh runs in while an action is in flight. Passed in
+    /// as a resolved value rather than read from settings here, so the
+    /// off-screen measurement copy and the live lane stay identical views.
+    var swooshColor: Color = RibbonPalette.processing
     /// False for the off-screen copy `RibbonWindow` measures against. That copy
     /// must not ask for a resize (it would recurse) and must not speak to
     /// VoiceOver (the user would hear everything twice).
@@ -226,7 +230,7 @@ struct RibbonView: View {
             if processing {
                 SwooshBorder(
                     shape: controlShape,
-                    tint: RibbonPalette.processing,
+                    tint: swooshColor,
                     animated: !reduceMotion,
                     lineWidth: 2)
             } else {
@@ -333,7 +337,7 @@ struct RibbonView: View {
             if processing {
                 SwooshBorder(
                     shape: controlShape,
-                    tint: RibbonPalette.processing,
+                    tint: swooshColor,
                     animated: !reduceMotion,
                     lineWidth: 2)
             }

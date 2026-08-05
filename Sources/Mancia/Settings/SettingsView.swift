@@ -60,6 +60,26 @@ struct SettingsView: View {
                         Text(behavior.label).tag(behavior)
                     }
                 }
+                HStack {
+                    ColorPicker(
+                        "Working color:",
+                        selection: Binding(
+                            get: { Color(nsColor: settings.swooshColor) },
+                            set: { settings.swooshColor = NSColor($0) }
+                        ),
+                        supportsOpacity: false
+                    )
+                    Button {
+                        settings.swooshColor = AppSettings.color(
+                            from: AppSettings.defaultSwooshColorHex)
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(settings.swooshColorIsDefault)
+                    .help("Restore the default working color")
+                    .accessibilityLabel("Restore the default working color")
+                }
             }
 
             Section("General") {

@@ -12,6 +12,9 @@ import SwiftUI
 @MainActor
 final class RibbonWindow: NSObject {
     private let model: PanelModel
+    /// Read for the swoosh color at every rebuild, so a change made in
+    /// Settings is in force the next time the lane opens.
+    private let settings: AppSettings
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<RibbonView>?
     /// What the Accessibility probe learned about the host window, captured
@@ -42,8 +45,9 @@ final class RibbonWindow: NSObject {
     /// Invoked by ⌘, — the app has no menu bar to own this shortcut.
     var onOpenSettings: (() -> Void)?
 
-    init(model: PanelModel) {
+    init(model: PanelModel, settings: AppSettings) {
         self.model = model
+        self.settings = settings
         super.init()
     }
 
@@ -274,6 +278,7 @@ final class RibbonWindow: NSObject {
     private func content(width: CGFloat, anchor: RibbonPlacement.Anchor) -> RibbonView {
         RibbonView(
             model: model, width: width, anchor: anchor,
+            swooshColor: Color(nsColor: settings.swooshColor),
             // Deferred a turn on purpose: the callback fires from inside
             // SwiftUI's update, and measuring before that update has settled
             // reports the height the lane is leaving, not the one it wants.
@@ -287,7 +292,9 @@ final class RibbonWindow: NSObject {
     private func measurementContent(
         width: CGFloat, anchor: RibbonPlacement.Anchor
     ) -> RibbonView {
-        RibbonView(model: model, width: width, anchor: anchor, isLive: false)
+        RibbonView(
+            model: model, width: width, anchor: anchor,
+            swooshColor: Color(nsColor: settings.swooshColor), isLive: false)
     }
 
     private func currentContext() -> RibbonPlacement.Context {

@@ -151,7 +151,10 @@ One authored moment: the lane arrives.
   [02-placement.md](02-placement.md).
 - **Running:** the existing `SwooshBorder` comet
   (`EditPanelView.swift:443`) moves from the field to the **Run control's**
-  border. It is the same component; retarget it, do not rewrite it.
+  border. It is the same component; retarget it, do not rewrite it. Its tint
+  is the one color the user can change — `AppSettings.swooshColor`, defaulting
+  to `RibbonPalette.processing` — resolved by `RibbonWindow` and passed into
+  `RibbonView`, so a change takes effect the next time the lane opens.
 - **Phase cross-fades:** 200ms `easeInOut`, matching the current panel.
 
 Reduce Motion (`@Environment(\.accessibilityReduceMotion)`, already observed in

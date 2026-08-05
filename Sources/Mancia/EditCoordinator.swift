@@ -14,7 +14,7 @@ final class EditCoordinator {
     /// re-opening a session doesn't tear down and re-create a window
     /// mid-animation.
     private lazy var ribbon: RibbonWindow = {
-        let ribbon = RibbonWindow(model: model)
+        let ribbon = RibbonWindow(model: model, settings: settings)
         ribbon.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
         ribbon.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         return ribbon
