@@ -120,6 +120,12 @@ replace text, then restored to what it held before.
 
 Report a vulnerability through our [security policy](SECURITY.md).
 
+## Website
+
+The landing page lives in [`site/`](site/) and deploys through GitHub Pages.
+See the [Pages deployment guide](docs/GITHUB_PAGES.md) for repository setup and
+manual deployment steps.
+
 ## Contributing
 
 Contributions are welcome — read the [contributing guide](docs/CONTRIBUTING.md)

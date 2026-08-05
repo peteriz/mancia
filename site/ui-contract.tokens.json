@@ -1,0 +1,123 @@
+{
+  "$description": "shadcn/ui default theme normalized to DTCG, extended with Mancia brand aliases grounded in the shipping app palette.",
+  "brand": {
+    "paper": {
+      "$type": "color",
+      "$value": "hsl(43 65% 97%)"
+    },
+    "cream": {
+      "$type": "color",
+      "$value": "hsl(39 48% 93%)"
+    },
+    "ink": {
+      "$type": "color",
+      "$value": "hsl(33 21% 8%)"
+    },
+    "muted": {
+      "$type": "color",
+      "$value": "hsl(38 16% 37%)"
+    },
+    "vermilion": {
+      "$type": "color",
+      "$value": "hsl(9 63% 47%)"
+    },
+    "vermilion-on-ink": {
+      "$type": "color",
+      "$value": "hsl(9 100% 65%)"
+    }
+  },
+  "color": {
+    "background": {
+      "$type": "color",
+      "$value": "hsl(0 0% 100%)"
+    },
+    "foreground": {
+      "$type": "color",
+      "$value": "hsl(0 0% 3.9%)"
+    },
+    "card": {
+      "$type": "color",
+      "$value": "hsl(0 0% 100%)"
+    },
+    "card-foreground": {
+      "$type": "color",
+      "$value": "hsl(0 0% 3.9%)"
+    },
+    "primary": {
+      "$type": "color",
+      "$value": "hsl(0 0% 9%)"
+    },
+    "primary-foreground": {
+      "$type": "color",
+      "$value": "hsl(0 0% 98%)"
+    },
+    "secondary": {
+      "$type": "color",
+      "$value": "hsl(0 0% 96.1%)"
+    },
+    "secondary-foreground": {
+      "$type": "color",
+      "$value": "hsl(0 0% 9%)"
+    },
+    "muted": {
+      "$type": "color",
+      "$value": "hsl(0 0% 96.1%)"
+    },
+    "muted-foreground": {
+      "$type": "color",
+      "$value": "hsl(0 0% 45.1%)"
+    },
+    "accent": {
+      "$type": "color",
+      "$value": "hsl(0 0% 96.1%)"
+    },
+    "destructive": {
+      "$type": "color",
+      "$value": "hsl(0 84.2% 60.2%)"
+    },
+    "border": {
+      "$type": "color",
+      "$value": "hsl(0 0% 89.8%)"
+    },
+    "input": {
+      "$type": "color",
+      "$value": "hsl(0 0% 89.8%)"
+    },
+    "ring": {
+      "$type": "color",
+      "$value": "hsl(0 0% 3.9%)"
+    }
+  },
+  "radius": {
+    "base": {
+      "$type": "dimension",
+      "$value": "0.5rem"
+    }
+  },
+  "spacing": {
+    "1": {
+      "$type": "dimension",
+      "$value": "4px"
+    },
+    "2": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "3": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "4": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "6": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "8": {
+      "$type": "dimension",
+      "$value": "32px"
+    }
+  }
+}
