@@ -62,6 +62,7 @@ Sources/Mancia/
 │                                 ACP listing for the settings pickers
 └── Settings/
     ├── AppSettings.swift         @Observable, UserDefaults-backed settings + launch-at-login
+    │                                 + the swoosh color (stored as RRGGBB hex)
     ├── SettingsView.swift        SwiftUI settings window content
     ├── ReadinessRow.swift        One "is this ready?" row (hotkey / Accessibility / provider)
     └── ShortcutRecorderView.swift  Native hotkey recorder (see note below)

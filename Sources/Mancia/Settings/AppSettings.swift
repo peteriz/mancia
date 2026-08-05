@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import ServiceManagement
@@ -26,6 +27,9 @@ enum PostApplyBehavior: String, CaseIterable, Identifiable, Sendable {
 @Observable
 final class AppSettings {
     static let shared = AppSettings()
+    /// The stock swoosh color — `RibbonPalette.processing`, spelled as hex so
+    /// it can round-trip through defaults and be compared for "still stock".
+    static let defaultSwooshColorHex = "49B8FF"
 
     private enum Key {
         static let copilotPath = "copilotPath"
@@ -34,6 +38,7 @@ final class AppSettings {
         static let reasoningEffort = "reasoningEffort"
         static let postApplyBehavior = "postApplyBehavior"
         static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
+        static let swooshColor = "swooshColor"
     }
 
     private let defaults: UserDefaults
@@ -77,6 +82,18 @@ final class AppSettings {
     var confirmWholeDocumentReplace: Bool {
         didSet { defaults.set(confirmWholeDocumentReplace, forKey: Key.confirmWholeDocumentReplace) }
     }
+    /// The swoosh — the comet that runs the border of a control while its
+    /// action is in flight. Stored as `RRGGBB` rather than as archived color
+    /// data so the value stays readable in defaults and diffable in a test.
+    private(set) var swooshColorHex: String {
+        didSet { defaults.set(swooshColorHex, forKey: Key.swooshColor) }
+    }
+    var swooshColor: NSColor {
+        get { Self.color(from: swooshColorHex) }
+        set { swooshColorHex = Self.hexString(from: newValue) }
+    }
+    /// True while the swoosh still runs in the stock color.
+    var swooshColorIsDefault: Bool { swooshColorHex == Self.defaultSwooshColorHex }
 
     /// Designated initializer. `modelCatalog` is injected (rather than always
     /// reading `~/.copilot/data.db` directly) so the first-run recommendation
@@ -139,6 +156,40 @@ final class AppSettings {
         // Default on: absent key means the safety gate is enabled.
         self.confirmWholeDocumentReplace =
             defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
+        self.swooshColorHex = Self.normalizedColorHex(defaults.string(forKey: Key.swooshColor))
+    }
+
+    // MARK: - Swoosh color
+
+    /// Coerce anything stored (or hand-edited into defaults) to a bare
+    /// uppercase `RRGGBB`, falling back to the stock color rather than
+    /// letting a malformed value paint the swoosh black.
+    static func normalizedColorHex(_ value: String?) -> String {
+        guard let value else { return defaultSwooshColorHex }
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            .uppercased()
+        guard normalized.count == 6, Int(normalized, radix: 16) != nil else {
+            return defaultSwooshColorHex
+        }
+        return normalized
+    }
+
+    static func color(from hex: String) -> NSColor {
+        Palette.nsColor(Int(normalizedColorHex(hex), radix: 16) ?? 0x49B8FF)
+    }
+
+    /// The picker hands back colors in whatever space the user picked in, so
+    /// convert to sRGB before reading components — the space `Palette.nsColor`
+    /// builds in, and the one the hex round-trip assumes.
+    static func hexString(from color: NSColor) -> String {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return defaultSwooshColorHex }
+        return String(
+            format: "%02X%02X%02X",
+            Int((rgb.redComponent * 255).rounded()),
+            Int((rgb.greenComponent * 255).rounded()),
+            Int((rgb.blueComponent * 255).rounded()))
     }
 
     // MARK: - Launch at login

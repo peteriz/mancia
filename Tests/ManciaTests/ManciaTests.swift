@@ -372,6 +372,36 @@ func confirmSettingDefaultsOnAndPersists() {
 }
 
 @MainActor
+@Test("Swoosh color defaults to the stock accent, normalizes, and persists")
+func swooshColorNormalizesAndPersists() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let first = AppSettings(defaults: defaults, modelCatalog: { [] })
+    #expect(first.swooshColorHex == AppSettings.defaultSwooshColorHex)
+    #expect(first.swooshColorIsDefault)
+
+    // A picked color round-trips through sRGB into bare hex, and survives a
+    // relaunch.
+    first.swooshColor = NSColor(srgbRed: 1, green: 0.25, blue: 0.5, alpha: 1)
+    #expect(first.swooshColorHex == "FF4080")
+    #expect(!first.swooshColorIsDefault)
+    let second = AppSettings(defaults: defaults, modelCatalog: { [] })
+    #expect(second.swooshColorHex == "FF4080")
+
+    // Stored values are coerced rather than trusted.
+    #expect(AppSettings.normalizedColorHex(" #49b8ff ") == "49B8FF")
+    #expect(AppSettings.normalizedColorHex("nonsense") == AppSettings.defaultSwooshColorHex)
+    #expect(AppSettings.normalizedColorHex(nil) == AppSettings.defaultSwooshColorHex)
+
+    // The stock hex resolves to the color the ribbon palette already uses.
+    #expect(
+        AppSettings.color(from: AppSettings.defaultSwooshColorHex)
+            == Palette.nsColor(0x49B8FF))
+}
+
+@MainActor
 @Test("Never-configured copilotModel resolves to the recommended fast model and persists it")
 func copilotModelFirstRunResolvesRecommendation() {
     let suite = "mancia-test-\(UUID().uuidString)"
