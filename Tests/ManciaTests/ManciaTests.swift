@@ -197,6 +197,48 @@ func argvAlwaysSandboxed() {
     }
 }
 
+@MainActor
+@Test("Unsupported model effort errors retry at the provider default")
+func unsupportedModelEffortRetriesAtDefault() async throws {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("mancia-test-\(UUID().uuidString)")
+    let executable = directory.appendingPathComponent("copilot")
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try """
+    #!/bin/sh
+    for argument in "$@"; do
+      if [ "$argument" = "--acp" ]; then
+        exit 1
+      fi
+      if [ "$argument" = "--reasoning-effort" ]; then
+        echo 'Error: Reasoning effort "minimal" is not supported for model "claude-opus-5".' >&2
+        exit 1
+      fi
+    done
+    echo 'retried at model default'
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: executable.path
+    )
+    defaults.set(executable.path, forKey: "copilotPath")
+    defaults.set("claude-opus-5", forKey: "copilotModel")
+    defaults.set("minimal", forKey: "reasoningEffort")
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let output = try await CopilotCLIProvider(settings: settings).complete("test")
+
+    #expect(output == "retried at model default")
+    #expect(settings.reasoningEffort == "")
+    #expect(defaults.string(forKey: "reasoningEffort") == "")
+}
+
 // MARK: - Prompt gate validation
 
 @Test("Instruction validation trims and accepts a normal instruction")
@@ -622,6 +664,66 @@ func acpUpdateParsing() {
         ],
     ]
     #expect(CopilotACPClient.agentMessageChunk(from: nonText) == nil)
+}
+
+@MainActor
+@Test("ACP explicitly applies the selected model and effort to each session")
+func acpAppliesSelectedSessionConfig() async throws {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("mancia-test-\(UUID().uuidString)")
+    let executable = directory.appendingPathComponent("copilot")
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try """
+    #!/bin/sh
+    model_set=0
+    effort_set=0
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\\n' "$id"
+          ;;
+        *'"method":"session'*'new"'*)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"session-1","models":{"currentModelId":"gemini-3.5-flash","availableModels":[{"modelId":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},"configOptions":[{"id":"model","type":"select","currentValue":"gemini-3.5-flash","options":[{"value":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},{"id":"reasoning_effort","type":"select","currentValue":"minimal","options":[{"value":"minimal","name":"Minimal"}]}]}}\\n' "$id"
+          ;;
+        *'"configId":"model"'*)
+          model_set=1
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"configOptions":[{"id":"model","type":"select","currentValue":"gemini-3.5-flash","options":[{"value":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},{"id":"reasoning_effort","type":"select","currentValue":"minimal","options":[{"value":"minimal","name":"Minimal"}]}]}}\\n' "$id"
+          ;;
+        *'"configId":"reasoning_effort"'*)
+          effort_set=1
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"configOptions":[]}}\\n' "$id"
+          ;;
+        *'"method":"session'*'prompt"'*)
+          if [ "$model_set" = 1 ] && [ "$effort_set" = 1 ]; then
+            text=configured
+          else
+            text="Execution failed: Error: Reasoning effort 'minimal' is not supported for model 'claude-opus-5'."
+          fi
+          printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\\n' "$text"
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\\n' "$id"
+          ;;
+      esac
+    done
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: executable.path
+    )
+    defaults.set(executable.path, forKey: "copilotPath")
+    defaults.set("gemini-3.5-flash", forKey: "copilotModel")
+    defaults.set("minimal", forKey: "reasoningEffort")
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let output = try await CopilotCLIProvider(settings: settings).complete("test")
+
+    #expect(output == "configured")
 }
 
 @Test("Argv appends --model when a model is set")

@@ -308,7 +308,11 @@ To add a new provider:
    present only in the live listing is tiered by its price class. The selected
    model's effective `supportedReasoningEfforts` comes from the live
    `reasoning_effort` session config option; cached values remain the fallback
-   for models not selected yet. Check what the picker will show with
+   for models not selected yet. Mancia refreshes this live metadata at launch
+   and after Settings closes, then explicitly applies both `model` and
+   `reasoning_effort` with ACP `session/set_config_option` for every new session
+   so Copilot's persisted session state cannot override the selection. Check
+   what the picker will show with
    `swift run Mancia --list-models`.
 
    **Keep the catalog free of hardcoded model ids.** Tiering and the first-run

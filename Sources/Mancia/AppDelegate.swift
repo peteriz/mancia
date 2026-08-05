@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusBar = statusBar
 
         self.hotkey = HotkeyManager { [weak self] in self?.coordinator?.start() }
+        Task { await provider.refreshModelsAndPrepare() }
     }
 
     private func showSettings() {
@@ -55,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard let self else { return }
                 self.coordinator?.refocusPanel()
-                await self.provider.settingsDidClose()
+                await self.provider.refreshModelsAndPrepare()
             }
         }
         settingsWindow = window
