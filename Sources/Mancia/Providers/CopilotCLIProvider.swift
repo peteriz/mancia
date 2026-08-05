@@ -167,7 +167,7 @@ final class CopilotCLIProvider: LLMProvider {
 
     // MARK: - LLMProvider
 
-    private func config() async -> (path: String, model: String, reasoningEffort: String) {
+    func config() async -> (path: String, model: String, reasoningEffort: String) {
         await MainActor.run { (self.settings.copilotPath, self.settings.copilotModel, self.settings.reasoningEffort) }
     }
 
@@ -280,10 +280,13 @@ final class CopilotCLIProvider: LLMProvider {
 
 extension CopilotCLIProvider: ModelListingProvider {
     func availableModels() async -> [CopilotModel] {
-        let (path, model, reasoningEffort) = await config()
+        let (path, model, _) = await config()
         let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
+        // Start discovery at the model's default effort. A stale effort from a
+        // previously selected model must not prevent ACP from returning the
+        // new model's supported values.
         return await acpSidecar.availableModels(
-            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
+            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: "")
         )
     }
 }
@@ -298,6 +301,14 @@ extension CopilotCLIProvider: WarmableLLMProvider {
     }
 
     func panelDidClose() async {
+        await prepareForPanel()
+    }
+
+    func settingsDidClose() async {
+        let models = await availableModels()
+        if !models.isEmpty {
+            _ = await MainActor.run { self.settings.reconcileReasoningEffort(with: models) }
+        }
         await prepareForPanel()
     }
 }

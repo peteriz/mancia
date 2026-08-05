@@ -32,22 +32,21 @@ struct ModelTier: Identifiable, Equatable {
 enum CopilotModelCatalog {
     static let defaultDBPath = NSHomeDirectory() + "/.copilot/data.db"
 
-    /// Reasoning-effort levels the CLI accepts for `--reasoning-effort`, in
-    /// increasing order of effort. Only a floor — see `reasoningEfforts(in:)`.
-    static let allReasoningEfforts = ["none", "low", "medium", "high", "xhigh", "max"]
+    /// Effort levels advertised for one model. `nil` means the catalog does not
+    /// know; an empty array means the model explicitly supports none.
+    static func reasoningEfforts(for modelID: String, in models: [CopilotModel]) -> [String]? {
+        let resolvedID = modelID.isEmpty ? "auto" : modelID
+        return models.first { $0.id == resolvedID }?.supportedReasoningEfforts
+    }
 
-    /// Effort levels to offer for a catalog: the known levels above, plus any
-    /// the catalog itself advertises that we don't know about yet, so a level
-    /// the CLI adds later still reaches the picker without a code change.
-    /// Known levels keep their meaningful order; new ones are appended.
-    static func reasoningEfforts(in models: [CopilotModel]) -> [String] {
-        var levels = allReasoningEfforts
-        for model in models {
-            for level in model.supportedReasoningEfforts ?? [] where !levels.contains(level) {
-                levels.append(level)
-            }
-        }
-        return levels
+    /// Keep an effort only when it is valid for the selected model. Unknown
+    /// metadata is left alone; a known-incompatible pair falls back to the
+    /// provider default by returning an empty string.
+    static func validatedReasoningEffort(_ effort: String, for modelID: String, in models: [CopilotModel]) -> String {
+        let trimmed = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let supported = reasoningEfforts(for: modelID, in: models) else { return trimmed }
+        return supported.contains(trimmed) ? trimmed : ""
     }
 
     /// Load the cached models, or nil when the cache is unreadable.

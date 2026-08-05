@@ -52,7 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.coordinator?.refocusPanel() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.coordinator?.refocusPanel()
+                await self.provider.settingsDidClose()
+            }
         }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)

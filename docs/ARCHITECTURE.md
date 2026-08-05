@@ -304,9 +304,11 @@ To add a new provider:
    authoritative list therefore comes from the `session/new` ACP reply, which
    already carries `models.availableModels` (see `ModelListingProvider` and
    `CopilotModelCatalog.merged`). ACP omits the latency tier, so
-   `modelPickerCategory` and `supportedReasoningEfforts` are carried over from
-   the cache by id, and a model present only in the live listing is tiered by
-   its price class. Check what the picker will show with
+   `modelPickerCategory` is carried over from the cache by id, and a model
+   present only in the live listing is tiered by its price class. The selected
+   model's effective `supportedReasoningEfforts` comes from the live
+   `reasoning_effort` session config option; cached values remain the fallback
+   for models not selected yet. Check what the picker will show with
    `swift run Mancia --list-models`.
 
    **Keep the catalog free of hardcoded model ids.** Tiering and the first-run

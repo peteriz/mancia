@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Model-specific reasoning choices now stay in sync with Copilot CLI, and edits
+  use the model and effort saved when Settings closes.
+
 ## [0.3.1] - 2026-08-04
 
 ### Changed

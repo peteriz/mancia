@@ -10,6 +10,7 @@ actor CopilotACPClient {
     private var chunksBySession: [String: String] = [:]
     /// Models advertised by the CLI in the most recent `session/new` reply.
     private var models: [CopilotModel] = []
+    private var stopped = false
 
     init(config: CopilotACPConfig) async throws {
         workingDir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -108,6 +109,8 @@ actor CopilotACPClient {
     }
 
     func stop() {
+        guard !stopped else { return }
+        stopped = true
         input.closeFile()
         if process.isRunning { process.terminate() }
         try? FileManager.default.removeItem(at: workingDir)
@@ -218,7 +221,7 @@ actor CopilotACPClient {
               let models = result["models"] as? [String: Any],
               let available = models["availableModels"] as? [[String: Any]] else { return [] }
         var seen = Set<String>()
-        return available.compactMap { entry in
+        var listed: [CopilotModel] = available.compactMap { entry in
             guard let id = entry["modelId"] as? String, !id.isEmpty,
                   let name = entry["name"] as? String, !name.isEmpty,
                   seen.insert(id).inserted else { return nil }
@@ -226,10 +229,46 @@ actor CopilotACPClient {
             return CopilotModel(
                 id: id,
                 name: name,
+                supportedReasoningEfforts: cleanedStrings(entry["supportedReasoningEfforts"]),
                 modelPickerPriceCategory: meta?["copilotPriceCategory"] as? String,
                 usageMultiplier: usageMultiplier(meta?["copilotUsage"])
             )
         }
+        // Current Copilot CLI releases expose the selected model's effective
+        // reasoning levels through ACP session config. This is fresher than the
+        // SQLite cache and includes account/plan filtering.
+        if let currentModelID = models["currentModelId"] as? String,
+           let efforts = reasoningEfforts(from: result),
+           let index = listed.firstIndex(where: { $0.id == currentModelID }) {
+            listed[index].supportedReasoningEfforts = efforts
+            // Mancia's "Default" picker tag is empty while ACP calls that row
+            // "auto". Give it the concrete model's effective options so an
+            // automatic model/effort pair can still be validated.
+            if let autoIndex = listed.firstIndex(where: { $0.id == "auto" }) {
+                listed[autoIndex].supportedReasoningEfforts = efforts
+            }
+        }
+        return listed
+    }
+
+    private static func reasoningEfforts(from result: [String: Any]) -> [String]? {
+        guard let options = result["configOptions"] as? [[String: Any]] else { return nil }
+        guard let effort = options.first(where: { $0["id"] as? String == "reasoning_effort" }) else { return [] }
+        return cleanedStrings(effort["options"], valueKey: "value")
+    }
+
+    private static func cleanedStrings(_ raw: Any?, valueKey: String? = nil) -> [String]? {
+        let values: [String]
+        if let valueKey, let entries = raw as? [[String: Any]] {
+            values = entries.compactMap { $0[valueKey] as? String }
+        } else if let strings = raw as? [String] {
+            values = strings
+        } else {
+            return nil
+        }
+        var seen = Set<String>()
+        let cleaned = values.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return !values.isEmpty && cleaned.isEmpty ? nil : cleaned
     }
 
     /// Parse the premium-request multiplier the listing reports as a string

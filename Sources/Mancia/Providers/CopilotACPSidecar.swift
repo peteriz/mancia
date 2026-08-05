@@ -8,13 +8,14 @@ actor CopilotACPSidecar {
     private var warmSessionID: String?
     /// In-flight client launch, shared by concurrent callers so only one
     /// `copilot --acp` process is ever started per config.
-    private var starting: Task<CopilotACPClient, Error>?
+    private var starting: (id: UInt, config: CopilotACPConfig, task: Task<CopilotACPClient, Error>)?
+    private var nextStartID: UInt = 0
 
     func prepare(config newConfig: CopilotACPConfig) async {
         do {
             _ = try await warmSession(config: newConfig)
         } catch {
-            await reset()
+            await reset(config: newConfig)
         }
     }
 
@@ -30,7 +31,7 @@ actor CopilotACPSidecar {
             }
             return try await client.prompt(sessionID: sessionID, text: prompt)
         } catch {
-            await reset()
+            await reset(config: newConfig)
             throw error
         }
     }
@@ -42,7 +43,7 @@ actor CopilotACPSidecar {
             _ = try await warmSession(config: newConfig)
             return await client?.availableModels() ?? []
         } catch {
-            await reset()
+            await reset(config: newConfig)
             return []
         }
     }
@@ -51,6 +52,9 @@ actor CopilotACPSidecar {
         if let warmSessionID, config == newConfig { return warmSessionID }
         let client = try await client(config: newConfig)
         let sessionID = try await client.newSession()
+        guard config == newConfig, self.client === client else {
+            throw ProviderError.launchFailed("Copilot ACP configuration changed.")
+        }
         warmSessionID = sessionID
         return sessionID
     }
@@ -67,32 +71,60 @@ actor CopilotACPSidecar {
     /// `await` between the two, which is what makes it atomic.
     private func client(config newConfig: CopilotACPConfig) async throws -> CopilotACPClient {
         if let client, config == newConfig { return client }
-        if let starting, config == newConfig { return try await starting.value }
+        if let starting, starting.config == newConfig {
+            let created = try await starting.task.value
+            if let client, config == newConfig {
+                if client !== created { await created.stop() }
+                return client
+            }
+            guard config == newConfig, self.starting?.id == starting.id else {
+                await created.stop()
+                throw ProviderError.launchFailed("Copilot ACP configuration changed.")
+            }
+            self.starting = nil
+            client = created
+            return created
+        }
 
         let stale = client
+        starting?.task.cancel()
         client = nil
         warmSessionID = nil
         config = newConfig
+        nextStartID &+= 1
+        let startID = nextStartID
         let task = Task {
             // Tear the old process down inside the task so the state above is
             // already published before this first suspends.
             if let stale { await stale.stop() }
             return try await CopilotACPClient(config: newConfig)
         }
-        starting = task
-        defer { starting = nil }
+        starting = (startID, newConfig, task)
         do {
             let created = try await task.value
+            if let client, config == newConfig {
+                if client !== created { await created.stop() }
+                return client
+            }
+            guard config == newConfig, starting?.id == startID else {
+                await created.stop()
+                throw ProviderError.launchFailed("Copilot ACP configuration changed.")
+            }
+            starting = nil
             client = created
             return created
         } catch {
-            config = nil
+            if starting?.id == startID {
+                starting = nil
+                config = nil
+            }
             throw error
         }
     }
 
-    private func reset() async {
-        starting?.cancel()
+    private func reset(config expectedConfig: CopilotACPConfig) async {
+        guard config == expectedConfig else { return }
+        starting?.task.cancel()
         starting = nil
         warmSessionID = nil
         config = nil
