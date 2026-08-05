@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Model-specific reasoning choices now refresh from Copilot CLI at launch and
+  after Settings closes. ACP sessions explicitly apply the saved model and
+  effort, preventing Copilot's prior session state from overriding them.
+
 ## [0.3.1] - 2026-08-04
 
 ### Changed

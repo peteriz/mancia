@@ -166,6 +166,16 @@ final class AppSettings {
         return true
     }
 
+    /// Clear a stale model/effort pair after fresher metadata arrives.
+    @discardableResult
+    func reconcileReasoningEffort(with catalog: [CopilotModel]) -> Bool {
+        let validated = CopilotModelCatalog.validatedReasoningEffort(
+            reasoningEffort, for: copilotModel, in: catalog)
+        guard validated != reasoningEffort else { return false }
+        reasoningEffort = validated
+        return true
+    }
+
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
         set {

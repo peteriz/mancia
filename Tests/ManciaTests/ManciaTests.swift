@@ -197,6 +197,48 @@ func argvAlwaysSandboxed() {
     }
 }
 
+@MainActor
+@Test("Unsupported model effort errors retry at the provider default")
+func unsupportedModelEffortRetriesAtDefault() async throws {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("mancia-test-\(UUID().uuidString)")
+    let executable = directory.appendingPathComponent("copilot")
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try """
+    #!/bin/sh
+    for argument in "$@"; do
+      if [ "$argument" = "--acp" ]; then
+        exit 1
+      fi
+      if [ "$argument" = "--reasoning-effort" ]; then
+        echo 'Error: Reasoning effort "minimal" is not supported for model "claude-opus-5".' >&2
+        exit 1
+      fi
+    done
+    echo 'retried at model default'
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: executable.path
+    )
+    defaults.set(executable.path, forKey: "copilotPath")
+    defaults.set("claude-opus-5", forKey: "copilotModel")
+    defaults.set("minimal", forKey: "reasoningEffort")
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let output = try await CopilotCLIProvider(settings: settings).complete("test")
+
+    #expect(output == "retried at model default")
+    #expect(settings.reasoningEffort == "")
+    #expect(defaults.string(forKey: "reasoningEffort") == "")
+}
+
 // MARK: - Prompt gate validation
 
 @Test("Instruction validation trims and accepts a normal instruction")
@@ -467,6 +509,57 @@ func copilotModelExplicitChoiceIsRespected() {
 }
 
 @MainActor
+@Test("Live metadata clears and persists an unsupported stored reasoning effort")
+func liveMetadataClearsUnsupportedStoredReasoningEffort() {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    defaults.set("claude-haiku-4.5", forKey: "copilotModel")
+    defaults.set("minimal", forKey: "reasoningEffort")
+    let live = [
+        CopilotModel(
+            id: "claude-haiku-4.5", name: "Claude Haiku 4.5",
+            supportedReasoningEfforts: []),
+    ]
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    #expect(settings.copilotModel == "claude-haiku-4.5")
+    #expect(settings.reasoningEffort == "minimal")
+    #expect(settings.reconcileReasoningEffort(with: live))
+    #expect(settings.reasoningEffort == "")
+    #expect(defaults.string(forKey: "reasoningEffort") == "")
+}
+
+@MainActor
+@Test("The provider reads the latest persisted model selection for each action")
+func providerReadsLatestPersistedSelection() async {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set("", forKey: "copilotModel")
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let provider = CopilotCLIProvider(settings: settings)
+    settings.copilotModel = "gemini-3.5-flash"
+    settings.reasoningEffort = "minimal"
+
+    let current = await provider.config()
+    #expect(current.model == "gemini-3.5-flash")
+    #expect(current.reasoningEffort == "minimal")
+    let args = CopilotCLIProvider.arguments(
+        executable: "/opt/homebrew/bin/copilot", prompt: "edit",
+        model: current.model, reasoningEffort: current.reasoningEffort)
+    #expect(args[args.firstIndex(of: "--model")! + 1] == "gemini-3.5-flash")
+    #expect(args[args.firstIndex(of: "--reasoning-effort")! + 1] == "minimal")
+
+    let relaunched = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let persisted = await CopilotCLIProvider(settings: relaunched).config()
+    #expect(persisted.model == "gemini-3.5-flash")
+    #expect(persisted.reasoningEffort == "minimal")
+}
+
+@MainActor
 @Test("First-run resolution with an empty catalog leaves the model unset")
 func copilotModelFirstRunEmptyCatalog() {
     let suite = "mancia-test-\(UUID().uuidString)"
@@ -571,6 +664,66 @@ func acpUpdateParsing() {
         ],
     ]
     #expect(CopilotACPClient.agentMessageChunk(from: nonText) == nil)
+}
+
+@MainActor
+@Test("ACP explicitly applies the selected model and effort to each session")
+func acpAppliesSelectedSessionConfig() async throws {
+    let suite = "mancia-test-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("mancia-test-\(UUID().uuidString)")
+    let executable = directory.appendingPathComponent("copilot")
+    defer {
+        defaults.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try """
+    #!/bin/sh
+    model_set=0
+    effort_set=0
+    while IFS= read -r line; do
+      id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\\n' "$id"
+          ;;
+        *'"method":"session'*'new"'*)
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"session-1","models":{"currentModelId":"gemini-3.5-flash","availableModels":[{"modelId":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},"configOptions":[{"id":"model","type":"select","currentValue":"gemini-3.5-flash","options":[{"value":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},{"id":"reasoning_effort","type":"select","currentValue":"minimal","options":[{"value":"minimal","name":"Minimal"}]}]}}\\n' "$id"
+          ;;
+        *'"configId":"model"'*)
+          model_set=1
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"configOptions":[{"id":"model","type":"select","currentValue":"gemini-3.5-flash","options":[{"value":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},{"id":"reasoning_effort","type":"select","currentValue":"minimal","options":[{"value":"minimal","name":"Minimal"}]}]}}\\n' "$id"
+          ;;
+        *'"configId":"reasoning_effort"'*)
+          effort_set=1
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"configOptions":[]}}\\n' "$id"
+          ;;
+        *'"method":"session'*'prompt"'*)
+          if [ "$model_set" = 1 ] && [ "$effort_set" = 1 ]; then
+            text=configured
+          else
+            text="Execution failed: Error: Reasoning effort 'minimal' is not supported for model 'claude-opus-5'."
+          fi
+          printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s"}}}}\\n' "$text"
+          printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\\n' "$id"
+          ;;
+      esac
+    done
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755], ofItemAtPath: executable.path
+    )
+    defaults.set(executable.path, forKey: "copilotPath")
+    defaults.set("gemini-3.5-flash", forKey: "copilotModel")
+    defaults.set("minimal", forKey: "reasoningEffort")
+
+    let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
+    let output = try await CopilotCLIProvider(settings: settings).complete("test")
+
+    #expect(output == "configured")
 }
 
 @Test("Argv appends --model when a model is set")
@@ -803,17 +956,32 @@ func acpUsageMultiplierParsing() {
     #expect(CopilotACPClient.usageMultiplier(nil) == nil)
 }
 
-@Test("reasoningEfforts absorbs levels the catalog reports but we don't know")
-func reasoningEffortsAbsorbsNewLevels() {
+@Test("reasoning efforts narrow to the selected model and reject stale values")
+func reasoningEffortsFollowSelectedModel() {
     let models = [
-        CopilotModel(id: "a", name: "A", supportedReasoningEfforts: ["low", "ultra"]),
-        CopilotModel(id: "b", name: "B", supportedReasoningEfforts: ["ultra", "beyond"]),
+        CopilotModel(
+            id: "auto", name: "Auto",
+            supportedReasoningEfforts: ["low", "medium", "high"]),
+        CopilotModel(
+            id: "claude-haiku-4.5", name: "Claude Haiku 4.5",
+            supportedReasoningEfforts: []),
+        CopilotModel(
+            id: "gemini-3.5-flash", name: "Gemini 3.5 Flash",
+            supportedReasoningEfforts: ["minimal", "low", "medium", "high"]),
     ]
-    let levels = CopilotModelCatalog.reasoningEfforts(in: models)
-    // Known levels keep their meaningful order, new ones are appended once.
-    #expect(levels.prefix(6) == ["none", "low", "medium", "high", "xhigh", "max"])
-    #expect(levels.suffix(2) == ["ultra", "beyond"])
-    #expect(CopilotModelCatalog.reasoningEfforts(in: []) == CopilotModelCatalog.allReasoningEfforts)
+
+    #expect(CopilotModelCatalog.reasoningEfforts(for: "claude-haiku-4.5", in: models) == [])
+    #expect(CopilotModelCatalog.validatedReasoningEffort(
+        "minimal", for: "claude-haiku-4.5", in: models) == "")
+    #expect(CopilotModelCatalog.reasoningEfforts(
+        for: "gemini-3.5-flash", in: models) == ["minimal", "low", "medium", "high"])
+    #expect(CopilotModelCatalog.validatedReasoningEffort(
+        "minimal", for: "gemini-3.5-flash", in: models) == "minimal")
+    #expect(CopilotModelCatalog.reasoningEfforts(for: "", in: models)
+        == ["low", "medium", "high"])
+    // Unknown metadata cannot safely invalidate an existing user choice.
+    #expect(CopilotModelCatalog.validatedReasoningEffort(
+        "high", for: "future-model", in: models) == "high")
 }
 
 @Test("session/new model parsing skips malformed and duplicate entries")
@@ -833,6 +1001,40 @@ func acpModelsSkipMalformedEntries() {
 func acpModelsEmptyWhenAbsent() {
     #expect(CopilotACPClient.models(fromNewSessionResponse: #"{"result":{"sessionId":"abc"}}"#).isEmpty)
     #expect(CopilotACPClient.models(fromNewSessionResponse: "not json").isEmpty)
+}
+
+@Test("session/new reasoning config enriches the selected live model")
+func acpReasoningEffortsParsedFromNewSession() {
+    let line = """
+    {"result":{"sessionId":"abc","models":{"currentModelId":"gemini-3.5-flash",
+     "availableModels":[
+      {"modelId":"auto","name":"Auto"},
+      {"modelId":"claude-haiku-4.5","name":"Claude Haiku 4.5"},
+      {"modelId":"gemini-3.5-flash","name":"Gemini 3.5 Flash"}]},
+     "configOptions":[
+      {"id":"reasoning_effort","name":"Reasoning Effort","type":"select",
+       "currentValue":"minimal","options":[
+        {"value":"minimal","name":"Minimal"},{"value":"low","name":"Low"},
+        {"value":"medium","name":"Medium"},{"value":"high","name":"High"}]}]}}
+    """
+
+    let models = CopilotACPClient.models(fromNewSessionResponse: line)
+    #expect(models.first { $0.id == "auto" }?.supportedReasoningEfforts
+        == ["minimal", "low", "medium", "high"])
+    #expect(models.first { $0.id == "claude-haiku-4.5" }?.supportedReasoningEfforts == nil)
+    #expect(models.first { $0.id == "gemini-3.5-flash" }?.supportedReasoningEfforts
+        == ["minimal", "low", "medium", "high"])
+}
+
+@Test("session/new without a reasoning config marks the selected model unsupported")
+func acpMissingReasoningConfigMeansUnsupported() {
+    let line = """
+    {"result":{"sessionId":"abc","models":{"currentModelId":"claude-haiku-4.5",
+     "availableModels":[{"modelId":"claude-haiku-4.5","name":"Claude Haiku 4.5"}]},
+     "configOptions":[{"id":"mode","type":"select","currentValue":"interactive","options":[]}]}}
+    """
+    let models = CopilotACPClient.models(fromNewSessionResponse: line)
+    #expect(models.first?.supportedReasoningEfforts == [])
 }
 
 // MARK: - Merging the live listing with the cache

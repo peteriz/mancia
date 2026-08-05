@@ -167,7 +167,7 @@ final class CopilotCLIProvider: LLMProvider {
 
     // MARK: - LLMProvider
 
-    private func config() async -> (path: String, model: String, reasoningEffort: String) {
+    func config() async -> (path: String, model: String, reasoningEffort: String) {
         await MainActor.run { (self.settings.copilotPath, self.settings.copilotModel, self.settings.reasoningEffort) }
     }
 
@@ -187,14 +187,32 @@ final class CopilotCLIProvider: LLMProvider {
         }
         let args = Self.arguments(executable: executable, prompt: prompt, model: model, reasoningEffort: reasoningEffort)
 
-        let result: ProcessResult
+        var result: ProcessResult
         do {
             result = try await Self.runProcess(executable: executable, arguments: args, timeout: 90)
         } catch let error as ProviderError {
             throw error
         }
 
-        let combined = result.stdout + "\n" + result.stderr
+        var combined = result.stdout + "\n" + result.stderr
+        if Self.shouldRetryWithoutReasoningEffort(
+            text: combined, reasoningEffort: reasoningEffort
+        ) {
+            await MainActor.run {
+                if self.settings.copilotModel == model,
+                   self.settings.reasoningEffort == reasoningEffort {
+                    self.settings.reasoningEffort = ""
+                }
+            }
+            let retryArgs = Self.arguments(
+                executable: executable, prompt: prompt, model: model,
+                reasoningEffort: ""
+            )
+            result = try await Self.runProcess(
+                executable: executable, arguments: retryArgs, timeout: 90
+            )
+            combined = result.stdout + "\n" + result.stderr
+        }
         if Self.looksMissingBinary(exitCode: result.exitCode, text: combined) {
             throw ProviderError.notFound
         }
@@ -230,6 +248,17 @@ final class CopilotCLIProvider: LLMProvider {
     }
 
     // MARK: - Helpers
+
+    static func shouldRetryWithoutReasoningEffort(
+        text: String, reasoningEffort: String
+    ) -> Bool {
+        guard !reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let lowered = text.lowercased()
+        return lowered.contains("reasoning effort")
+            && lowered.contains("not supported for model")
+    }
 
     private static func looksUnauthenticated(_ text: String) -> Bool {
         let lowered = text.lowercased()
@@ -280,10 +309,13 @@ final class CopilotCLIProvider: LLMProvider {
 
 extension CopilotCLIProvider: ModelListingProvider {
     func availableModels() async -> [CopilotModel] {
-        let (path, model, reasoningEffort) = await config()
+        let (path, model, _) = await config()
         let executable = Self.resolveExecutable(override: path.isEmpty ? nil : path)
+        // Start discovery at the model's default effort. A stale effort from a
+        // previously selected model must not prevent ACP from returning the
+        // new model's supported values.
         return await acpSidecar.availableModels(
-            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
+            config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: "")
         )
     }
 }
@@ -298,6 +330,14 @@ extension CopilotCLIProvider: WarmableLLMProvider {
     }
 
     func panelDidClose() async {
+        await prepareForPanel()
+    }
+
+    func refreshModelsAndPrepare() async {
+        let models = await availableModels()
+        if !models.isEmpty {
+            _ = await MainActor.run { self.settings.reconcileReasoningEffort(with: models) }
+        }
         await prepareForPanel()
     }
 }

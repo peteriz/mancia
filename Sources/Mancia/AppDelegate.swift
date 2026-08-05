@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusBar = statusBar
 
         self.hotkey = HotkeyManager { [weak self] in self?.coordinator?.start() }
+        Task { await provider.refreshModelsAndPrepare() }
     }
 
     private func showSettings() {
@@ -52,7 +53,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.coordinator?.refocusPanel() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.coordinator?.refocusPanel()
+                await self.provider.refreshModelsAndPrepare()
+            }
         }
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)

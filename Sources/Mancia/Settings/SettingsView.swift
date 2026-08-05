@@ -22,9 +22,8 @@ struct SettingsView: View {
     /// UI so falling back to a possibly-stale cache is visible rather than
     /// looking like the CLI genuinely offers nothing new.
     @State private var liveListingFailed = false
-    /// Guards against overlapping live fetches when the executable path is
-    /// edited and detected in quick succession.
-    @State private var refreshingModels = false
+    /// Lets a newer model/path refresh supersede an older in-flight request.
+    @State private var modelRefreshGeneration = 0
 
     /// Whether Accessibility is granted right now. Polled, because the grant
     /// happens in System Settings — another process — and there is no
@@ -91,6 +90,15 @@ struct SettingsView: View {
             // listing has to wait on the ACP sidecar starting up.
             await refreshStatus()
             await refreshLiveModels()
+        }
+        .onChange(of: settings.copilotModel) {
+            if CopilotModelCatalog.reasoningEfforts(
+                for: settings.copilotModel, in: models) == nil {
+                if !settings.copilotModelIsDerived { settings.reasoningEffort = "" }
+            } else {
+                settings.reconcileReasoningEffort(with: models)
+            }
+            Task { await refreshLiveModels() }
         }
     }
 
@@ -260,15 +268,14 @@ struct SettingsView: View {
         model.id == recommendedModelID ? "\(model.name) (Recommended)" : model.name
     }
 
-    /// Effort levels for the picker: the selected model's supported levels when
-    /// the cache knows them, else all CLI levels; always includes the stored
-    /// value so the picker binding stays valid.
+    /// Effort levels for the selected model. Unknown support shows only the
+    /// stored value and Default; values from unrelated models are never mixed.
     private var reasoningEffortOptions: [String] {
-        var options = models.first { $0.id == settings.copilotModel }?.supportedReasoningEfforts
-            ?? CopilotModelCatalog.reasoningEfforts(in: models)
-        let stored = settings.reasoningEffort
-        if !stored.isEmpty, !options.contains(stored) { options.append(stored) }
-        return options
+        if let supported = CopilotModelCatalog.reasoningEfforts(
+            for: settings.copilotModel, in: models) {
+            return supported
+        }
+        return settings.reasoningEffort.isEmpty ? [] : [settings.reasoningEffort]
     }
 
     private func detect() {
@@ -301,22 +308,27 @@ struct SettingsView: View {
     ///
     /// `~/.copilot/data.db` only gets rewritten when the interactive Copilot
     /// TUI runs, so on a machine that only ever drives Copilot through Mancia
-    /// it can be badly stale and hide newly released models. Asking the running
-    /// CLI reuses the sidecar's warm session, and a failure leaves the cached
-    /// list in place — flagged in the UI rather than passed off as current.
+    /// it can be badly stale and hide newly released models. Asking the sidecar
+    /// at the model's default effort avoids letting an incompatible saved value
+    /// block discovery; a failure leaves the cached list in place, flagged in
+    /// the UI rather than passed off as current.
     private func refreshLiveModels() async {
-        guard let provider = provider as? ModelListingProvider, !refreshingModels else { return }
-        refreshingModels = true
-        defer { refreshingModels = false }
+        guard let provider = provider as? ModelListingProvider else { return }
+        modelRefreshGeneration &+= 1
+        let generation = modelRefreshGeneration
         let live = await provider.availableModels()
+        guard generation == modelRefreshGeneration else { return }
         guard !live.isEmpty else {
             models = cachedModels
             liveListingFailed = true
             return
         }
         liveListingFailed = false
+        // Keep metadata learned for previously selected live-only models while
+        // replacing membership with the newest authoritative list.
+        let enrichedLive = CopilotModelCatalog.merged(live: live, cached: models)
         models = CopilotModelCatalog.pickerModels(
-            live: live,
+            live: enrichedLive,
             cached: cachedModels,
             storedModel: settings.copilotModel
         )
@@ -324,6 +336,7 @@ struct SettingsView: View {
         // that could only be ranked against the cache. No-op once the user
         // has picked a model themselves.
         settings.adoptDerivedDefault(from: models)
+        settings.reconcileReasoningEffort(with: models)
     }
 
     private func refreshStatus() async {

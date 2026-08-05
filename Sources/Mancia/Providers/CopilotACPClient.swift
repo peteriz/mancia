@@ -5,13 +5,16 @@ actor CopilotACPClient {
     private let process: Process
     private let input: FileHandle
     private let workingDir: URL
+    private let config: CopilotACPConfig
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<String, Error>] = [:]
     private var chunksBySession: [String: String] = [:]
     /// Models advertised by the CLI in the most recent `session/new` reply.
     private var models: [CopilotModel] = []
+    private var stopped = false
 
     init(config: CopilotACPConfig) async throws {
+        self.config = config
         workingDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("mancia-acp-" + UUID().uuidString)
         try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true)
@@ -80,6 +83,23 @@ actor CopilotACPClient {
         // be months old, which is the exact staleness this path exists to fix.
         let listed = Self.models(fromNewSessionResponse: line)
         if !listed.isEmpty { models = listed }
+
+        let modelID = config.model.isEmpty ? "auto" : config.model
+        var configLine = line
+        if Self.configValues(for: "model", in: configLine)?.contains(modelID) == true {
+            configLine = try await setConfigOption(
+                sessionID: sessionID, id: "model", value: modelID
+            )
+            updateReasoningEfforts(for: modelID, from: configLine)
+        }
+        let effort = config.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !effort.isEmpty,
+           Self.configValues(for: "reasoning_effort", in: configLine)?.contains(effort) == true {
+            configLine = try await setConfigOption(
+                sessionID: sessionID, id: "reasoning_effort", value: effort
+            )
+            updateReasoningEfforts(for: modelID, from: configLine)
+        }
         return sessionID
     }
 
@@ -108,9 +128,28 @@ actor CopilotACPClient {
     }
 
     func stop() {
+        guard !stopped else { return }
+        stopped = true
         input.closeFile()
         if process.isRunning { process.terminate() }
         try? FileManager.default.removeItem(at: workingDir)
+    }
+
+    private func setConfigOption(
+        sessionID: String, id: String, value: String
+    ) async throws -> String {
+        try await request(
+            method: "session/set_config_option",
+            params: ["sessionId": sessionID, "configId": id, "value": value],
+            timeout: 15
+        )
+    }
+
+    private func updateReasoningEfforts(for modelID: String, from line: String) {
+        guard let result = Self.jsonObject(line)?["result"] as? [String: Any],
+              let efforts = Self.reasoningEfforts(from: result),
+              let index = models.firstIndex(where: { $0.id == modelID }) else { return }
+        models[index].supportedReasoningEfforts = efforts
     }
 
     private func request(method: String, params: [String: Any], timeout: Double) async throws -> String {
@@ -218,7 +257,7 @@ actor CopilotACPClient {
               let models = result["models"] as? [String: Any],
               let available = models["availableModels"] as? [[String: Any]] else { return [] }
         var seen = Set<String>()
-        return available.compactMap { entry in
+        var listed: [CopilotModel] = available.compactMap { entry in
             guard let id = entry["modelId"] as? String, !id.isEmpty,
                   let name = entry["name"] as? String, !name.isEmpty,
                   seen.insert(id).inserted else { return nil }
@@ -226,10 +265,55 @@ actor CopilotACPClient {
             return CopilotModel(
                 id: id,
                 name: name,
+                supportedReasoningEfforts: cleanedStrings(entry["supportedReasoningEfforts"]),
                 modelPickerPriceCategory: meta?["copilotPriceCategory"] as? String,
                 usageMultiplier: usageMultiplier(meta?["copilotUsage"])
             )
         }
+        // Current Copilot CLI releases expose the selected model's effective
+        // reasoning levels through ACP session config. This is fresher than the
+        // SQLite cache and includes account/plan filtering.
+        if let currentModelID = models["currentModelId"] as? String,
+           let efforts = reasoningEfforts(from: result),
+           let index = listed.firstIndex(where: { $0.id == currentModelID }) {
+            listed[index].supportedReasoningEfforts = efforts
+            // Mancia's "Default" picker tag is empty while ACP calls that row
+            // "auto". Give it the concrete model's effective options so an
+            // automatic model/effort pair can still be validated.
+            if let autoIndex = listed.firstIndex(where: { $0.id == "auto" }) {
+                listed[autoIndex].supportedReasoningEfforts = efforts
+            }
+        }
+        return listed
+    }
+
+    private static func reasoningEfforts(from result: [String: Any]) -> [String]? {
+        guard let options = result["configOptions"] as? [[String: Any]] else { return nil }
+        guard let effort = options.first(where: { $0["id"] as? String == "reasoning_effort" }) else { return [] }
+        return cleanedStrings(effort["options"], valueKey: "value")
+    }
+
+    private static func configValues(for id: String, in line: String) -> [String]? {
+        guard let result = jsonObject(line)?["result"] as? [String: Any],
+              let options = result["configOptions"] as? [[String: Any]],
+              let option = options.first(where: { $0["id"] as? String == id }) else {
+            return nil
+        }
+        return cleanedStrings(option["options"], valueKey: "value")
+    }
+
+    private static func cleanedStrings(_ raw: Any?, valueKey: String? = nil) -> [String]? {
+        let values: [String]
+        if let valueKey, let entries = raw as? [[String: Any]] {
+            values = entries.compactMap { $0[valueKey] as? String }
+        } else if let strings = raw as? [String] {
+            values = strings
+        } else {
+            return nil
+        }
+        var seen = Set<String>()
+        let cleaned = values.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return !values.isEmpty && cleaned.isEmpty ? nil : cleaned
     }
 
     /// Parse the premium-request multiplier the listing reports as a string
