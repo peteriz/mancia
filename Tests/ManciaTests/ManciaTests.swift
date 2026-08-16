@@ -654,12 +654,115 @@ func acpArgvDisablesAmbientContext() {
     #expect(args.contains("none"))
 }
 
-@Test("ACP failures fall back to one-shot CLI except cancellation")
+@Test("ACP failures fall back to one-shot CLI except cancellation and timeout")
 func acpFallbackPolicy() {
-    #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.timedOut))
+    #expect(!CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.timedOut))
     #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.launchFailed("sidecar exited")))
     #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.emptyOutput))
     #expect(!CopilotCLIProvider.shouldFallbackFromACPError(CancellationError()))
+}
+
+@Test("ACP sidecar reuses a fresh client and replaces it at the lifetime boundary")
+func staleACPSidecarIsReplaced() async {
+    let factory = TestACPClientFactory()
+    let sidecar = CopilotACPSidecar { _ in await factory.makeClient() }
+    let config = CopilotACPConfig(executable: "copilot", model: "", reasoningEffort: "")
+
+    await sidecar.prepare(config: config, now: 100)
+    await sidecar.prepare(config: config, now: 3_699)
+    #expect(await factory.snapshot() == .init(created: [1], stopped: []))
+
+    await sidecar.prepare(config: config, now: 3_700)
+    #expect(await factory.snapshot() == .init(created: [1, 2], stopped: [1]))
+}
+
+@Test("ACP sidecar defers expired-client retirement until an active prompt finishes")
+func activeACPSidecarIsNotStoppedDuringReplacement() async throws {
+    let factory = TestACPClientFactory(blockFirstPrompt: true)
+    let sidecar = CopilotACPSidecar { _ in await factory.makeClient() }
+    let config = CopilotACPConfig(executable: "copilot", model: "", reasoningEffort: "")
+
+    let completion = Task { try await sidecar.complete("prompt", config: config, now: 100) }
+    await factory.waitForPromptToStart()
+    await sidecar.prepare(config: config, now: 3_700)
+
+    #expect(await factory.snapshot() == .init(created: [1, 2], stopped: []))
+    await factory.releasePrompt()
+    #expect(try await completion.value == "result")
+    #expect(await factory.snapshot() == .init(created: [1, 2], stopped: [1]))
+}
+
+private actor TestACPClientFactory {
+    struct Snapshot: Equatable, Sendable {
+        let created: [Int]
+        let stopped: [Int]
+    }
+
+    private let blockFirstPrompt: Bool
+    private var nextID = 0
+    private var created: [Int] = []
+    private var stopped: [Int] = []
+    private var promptStarted = false
+    private var promptStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var promptRelease: CheckedContinuation<Void, Never>?
+
+    init(blockFirstPrompt: Bool = false) {
+        self.blockFirstPrompt = blockFirstPrompt
+    }
+
+    func makeClient() -> CopilotACPSidecar.Client {
+        nextID += 1
+        created.append(nextID)
+        return TestACPClient(id: nextID, factory: self)
+    }
+
+    func recordPromptStart(clientID: Int) async {
+        promptStarted = true
+        promptStartWaiters.forEach { $0.resume() }
+        promptStartWaiters.removeAll()
+        guard blockFirstPrompt, clientID == 1 else { return }
+        await withCheckedContinuation { promptRelease = $0 }
+    }
+
+    func waitForPromptToStart() async {
+        guard !promptStarted else { return }
+        await withCheckedContinuation { promptStartWaiters.append($0) }
+    }
+
+    func releasePrompt() {
+        promptRelease?.resume()
+        promptRelease = nil
+    }
+
+    func recordStop(clientID: Int) {
+        stopped.append(clientID)
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(created: created, stopped: stopped)
+    }
+}
+
+private actor TestACPClient: CopilotACPClientProtocol {
+    let id: Int
+    let factory: TestACPClientFactory
+
+    init(id: Int, factory: TestACPClientFactory) {
+        self.id = id
+        self.factory = factory
+    }
+
+    func newSession() -> String { "session-\(id)" }
+    func availableModels() -> [CopilotModel] { [] }
+
+    func prompt(sessionID: String, text: String) async -> String {
+        await factory.recordPromptStart(clientID: id)
+        return "result"
+    }
+
+    func stop() async {
+        await factory.recordStop(clientID: id)
+    }
 }
 
 @Test("ACP response parsing extracts session ids and stop reasons")

@@ -149,10 +149,12 @@ final class CopilotCLIProvider: LLMProvider {
         return args
     }
 
-    /// ACP is an optimization over the one-shot CLI path, so provider failures
-    /// should fall back unless the user cancelled the in-flight edit.
+    /// ACP is an optimization over the one-shot CLI path, so ordinary provider
+    /// failures fall back. Cancellation and timeout stop immediately; retrying
+    /// after a timeout would only extend the apparent hang.
     static func shouldFallbackFromACPError(_ error: Error) -> Bool {
-        !(error is CancellationError)
+        if error is CancellationError { return false }
+        return (error as? ProviderError) != .timedOut
     }
 
     /// Trim surrounding whitespace and strip a single wrapping code-fence pair.

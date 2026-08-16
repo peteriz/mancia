@@ -1,7 +1,7 @@
 import Foundation
 
 /// Minimal ACP JSON-RPC client for Copilot CLI.
-actor CopilotACPClient {
+actor CopilotACPClient: CopilotACPClientProtocol {
     private let process: Process
     private let input: FileHandle
     private let workingDir: URL
@@ -127,7 +127,7 @@ actor CopilotACPClient {
         return output
     }
 
-    func stop() {
+    func stop() async {
         guard !stopped else { return }
         stopped = true
         input.closeFile()
