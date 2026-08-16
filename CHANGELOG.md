@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-16
+
+### Fixed
+
+- Copilot ACP sidecars now refresh after one hour so long-running Mancia
+  sessions pick up CLI upgrades and fresh network connections. Active requests
+  finish before the retired sidecar stops, and timed-out requests no longer
+  retry through the one-shot CLI and extend the apparent hang.
+
 ## [0.3.2] - 2026-08-06
 
 ### Added
