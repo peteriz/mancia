@@ -654,12 +654,19 @@ func acpArgvDisablesAmbientContext() {
     #expect(args.contains("none"))
 }
 
-@Test("ACP failures fall back to one-shot CLI except cancellation")
+@Test("ACP failures fall back to one-shot CLI except cancellation and timeout")
 func acpFallbackPolicy() {
-    #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.timedOut))
+    #expect(!CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.timedOut))
     #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.launchFailed("sidecar exited")))
     #expect(CopilotCLIProvider.shouldFallbackFromACPError(ProviderError.emptyOutput))
     #expect(!CopilotCLIProvider.shouldFallbackFromACPError(CancellationError()))
+}
+
+@Test("ACP sidecar replaces a process after its maximum lifetime")
+func staleACPSidecarIsReplaced() {
+    #expect(!CopilotACPSidecar.isClientExpired(startedAt: 100, now: 3_699))
+    #expect(CopilotACPSidecar.isClientExpired(startedAt: 100, now: 3_700))
+    #expect(!CopilotACPSidecar.isClientExpired(startedAt: nil, now: 10_000))
 }
 
 @Test("ACP response parsing extracts session ids and stop reasons")
