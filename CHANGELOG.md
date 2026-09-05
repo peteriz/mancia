@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Visible selection/document targeting, separate approval before sending a
+  whole document to Copilot, and a copyable result when safe replacement cannot
+  be established.
+- Ribbon feedback for capture, generation, application, and completion, with
+  keyboard-accessible recovery and optional original/result comparison.
+- Synthetic action-quality examples and an opt-in local evaluation command.
+
+### Changed
+
+- Calmer warm-neutral surfaces, appearance-adaptive action colors, and clearer
+  focus and status contrast across the ribbon and its dialogs.
+- Ribbon action shortcuts use 1 through 5 without Command while focused.
+  Digits typed in the Custom editor remain ordinary text.
+- Action labels show their number shortcuts on hover without resizing.
+  Custom uses a compact multiline
+  editor, keeps its draft for the open session, and describes its required input.
+- Improve and Sharpen retain their coding-agent focus. Plan first requests a
+  short downstream plan with goals and verifiers. Tighten preserves uncertainty
+  and constraints while reducing length.
+- Provider status distinguishes an installed CLI from working authentication.
+  Working color is in Advanced settings.
+
+### Fixed
+
+- Cancellation before paste prevents replacement, and clipboard restoration
+  no longer overwrites a newer user copy.
+- Replacement verifies the original field and text. Version navigation no
+  longer sends blind Undo keystrokes into another app.
+- Preset inline edits preserve selection-edge whitespace. Custom can return
+  deliberately requested quotation marks and Markdown fences.
+
 ## [0.3.3] - 2026-08-16
 
 ### Fixed

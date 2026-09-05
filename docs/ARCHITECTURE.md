@@ -16,8 +16,8 @@ Sources/Mancia/
 │                                 About / Quit)
 ├── HotkeyManager.swift           Registers the global hotkey (KeyboardShortcuts pkg)
 ├── Permissions.swift             AXIsProcessTrusted() checks + System Settings deep link
-├── SelectionCapture.swift        Pasteboard snapshot/capture/replace via synthetic ⌘C/⌘A/⌘V,
-│                                 ⌘Z undo helper, AX caret-rect lookup; keystrokes are
+├── SelectionCapture.swift        Operation-local pasteboard capture, AX target evidence,
+│                                 verified range reselection and paste; keystrokes are
 │                                 posted to the target app's pid (CGEvent.postToPid)
 ├── EditCoordinator.swift         Drives a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
@@ -33,7 +33,7 @@ Sources/Mancia/
 │   ├── KeyablePanel.swift        NSPanel subclass that can take key status while the
 │   │                             target app stays active (.nonactivatingPanel)
 │   ├── Palette.swift             Shared color tokens
-│   ├── PanelPreset.swift         The specialized presets (Proofread / Rewrite / Summarize)
+│   ├── PanelPreset.swift         Improve / Sharpen / Plan first / Tighten
 │   └── PanelKeyCommand.swift     ⌘-shortcut and focus-move mapping for the editing surface
 │                                 (no menu bar, so it resolves Edit-menu-style key
 │                                 equivalents itself)
@@ -46,11 +46,10 @@ Sources/Mancia/
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
-│   ├── RibbonView.swift          The lane: Target / five Actions / Run, moving Custom
-│   │                             left and disclosing Direction when selected
+│   ├── RibbonView.swift          Target, five actions, Custom editor, progress and recovery
 │   ├── RibbonReviewView.swift    The whole-document review gate
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
-│   └── RibbonPalette.swift       The lane's dark-register color tokens
+│   └── RibbonPalette.swift       Appearance-adaptive lane and state colors
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider/WarmableLLMProvider protocols and ProviderStatus
 │   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, fallback Process)
@@ -85,179 +84,74 @@ There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
 one `EditCoordinator`, one `StatusBarController`, and one `HotkeyManager`, all
 wired to call `coordinator.start()`.
 
-1. **Trigger** — `HotkeyManager` (global hotkey) or `StatusBarController`
-   ("Edit Selection…") calls `EditCoordinator.start()`.
-2. **Capture** — `EditCoordinator.start()` first checks Accessibility
-   (`Permissions.isAccessibilityTrusted`; prompts + shows an alert if not
-   granted, then bails). It then calls
-   `SelectionCapture.captureSelection()`, which:
-   - Remembers the frontmost app (`NSWorkspace.shared.frontmostApplication`).
-   - Snapshots the pasteboard (`PasteboardSnapshot.capture()`).
-   - Posts a synthetic `⌘C` (`CGEvent`) and polls `NSPasteboard.changeCount`
-     every 30 ms up to 600 ms.
-   - Restores the snapshot immediately, returning the captured string (or
-     `nil` if nothing changed, i.e. no selection).
-3. **Ribbon** — the result seeds `PanelModel` (`hasSelection`, `charCount`),
-   and `RibbonWindow.show()` opens the lane: a `KeyablePanel`
-   (`.nonactivatingPanel` + `.floating`, so the target app keeps focus) placed
-   by `RibbonPlacement.resolve(_:)`, a pure function of the screen, the host
-   window and the selection rectangle.
+1. **Trigger and capture.** The hotkey or menu calls `coordinator.start()`.
+   Accessibility permission is required. The ribbon opens while capture runs.
+   `SelectionCapture` records the host application and available AX
+   field/window/range identity, then reads the selection. A proved empty
+   selection is distinct from an uncertain or failed copy.
+2. **Scope consent.** The target control states Selection or Whole document.
+   Whole-document requests pause in `.scopeApproval` before capturing and
+   sending document text. This approval is separate from the configurable
+   replacement confirmation. Uncertain capture does not imply document scope.
+3. **Generation.** `EditSession` binds each request to its scope, baseline,
+   target evidence, and revision. Scope or target changes invalidate pending
+   approvals and results. `PromptGuard` validates the input before
+   `PromptBuilder` builds the prompt. Providers receive only the prompt and
+   return text; the coordinator remains responsible for editorial normalization.
+4. **Output and review.** `PromptBuilder.normalizeOutput` preserves preset
+   selection-edge whitespace and leaves intentional Custom formatting intact.
+   Unchanged results do not create paste operations or history entries.
+   Whole-document results enter `.confirm` when replacement confirmation is
+   enabled. The original and proposed result remain available for comparison.
+5. **Verified application.** Before posting Paste, `SelectionCapture` verifies
+   that the same editable field still contains the captured baseline. AX range
+   reselection replaces the exact span; Mancia never sends Undo to discover
+   what is on a host's undo stack. After paste, the expected field value must
+   be observed before the coordinator records a successful history entry.
+   Missing evidence, changed contents, or unsupported hosts leave a copyable
+   result in `.retained` rather than attempting an unsafe replacement.
+6. **Iteration and recovery.** A fresh selection supplies new target evidence.
+   History navigation uses the verified current field and range, and commits
+   its index only after replacement succeeds. Custom's draft survives
+   successful edits in the open session. Pending approvals, errors, and
+   retained results do not auto-close; the normal applied state retains the
+   configured post-edit behavior.
 
-   When the host reports where the selected text is, the lane **sits just
-   under the selection** — or just over it, when the selection is too near the
-   foot of the display to fit beneath. That is the ordinary case, and it is the
-   point of the rule: the command the user is composing sits next to the words
-   it will rewrite. When the block is too tall for either end — a paragraph, a
-   long quote — the lane **stands in the margin beside it**, on the roomier
-   flank, as wide as that margin can hold. A tall selection is usually a
-   narrow one, so the margin is nearly always there, and a lane standing in it
-   covers no text at all. When there is no selection rectangle — a bare caret,
-   so the whole document is the target, or a host that cannot answer — the lane
-   takes a predictable place instead:
-   - **screen-anchored** — flush under the menu bar, when the menu bar is
-     reserving a strip at the top of the screen;
-   - **host-anchored** — under the frontmost window's title bar, when it is
-     not: full-screen Spaces and auto-hidden menu bars both leave the lane
-     nowhere safe to sit, and on a notched display the top of the screen is
-     not addressable at all.
+### Clipboard and cancellation boundaries
 
-   That predictable place is the last resort, and only for a selection with
-   nowhere at all beside it — everything on screen selected, say, where every
-   position covers the text as thoroughly as the next. Before it comes the
-   **cramped end**: a block with no margin either side still gets the lane at
-   whichever end can hold it as it opens (`crampedRoom`), because covering the
-   head of a block from the far end of the screen is worse than standing
-   against its foot. A move that buys nothing is worse than staying where the
-   user expects; a move that buys the whole point of the rule is not.
+Each copy/paste operation snapshots the pasteboard immediately before using
+it. `PasteboardOwnership` records the temporary contents and change count;
+restoration only occurs if those still match. A newer copy made by the user
+takes precedence over restoration.
 
-   Whichever edge faces the selection is the edge the lane **pins**, so it
-   grows away from the text. An end with room for `projectedHeight`, or a
-   margin the lane owns outright, stays clear as the review gate opens. The
-   cramped-end fallback is the deliberate exception: its opening row clears
-   the words, but screen clamping can move a grown gate back over the block's
-   far end. The anchor is **established for the session** and fed back through
-   `Context.establishedAnchor`, so a lane that grew mid-run does not leap
-   across the screen and leap back when the region closes. A bare caret is not
-   a selection: with nothing selected the target is the whole document and
-   there is no line to sit against.
+Cancellation is checked before synthetic keystrokes. Paste is the commitment
+point: cancelling beforehand prevents replacement, but cancelling afterward
+cannot imply that the document was left untouched. Cleanup must finish without
+overwriting a newer clipboard value. A generated result and a verified applied
+result are distinct outcomes.
 
-   Vertical *and* horizontal position follow the selection: the lane is
-   centered on the selected span, and the room at its ends and flanks is
-   measured against the **display's band**, never the host window. The lane
-   floats over its host rather than inside it, so a window much wider than the
-   sentence is no reason to put the lane half a screen from it, and a window
-   shorter than the room below the words is no reason to send the lane over
-   them. The lane's **width is imposed by placement**: buttons-only states ask
-   for the stable 600pt standard width and Custom asks for up to 900pt, then an
-   end anchor bounds that request by the selected span, a margin anchor by its
-   available flank, and a resting anchor by the window or screen. Every result
-   stays between `minimumWidth` and `maximumWidth`. Only the lane's **height
-   comes from content**, so the view is measured at the resolved width before
-   the frame is set.
-   `HostWindowProbe` supplies the host window's frame and full-screen state
-   through Accessibility; every failure path returns `nil` and placement
-   degrades to the screen rather than failing the session.
+Replacement is plain text. AX identity and full-field reads are not available
+in every host; this limits in-place editing and history, not the ability to
+return generated text for copying. Rich-text reconstruction is not implemented.
 
-   The lane is a cyclical **edit session**. Target, five tight Action buttons and
-   Run sit on a **single row**, dimmed and disabled while a request runs.
-   Selecting Custom moves it to the leading edge, inserts Direction after it,
-   and expands the whole lane horizontally. Hovering an action replaces its
-   title with its ⌘1…⌘5 shortcut without changing the button's size. Each
-   control names itself rather than carrying a caption above it. Running and
-   applied status replace the text **inside Run**, while iteration history stays
-   beside it. When disclosed, Direction
-   takes the row's slack up to a comfortable measure. Only a
-   failure still earns a **row of its own**, because it carries a message plus
-   Details, Copy and Retry. `PanelModel.phase` cycles
-   `.idle → .running → .confirm → .applied/.error` and back until the user
-   closes it. The lane **stays visible throughout**: all synthetic keystrokes
-   are posted directly to the target app's process (`CGEvent.postToPid`), so
-   they cannot be swallowed by the lane and no hide/reveal dance is needed.
-   After each keystroke burst (which activates the target app) the coordinator
-   calls `ribbon.focus()` to retake key status so Esc and typing reach the
-   lane again.
+### Ribbon placement and keyboard behavior
 
-   Tab, ⇧Tab and the focus **ring both read `PanelModel.focusedCell`**, not the
-   view's `@FocusState`. Tab arrives at the window rather than at a view, and
-   SwiftUI grants `@FocusState` to the Direction field but refuses it to the
-   live `.focusable()` cells, so the model is the only place that knows which
-   stop the keyboard is on. Every action button is a stop; Direction joins the
-   ring immediately after Custom only while the field is disclosed.
+`RibbonPlacement` remains a pure resolver. It places the ribbon below or above
+the selected span, beside a tall block, or at a predictable menu-bar/title-bar
+fallback. The established anchor is retained while content grows, except when
+the target moves or the ribbon would obscure newly applied text. The window
+measures content at the resolved width before setting its height.
 
-   ⌘1…⌘4 immediately run Improve, Sharpen, Plan first, and Tighten; ⌘5 moves
-   Custom left, discloses its field, and focuses it without running. ⌘T swaps the target. These
-   commands are resolved by `PanelKeyCommand` and dispatched through
-   `KeyablePanel`. Because
-   that happens above the SwiftUI tree, the `disabled` that greys the cells out
-   while a request runs is invisible to them — `PanelModel.isLocked` is what
-   actually holds them off, and the mutating entry points check it themselves.
-4. **Perform** — the user takes the primary path (`PanelModel.runPrimary()`:
-   Return or Run executes the explicitly selected preset, or `.custom(text)`
-   when Custom is selected and non-empty). ⌘1…⌘4 dispatch their built-in actions
-   directly. Hidden custom draft text never rides along with
-   a preset.
-   `EditCoordinator.perform(_:note:)` resolves this cycle's input and apply
-   strategy. The rules are `EditSession`'s — a pure, AppKit-free step machine
-   that the coordinator drives, asking for one observation at a time (probe
-   the frontmost app, capture a new target, probe for a fresh selection,
-   capture the document) until it answers with a run or an abort. Ahead of
-   both scope branches it checks whether the user has moved to a different
-   app, since neither branch can tell that the session's target went stale
-   underneath it; only a live selection in the new app re-targets, and doing
-   so resets the baseline. The two scope branches:
-   - `.document` scope: when the session originally found no selection, first
-     probes with a fresh `⌘C`; a new non-empty live selection switches the
-     session to `.selection` scope, unless it matches the currently shown
-     whole-document version (which can be the app's own previous `⌘A`
-     selection). Otherwise it re-captures via `⌘A`+`⌘C` every cycle
-     (`SelectionCapture.captureEntireDocument(from:)`); captured text that
-     differs from the currently shown version (a manual edit) becomes the new
-     session baseline (`versions = [captured]`). Applies with `⌘A`+`⌘V`.
-   - `.selection` scope, first cycle: uses the already-captured text and
-     pastes over the still-live selection.
-   - `.selection` scope, later cycles: probes with a fresh `⌘C`
-     (`captureFreshSelection`) — a new user selection becomes the new session
-     baseline; otherwise the input is `versions[currentIndex]` (what the
-     document shows), applied via **undo-then-paste** (`⌘Z` restores and
-     re-selects the previously replaced text in NSTextView-based apps, then
-     `⌘V` pastes over it), keeping exactly one paste outstanding.
-   It then builds the prompt with `PromptBuilder.build(action:text:)` and
-   calls `provider.complete(prompt)` inside a cancellable `Task`. While it
-   runs, only the strip's **Cancel** is enabled (spinner + action name).
-   Providers that conform to `WarmableLLMProvider` are warmed when the lane
-   opens and after it closes; `CopilotCLIProvider` uses that hook to keep one
-   empty, single-use ACP session ready for the next edit.
-5. **Confirm (whole-document only)** — before a `.document`-scope result
-   overwrites the document, the panel pauses in `PanelModel.phase == .confirm`
-   (`ApplyConfirmation.isRequired`, gated by
-   `AppSettings.confirmWholeDocumentReplace`, default on). The strip shows the
-   size change (`ApplyConfirmation.summary`) alongside **Replace** (⏎ /
-   `EditCoordinator.confirmApply()`), and **Cancel** discards the pending
-   result. Selection edits skip this — they are
-   low blast-radius and undoable — and apply straight away. This keeps an
-   injection-influenced or runaway result from silently replacing everything.
-6. **Apply & iterate** — when the result arrives (immediately for selections,
-   on confirm for documents),
-   `SelectionCapture.apply(text:to:entireDocument:)` pastes it (pasteboard →
-   activate target → `⌘V`, restoring the user's pasteboard ~1 s later) with
-   the lane still on screen. The coordinator records the iteration
-   (`versions`: index 0 is the session original, one entry per applied
-   result; running a new action from an earlier version truncates the
-   forward history). ⌘Z calls `EditCoordinator.undoLastVersion()` to rewrite
-   the document with the previous entry: undo-then-paste for selections
-   (including index 0), `⌘A`+`⌘V` for document scope (robust against
-   manual edits in between).
-   - **Cancel** (the primary button on hover while running) stops the in-flight
-     `Task` but keeps the session open; **Retry** runs the action the ribbon
-     currently describes.
-   - Esc stops an action that is still running and leaves the lane up;
-     with nothing in flight it closes the session, keeping whichever version
-     is showing. Hybrid post-apply behavior closes the lane on its own after
-     a beat.
+The five action names stay visible on hover. Custom discloses a bounded
+multiline editor. The target control, progress, approvals, review, and retained
+results share the same ribbon rather than separate windows.
 
-Esc anywhere in the lane routes through `KeyablePanel.cancelOperation` →
-`panel.onEscape` → `model.escape()`, which picks `onCancelRun` while the phase
-is `.running` and `onCancel` otherwise. ⌘W keeps the unconditional close.
+`PanelKeyCommand` and `KeyablePanel` route shortcuts. `PanelModel.focusedCell`
+is the authority for Tab order and focus rings, including recovery and
+approval controls. Return activates the focused control, not an unconditional
+document replacement. Command-number shortcuts retain their action order;
+Command-T changes scope only when permitted. Escape backs out of the current
+run or pending approval; Command-W closes the session.
 
 ## The `LLMProvider` protocol
 
@@ -280,12 +174,18 @@ the places that need completion or availability checks.
   session while the lane is open; the session is consumed by a single prompt
   and then discarded so selected text cannot carry into later edits.
 - **Fallback reliability path:** the original one-shot `copilot -p <prompt>` CLI
-  invocation. ACP launch, protocol, empty-output, and timeout failures fall back
-  here; user cancellation stays cancellation.
+  invocation. ACP launch, protocol, and empty-output failures fall back here;
+  cancellation and timeout stop the request.
 
 Both paths run in private empty temp directories and use the same ambient-context
 disable flags: `--available-tools=`, `--disable-builtin-mcps`, `--no-remote`,
 and `--no-custom-instructions`.
+
+Availability probing runs `copilot --version`. Success means **Installed**,
+not authenticated or able to complete a network request. Completion errors
+provide the sign-in or service failure details when the user runs an action.
+The model recommendation uses backend speed/cost metadata, not an
+editing-quality score; explicit model choices remain unchanged.
 
 To add a new provider:
 
@@ -375,21 +275,28 @@ instruction:
   `PromptGuardError`s. Both `EditCoordinator.perform` and `DebugCLI.complete`
   validate before building the prompt; failures surface through the lane's error
   state / stderr rather than sending a runaway request to the provider.
-- **Human-in-the-loop for whole-document overwrites (`ApplyConfirmation`).**
-  A `.document`-scope result never auto-pastes: the coordinator pauses in the
-  `.confirm` phase and the user must press **Replace document** (the size delta
-  is shown as a signal). This bounds the blast radius of an injection-influenced
-  or runaway result — the dangerous ⌘A+⌘V path — while leaving low-risk,
-  undoable selection edits immediate. Default on
-  (`AppSettings.confirmWholeDocumentReplace`), user-toggleable. The confirm/
-  keystroke wiring lives in `EditCoordinator`/`RibbonView` and is verified by
-  manual testing; the pure policy (`ApplyConfirmation`) is unit-tested.
+- **Whole-document consent and replacement review (`ApplyConfirmation`).**
+  Document requests always pause before reading and sending the document.
+  Separately, replacement review is enabled by default and controlled by
+  `AppSettings.confirmWholeDocumentReplace`. Both confirmed and immediate
+  replacements still require fresh target/baseline verification; approval is
+  not permission to overwrite a field that changed while the model ran.
 
 Deliberately **not** done: a "jailbreak/abuse classifier" on the instruction
 field. Mancia is a single-user local utility — the operator already owns the
 authenticated `copilot` binary, so policing their own instruction crosses no
 trust boundary and would be trivially bypassable theatre. Prompt wording is UX,
 not a security boundary; the sandbox is.
+
+### Action-quality evaluation
+
+`Tests/Fixtures/action-quality.json` contains synthetic cases for the five
+visible actions. Unit tests cover prompt contracts, fixture structure, raw
+output validation, and action-aware boundary normalization without contacting
+Copilot. `node scripts/evaluate_action_quality.mjs [case-name...]` is an
+explicit, local opt-in evaluation against the configured model. It reports
+literal checks and prints criteria for human review; it does not equate
+substring preservation with semantic accuracy.
 
 ## Permissions model
 
