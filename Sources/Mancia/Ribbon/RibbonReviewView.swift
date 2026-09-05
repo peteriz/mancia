@@ -140,7 +140,7 @@ struct RibbonReviewView: View {
             .frame(maxHeight: previewMaxHeight)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(RibbonPalette.text.opacity(0.04))
+                    .fill(RibbonPalette.directionTint)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)

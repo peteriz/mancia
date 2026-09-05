@@ -430,7 +430,9 @@ struct RibbonView: View {
         .disabled((model.isLocked && !processing) || (!processing && !model.canRunPrimary))
         .focusable()
         .focused($focus, equals: .run)
-        .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: 0)
+        .ribbonFocusRing(
+            model.focusedCell == .run, radius: 8, inset: 0,
+            tint: processing ? RibbonPalette.caption : RibbonPalette.onCustomRun)
         .help(processing ? "Cancel custom action" : "Run custom action")
         .onHover { isHovering in
             guard isLive else { return }
@@ -457,7 +459,7 @@ struct RibbonView: View {
     ///
     /// Native Liquid Glass is nearly clear, so over a white document the lane
     /// and its controls vanished into the page. A material base carries the
-    /// blur, and the ink tint above it holds a fixed step of contrast whatever
+    /// blur, and the neutral tint above it holds a fixed step of contrast whatever
     /// is behind the ribbon. Reduce Transparency drops to an opaque surface.
     @ViewBuilder
     private func glassSurface<S: Shape>(

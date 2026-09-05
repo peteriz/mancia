@@ -13,6 +13,7 @@ struct GhostButton: View {
     let title: String
     var tint: Color
     let action: () -> Void
+    @State private var hovered = false
 
     init(_ title: String, tint: Color = Palette.textSecondary, action: @escaping () -> Void) {
         self.title = title
@@ -27,6 +28,7 @@ struct GhostButton: View {
                 .foregroundStyle(tint)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 2)
+                .background(Capsule(style: .continuous).fill(tint.opacity(hovered ? 0.10 : 0)))
                 .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.4), lineWidth: 1))
                 // The label is 15pt tall; the spec's 28pt minimum hit target is
                 // reached by the shape, not by the ink.
@@ -35,6 +37,7 @@ struct GhostButton: View {
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: true, vertical: false)
+        .onHover { hovered = $0 }
         .accessibilityLabel(title)
     }
 }
@@ -46,6 +49,7 @@ struct AccentButton: View {
     var fill: Color
     var foreground: Color
     let action: () -> Void
+    @State private var hovered = false
 
     init(
         _ title: String,
@@ -66,11 +70,16 @@ struct AccentButton: View {
                 .foregroundStyle(foreground)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 3)
-                .background(Capsule(style: .continuous).fill(fill))
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(fill)
+                        .overlay(Capsule(style: .continuous).fill(Palette.text.opacity(hovered ? 0.08 : 0)))
+                }
                 .frame(minHeight: 28)
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
         .accessibilityLabel(title)
     }
 }
@@ -199,12 +208,13 @@ extension View {
     /// blue ring over the top, which is the system accent by another name and
     /// reads as a second highlight colour on a surface that allows one.
     func ribbonFocusRing(
-        _ focused: Bool, radius: CGFloat = 6, inset: CGFloat = -4
+        _ focused: Bool, radius: CGFloat = 6, inset: CGFloat = -4,
+        tint: Color = RibbonPalette.caption
     ) -> some View {
         focusEffectDisabled()
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(RibbonPalette.text.opacity(focused ? 0.35 : 0), lineWidth: 2)
+                    .strokeBorder(tint.opacity(focused ? 1 : 0), lineWidth: 2)
                     .padding(inset)
                     .allowsHitTesting(false)
             )
