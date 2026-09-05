@@ -18,10 +18,13 @@ final class KeyablePanel: NSPanel {
     var onSubmit: (() -> Void)?
     /// ⌘T — swap the target between the selection and the whole document.
     var onToggleTarget: (() -> Void)?
-    /// ⌘1…⌘5 — activate the matching visible action button.
+    /// 1…5 — activate an action while focused, except when editing text.
     var onActivateAction: ((Int) -> Void)?
     /// ⌘Z after the instruction field has exhausted its own undo stack.
     var onUndoVersion: (() -> Bool)?
+    /// A click or pointer movement anywhere over the panel. See
+    /// `RibbonWindow.onPointerActivity` for why this exists.
+    var onPointerActivity: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
 
@@ -34,16 +37,40 @@ final class KeyablePanel: NSPanel {
     /// so the panel behaves normally otherwise.
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, onKeyDown?(event) == true { return }
+        if case .activateAction(let index) = command(for: event) {
+            onActivateAction?(index)
+            return
+        }
+        if Self.isPointerActivity(event.type) { onPointerActivity?() }
         super.sendEvent(event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    private static func isPointerActivity(_ type: NSEvent.EventType) -> Bool {
+        switch type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func command(for event: NSEvent) -> PanelKeyCommand? {
         guard event.type == .keyDown,
               let command = PanelKeyCommand.resolve(
                   characters: event.charactersIgnoringModifiers,
                   modifiers: event.modifierFlags
               )
-        else { return super.performKeyEquivalent(with: event) }
+        else { return nil }
+        if case .activateAction = command {
+            guard isKeyWindow, (firstResponder as? NSTextView)?.isEditable != true else { return nil }
+        }
+        return command
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard let command = command(for: event) else {
+            return super.performKeyEquivalent(with: event)
+        }
 
         switch command {
         case .selectAll: dispatchEditorAction(#selector(NSText.selectAll(_:)))

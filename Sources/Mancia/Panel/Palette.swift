@@ -8,41 +8,35 @@ enum Palette {
     // MARK: - Surfaces
 
     /// The panel background.
-    static let surface = dynamic(light: 0xF5EFE3, dark: 0x161310)
+    static let surface = dynamic(light: 0xF5F3EF, dark: 0x242321)
     /// Raised controls (the describe field).
-    static let raised = dynamic(light: 0xFCF9F1, dark: 0x211C16)
+    static let raised = dynamic(light: 0xFDFCF9, dark: 0x30302E)
+    static let controlHover = dynamic(light: 0xE8E5DF, dark: 0x3E3C38)
     /// Hairline borders.
-    static let border = dynamic(light: 0xE4D9C6, dark: 0x352E24)
+    static let border = dynamic(light: 0xC8C3BB, dark: 0x595650)
 
     // MARK: - Text
 
-    static let text = dynamic(light: 0x1A1611, dark: 0xF3ECDE)
-    /// Captions and status lines. The light value is deep enough to clear
-    /// 4.5:1 on `surface` (5.20:1); the earlier 0x857866 was 3.76:1.
-    static let textSecondary = dynamic(light: 0x6E6250, dark: 0x9E9483)
-    /// Placeholder / faint glyphs inside the field. Placeholders are body text
-    /// and need 4.5:1 like any other; the light value gives 4.76:1, where the
-    /// earlier 0xA2957F gave 2.57:1.
-    static let textFaint = dynamic(light: 0x756850, dark: 0x8B7F6D)
+    static let text = dynamic(light: 0x252421, dark: 0xF2F0EB)
+    static let textSecondary = dynamic(light: 0x5E5B55, dark: 0xBBB7AE)
+    static let textFaint = dynamic(light: 0x625E57, dark: 0xB3AEA4)
 
     // MARK: - Accent
 
-    /// The single accent — drives the Improve primary and the live status dot.
-    /// The light value carries white text on the run button at 5.14:1; the
-    /// earlier 0xD8513A was 4.07:1 and failed AA.
-    static let accent = dynamic(light: 0xC2412C, dark: 0xFF6A4D)
+    /// Reserved for explicit approval, rather than everyday action selection.
+    static let accent = dynamic(light: 0xB74732, dark: 0xEF896D)
     /// Text/glyph color that sits on top of the accent fill.
     static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x25120C)
+    static let secondaryAction = dynamic(light: 0x46566F, dark: 0xA8B8CF)
+    static let onSecondaryAction = dynamic(light: 0xF6F8FF, dark: 0x1F2935)
 
     // MARK: - Status
 
-    /// Applied / success moment. The light value reaches 4.60:1, where the
-    /// earlier 0x3E9E57 was 2.94:1 — below even the 3:1 floor for the 7pt
-    /// status dot it fills.
-    static let applied = dynamic(light: 0x2F7A44, dark: 0x5BC57C)
+    static let applied = dynamic(light: 0x2F7046, dark: 0x8BC69B)
+    static let attention = dynamic(light: 0x805B12, dark: 0xE3B766)
     /// Error moment (kept warm so it does not clash with the palette).
-    static let error = dynamic(light: 0xC0392B, dark: 0xF0917A)
-    static let errorDot = dynamic(light: 0xD8513A, dark: 0xE4553B)
+    static let error = dynamic(light: 0xB43A36, dark: 0xEE9790)
+    static let errorDot = error
 
     // MARK: - Helpers
 

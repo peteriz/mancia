@@ -64,11 +64,16 @@ struct RibbonView: View {
 
     private var ribbonSurface: some View {
         VStack(alignment: .leading, spacing: 0) {
+            targetRow
             commandRow
             statusStrip
+            if model.phase == .scopeApproval {
+                hairline
+                RibbonScopeApprovalView(model: model, focus: $focus)
+            }
             if model.phase == .confirm {
                 hairline
-                RibbonReviewView(model: model)
+                RibbonReviewView(model: model, focus: $focus)
             }
         }
         .frame(width: width)
@@ -116,6 +121,7 @@ struct RibbonView: View {
         .onChange(of: model.previewExpanded) { relayout() }
         .onChange(of: model.errorDetailsExpanded) { relayout() }
         .onChange(of: model.errorText) { relayout() }
+        .onChange(of: model.retainedResultExpanded) { relayout() }
     }
 
     /// A lane flush against the top of the screen rounds only its bottom
@@ -136,7 +142,86 @@ struct RibbonView: View {
 
     /// The command row stays visible and readable while a request runs. Other
     /// actions go inert; the active action stays live as Cancel.
-    private var locked: Bool { model.phase == .running || model.phase == .confirm }
+    private var locked: Bool { model.isLocked }
+
+    // MARK: - Target row
+
+    /// A thin strip of its own, above the command row: the target chip needs
+    /// height, not a share of the command row's width. That row is already
+    /// tight — five buttons centered with only a few points of slack on
+    /// either side at the lane's standard width — so overlaying the chip
+    /// there collided with Action-1's own hit target. A row of its own costs
+    /// height, which the lane already resizes to per phase, rather than width,
+    /// which `RibbonPlacement` has already budgeted down to the point.
+    private var targetRow: some View {
+        HStack(spacing: 0) {
+            targetChip
+            Spacer(minLength: 0)
+            if model.phase == .running {
+                Text(runningLabel)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(RibbonPalette.caption)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    /// The target chip: always visible, and the one place the ribbon states
+    /// what an action would actually act on. It reads "Reading…" — and
+    /// refuses both the click and ⌘T — for the same brief window the capture
+    /// makes `hasSelection` an optimistic guess, per `PanelModel.setScope`.
+    private var targetChip: some View {
+        Button {
+            model.toggleScope()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: model.scope == .document ? "doc.text" : "text.cursor")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(targetChipLabel)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(RibbonPalette.caption)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(Capsule(style: .continuous).fill(RibbonPalette.controlTint))
+        .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+        .disabled(!model.targetChipEnabled)
+        .opacity(model.targetChipEnabled ? 1 : 0.5)
+        .focusable()
+        .focused($focus, equals: .target)
+        .ribbonFocusRing(model.focusedCell == .target, radius: 8, inset: -2)
+        .help(targetChipHelp)
+        .accessibilityLabel("Target")
+        .accessibilityValue(targetChipLabel)
+        .accessibilityHint(targetChipHelp)
+        .accessibilityIdentifier("Target")
+    }
+
+    private var targetChipLabel: String {
+        if model.capturing { return "Reading…" }
+        switch model.scope {
+        case .selection:
+            return model.selectionCharCount > 0
+                ? "Selection · \(model.selectionCharCount)" : "Selection"
+        case .document:
+            return "Whole document"
+        }
+    }
+
+    private var targetChipHelp: String {
+        let scopeHelp = model.scope == .document
+            ? "Targets the whole document. The entire document is sent to Copilot"
+                + " after approval and may leave this Mac."
+            : "Targets the current selection. Command T for the whole document."
+        return model.targetAppName.isEmpty ? scopeHelp : "\(model.targetAppName). \(scopeHelp)"
+    }
 
     // MARK: - Command row
 
@@ -186,13 +271,15 @@ struct RibbonView: View {
     private func actionButton(at index: Int) -> some View {
         let title = model.actionTitle(at: index) ?? ""
         let symbol = model.actionSymbol(at: index) ?? ""
-        let status = model.actionProgressLabel(at: index) ?? title
         let shortcut = model.actionShortcut(at: index) ?? ""
+        let description = model.actionDescription(at: index)
         let selected = model.isActionSelected(at: index)
         let processing = model.phase == .running && selected
+        let status = model.actionProgressLabel(at: index) ?? title
         let isHovered = hoveredAction == index
         let displayedSymbol = processing && isHovered ? "xmark" : symbol
-        let unavailable = model.phase == .confirm || (model.phase == .running && !processing)
+        let unavailable = model.isLocked && !processing
+        let showShortcut = isHovered && !processing && !unavailable
         return Button {
             if processing {
                 model.onCancelRun?()
@@ -206,8 +293,8 @@ struct RibbonView: View {
                     .foregroundStyle(RibbonPalette.symbol)
                     .frame(width: 14)
                 ZStack {
-                    Text(title).opacity(!processing && !isHovered ? 1 : 0)
-                    Text(shortcut).opacity(!processing && isHovered ? 1 : 0)
+                    Text(title).opacity(!processing && !showShortcut ? 1 : 0)
+                    Text(shortcut).opacity(showShortcut ? 1 : 0)
                     Text(status).opacity(processing && !isHovered ? 1 : 0)
                     Text("Cancel").opacity(processing && isHovered ? 1 : 0)
                 }
@@ -242,7 +329,11 @@ struct RibbonView: View {
         .ribbonFocusRing(model.focusedCell == .action(index), radius: 8, inset: 0)
         .disabled(unavailable)
         .opacity(unavailable ? 0.5 : 1)
-        .help(processing ? "\(status). Click to cancel." : "\(title) (\(shortcut))")
+        .help(
+            processing
+                ? "\(model.runningStatus(at: index)). Click to cancel."
+                : [title + " (\(shortcut))", description].compactMap { $0 }.joined(separator: " — ")
+        )
         .onHover { isHovering in
             guard isLive else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
@@ -253,59 +344,52 @@ struct RibbonView: View {
                 }
             }
         }
-        .accessibilityLabel(processing ? status : title)
+        .accessibilityLabel(processing ? model.runningStatus(at: index) : title)
         .accessibilityValue(processing ? "In progress" : selected ? "Selected" : "Not selected")
         .accessibilityHint(processing
             ? "Click to cancel."
             : index == PanelModel.customActionIndex
-                ? "Command \(index + 1). Opens the custom instruction field."
-                : "Command \(index + 1). Runs immediately.")
+                ? "\(index + 1) when not typing. Opens the custom instruction field."
+                : "\(index + 1) when not typing. Runs immediately.")
         .accessibilityIdentifier("Action-\(index + 1)")
     }
 
-    /// The instruction field, disclosed only for Custom.
-    ///
-    /// It is the one cell that takes the lane's slack, and the only one that
-    /// grows: past a line it wraps and pushes the lane downward, to four lines
-    /// and then a scroller. The cap is roughly the 70-character measure that
-    /// reads comfortably — past that the field was simply absorbing the lane,
-    /// which is what made it look like the most important thing on a surface
-    /// where it is optional. A caption above it would have been a third name
-    /// for a control that already carries a prompt inside it and lights its
-    /// border when it has focus.
+    /// Let SwiftUI allocate the room left by the fixed-width preset buttons.
     private var directionCell: some View {
         HStack(alignment: .top, spacing: 8) {
-            TextField("", text: $model.instruction, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .font(directionFont)
-                .foregroundStyle(RibbonPalette.text)
-                .focused($focus, equals: .direction)
-                .onSubmit { model.runPrimary() }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .overlay(alignment: .topLeading) { placeholder }
-                .frame(width: 324, alignment: .leading)
-                .frame(minHeight: controlHeight, alignment: .topLeading)
-                .disabled(locked)
-                .background(controlShape.fill(RibbonPalette.directionTint))
-                // Past four lines the field scrolls, and without this the line
-                // sliding out of view draws over the field's own top edge.
-                .clipShape(controlShape)
-                .overlay(controlShape.strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
-                .ribbonFocusRing(model.focusedCell == .direction, radius: 8, inset: 0)
-                .accessibilityLabel("Direction")
-                .accessibilityIdentifier("CustomInstruction")
-
+            directionField
             customRunControl
         }
-        .frame(width: 428, alignment: .leading)
-        .frame(minHeight: controlHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: controlHeight, alignment: .topLeading)
+    }
+
+    private var directionField: some View {
+        TextField("", text: $model.instruction, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(1...4)
+            .font(directionFont)
+            .foregroundStyle(RibbonPalette.text)
+            .focused($focus, equals: .direction)
+            .onSubmit { model.runPrimary() }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .overlay(alignment: .topLeading) { placeholder }
+            .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: controlHeight, alignment: .topLeading)
+            .disabled(locked)
+            .background(controlShape.fill(RibbonPalette.directionTint))
+            // Past four lines the field scrolls, and without this the line
+            // sliding out of view draws over the field's own top edge.
+            .clipShape(controlShape)
+            .overlay(controlShape.strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+            .ribbonFocusRing(model.focusedCell == .direction, radius: 8, inset: 0)
+            .accessibilityLabel("Direction")
+            .accessibilityIdentifier("CustomInstruction")
     }
 
     private var customRunControl: some View {
         let processing = model.phase == .running
-        let title = processing && customRunHovered ? "Cancel" : model.customSubmitTitle
+        let title = processing ? (customRunHovered ? "Cancel" : "Working") : model.customSubmitTitle
         let symbol = processing ? (customRunHovered ? "xmark" : "sparkles") : "play.fill"
         return Button {
             if processing {
@@ -320,6 +404,7 @@ struct RibbonView: View {
                 Text(title)
             }
             .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
             .foregroundStyle(processing ? RibbonPalette.text : RibbonPalette.onCustomRun)
             .frame(width: 96)
             .frame(minHeight: controlHeight)
@@ -342,10 +427,12 @@ struct RibbonView: View {
                     lineWidth: 2)
             }
         }
-        .disabled(model.phase == .confirm || (!processing && !model.canRunPrimary))
+        .disabled((model.isLocked && !processing) || (!processing && !model.canRunPrimary))
         .focusable()
         .focused($focus, equals: .run)
-        .ribbonFocusRing(model.focusedCell == .run, radius: 8, inset: 0)
+        .ribbonFocusRing(
+            model.focusedCell == .run, radius: 8, inset: 0,
+            tint: processing ? RibbonPalette.caption : RibbonPalette.onCustomRun)
         .help(processing ? "Cancel custom action" : "Run custom action")
         .onHover { isHovering in
             guard isLive else { return }
@@ -372,7 +459,7 @@ struct RibbonView: View {
     ///
     /// Native Liquid Glass is nearly clear, so over a white document the lane
     /// and its controls vanished into the page. A material base carries the
-    /// blur, and the ink tint above it holds a fixed step of contrast whatever
+    /// blur, and the neutral tint above it holds a fixed step of contrast whatever
     /// is behind the ribbon. Reduce Transparency drops to an opaque surface.
     @ViewBuilder
     private func glassSurface<S: Shape>(
@@ -405,7 +492,7 @@ struct RibbonView: View {
     @ViewBuilder
     private var placeholder: some View {
         if model.instruction.isEmpty {
-            Text("Optional instruction…")
+            Text("Describe the change…")
                 .font(directionFont)
                 .foregroundStyle(RibbonPalette.caption)
                 .padding(.horizontal, 10)
@@ -419,15 +506,18 @@ struct RibbonView: View {
 // MARK: - Status strip
 
 extension RibbonView {
-    /// The one phase that still earns a row of its own.
+    /// The phases that still earn a row of their own below the command row.
     ///
-    /// Working lives on the active action control. A failure cannot: it carries
-    /// a provider message too long for the command
-    /// row and three recoveries to offer, and it is the one state where taking
-    /// the user's attention is the point.
+    /// Working lives on the active action control, so `.running` needs
+    /// nothing here. Every other terminal phase carries something the command
+    /// row has no room for: a failure's provider message and three recoveries,
+    /// an applied edit's one honest Undo, or a retained result's reason and
+    /// its own copy — and each is the one moment that phase wants the user's
+    /// attention.
     @ViewBuilder
     fileprivate var statusStrip: some View {
-        if model.phase == .error {
+        switch model.phase {
+        case .error:
             VStack(alignment: .leading, spacing: 0) {
                 strip {
                     statusLabel(errorLabel, dot: RibbonPalette.error, tint: RibbonPalette.error)
@@ -438,16 +528,81 @@ extension RibbonView {
                     ) {
                         model.errorDetailsExpanded.toggle()
                     }
+                    .focusable()
+                    .focused($focus, equals: .errorDetails)
+                    .ribbonFocusRing(model.focusedCell == .errorDetails, radius: 8, inset: -2)
                     .accessibilityIdentifier("ErrorDetails")
                     GhostButton("Copy", tint: RibbonPalette.caption) { copyError() }
+                        .focusable()
+                        .focused($focus, equals: .errorCopy)
+                        .ribbonFocusRing(model.focusedCell == .errorCopy, radius: 8, inset: -2)
                         .accessibilityIdentifier("CopyError")
                     GhostButton("Retry", tint: RibbonPalette.error) { model.onRetry?() }
+                        .focusable()
+                        .focused($focus, equals: .errorRetry)
+                        .ribbonFocusRing(model.focusedCell == .errorRetry, radius: 8, inset: -2)
                         .accessibilityIdentifier("Retry")
                 }
                 if model.errorDetailsExpanded {
                     errorDetails
                 }
             }
+        case .applied:
+            strip {
+                statusLabel(appliedLabel, dot: RibbonPalette.applied, tint: RibbonPalette.applied)
+                Spacer(minLength: 8)
+                if model.undoAvailable {
+                    GhostButton("Undo", tint: RibbonPalette.caption) {
+                        _ = model.undoLastVersion()
+                    }
+                    .focusable()
+                    .focused($focus, equals: .appliedUndo)
+                    .ribbonFocusRing(model.focusedCell == .appliedUndo, radius: 8, inset: -2)
+                    .accessibilityIdentifier("UndoApplied")
+                }
+            }
+        case .retained:
+            VStack(alignment: .leading, spacing: 0) {
+                strip {
+                    statusLabel(retainedLabel, dot: RibbonPalette.caption)
+                    Spacer(minLength: 8)
+                    if !model.retainedResult.isEmpty {
+                        GhostButton(
+                            model.retainedResultExpanded ? "Hide result" : "Show result",
+                            tint: RibbonPalette.caption
+                        ) {
+                            model.retainedResultExpanded.toggle()
+                        }
+                        .focusable()
+                        .focused($focus, equals: .retainedDisclosure)
+                        .ribbonFocusRing(
+                            model.focusedCell == .retainedDisclosure, radius: 8, inset: -2)
+                        .accessibilityIdentifier("RetainedDisclosure")
+                    }
+                    // Explicit only: a retained result is never retried on its
+                    // own, and Copy is the one recovery this row offers.
+                    if !model.retainedResult.isEmpty {
+                        GhostButton("Copy result", tint: RibbonPalette.caption) {
+                            model.onCopyRetainedResult?()
+                        }
+                        .focusable()
+                        .focused($focus, equals: .retainedCopy)
+                        .ribbonFocusRing(model.focusedCell == .retainedCopy, radius: 8, inset: -2)
+                        .accessibilityIdentifier("CopyRetained")
+                    }
+                }
+                Text(model.retainedReason)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(RibbonPalette.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                if model.retainedResultExpanded, !model.retainedResult.isEmpty {
+                    retainedResultDisclosure
+                }
+            }
+        case .idle, .scopeApproval, .running, .confirm:
+            EmptyView()
         }
     }
 
@@ -481,14 +636,29 @@ extension RibbonView {
     }
 
     /// The verb shown while a request runs. Stays honest during the brief
-    /// background-capture window before the provider call begins.
+    /// background-capture window before the provider call begins, and — once
+    /// it starts — prefers the coordinator's live stage over a fixed verb, so
+    /// a whole-document generation's capture step is never announced as
+    /// whatever the selected preset happens to be named.
     private var runningLabel: String {
         if model.capturing { return "Reading selection" }
-        return model.runningTitle.isEmpty ? "Improving" : model.runningTitle
+        if !model.runningTitle.isEmpty { return model.runningTitle }
+        return model.resolvedActionTitle
     }
 
     private var errorLabel: String {
         model.errorText.isEmpty ? "Provider failed" : model.errorText
+    }
+
+    private var appliedLabel: String {
+        if let status = model.appliedStatusText, !status.isEmpty { return status }
+        return model.appliedActionName.isEmpty
+            ? "Applied"
+            : "\(model.appliedActionName) applied"
+    }
+
+    private var retainedLabel: String {
+        model.retainedResult.isEmpty ? "No result to apply" : "Result ready, not applied"
     }
 
     /// The full failure text, which the one-line strip truncates. Five lines
@@ -507,13 +677,29 @@ extension RibbonView {
         .padding(.bottom, 12)
     }
 
+    /// A retained result's own bounded disclosure, mirroring the review
+    /// gate's and the error strip's: five lines before it scrolls, so a long
+    /// generated result never turns the status strip into the window it is
+    /// standing in for.
+    private var retainedResultDisclosure: some View {
+        ScrollView {
+            Text(model.retainedResult)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundStyle(RibbonPalette.text)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 5 * 15)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .accessibilityLabel("Retained result")
+    }
+
     /// A deliberate copy, so it goes straight to the pasteboard. Routing it
     /// through `SelectionCapture`'s snapshot/restore machinery would be wrong:
     /// that exists to protect the user's clipboard *during* an edit cycle.
     private func copyError() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(errorLabel, forType: .string)
+        model.copyErrorToPasteboard()
     }
 
     // MARK: - Announcements
@@ -535,9 +721,14 @@ extension RibbonView {
     private var phaseAnnouncement: String? {
         switch model.phase {
         case .idle: return nil
+        case .scopeApproval:
+            let action = model.pendingScopeApprovalActionTitle
+            let question = action.isEmpty ? "Send the whole document?" : "\(action) the whole document?"
+            return "\(question) The entire document may leave this Mac."
         case .running: return "\(runningLabel)"
         case .confirm: return "Replace entire document?"
-        case .applied: return "Improved"
+        case .applied: return appliedLabel
+        case .retained: return retainedLabel
         case .error: return errorLabel
         }
     }

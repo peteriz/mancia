@@ -84,6 +84,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         Task {
             let status = await provider.checkAvailability()
             providerItem.title = "Provider: GitHub Copilot — \(status.label) \(status.menuMark)"
+            // The label only ever names the CLI's install state; the tooltip
+            // carries the same detail Settings shows, so hovering here can't
+            // read as a stronger claim (e.g. that sign-in was just verified)
+            // than what actually happened.
+            providerItem.toolTip = status.detail
             switch status {
             case .ready:
                 setupHelpItem.isHidden = true

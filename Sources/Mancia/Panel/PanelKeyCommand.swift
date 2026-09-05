@@ -16,7 +16,7 @@ enum PanelKeyCommand: Equatable {
     case openSettings
     /// ⌘⏎ — run the primary action, same as Return.
     case submit
-    /// ⌘1…⌘5 — activate the matching visible action button. The first four run
+    /// 1…5 — activate the matching visible action button. The first four run
     /// immediately; the fifth selects Custom and focuses its field.
     case activateAction(Int)
     /// ⌘T — swap the target between the selection and the whole document.
@@ -44,11 +44,11 @@ enum PanelKeyCommand: Equatable {
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
         case ("t", [.command]): return .toggleTarget
-        case ("1", [.command]): return .activateAction(0)
-        case ("2", [.command]): return .activateAction(1)
-        case ("3", [.command]): return .activateAction(2)
-        case ("4", [.command]): return .activateAction(3)
-        case ("5", [.command]): return .activateAction(4)
+        case ("1", []): return .activateAction(0)
+        case ("2", []): return .activateAction(1)
+        case ("3", []): return .activateAction(2)
+        case ("4", []): return .activateAction(3)
+        case ("5", []): return .activateAction(4)
         default: return nil
         }
     }

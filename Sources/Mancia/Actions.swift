@@ -87,7 +87,7 @@ enum EditAction: Equatable, Sendable {
 enum PromptBuilder {
     /// The strict trailing instruction shared by every template.
     static let outputOnlyClause =
-        "Return only the resulting text. Do not include a preamble, explanation, quotation marks, or Markdown code fence."
+        "Return only the resulting text. Do not add a preamble or explanation. Do not wrap the result in quotation marks or a Markdown code fence unless the instruction requests them or they are part of the source format."
 
     /// The injection-resistance statement placed next to the input block. The
     /// selected text is untrusted third-party content (it can carry embedded
@@ -130,9 +130,12 @@ enum PromptBuilder {
     static let improveTemplate = PromptTemplate(
         task: "Improve the wording, grammar, and clarity of the text so it reads better and more naturally.",
         requirements: [
-            "Preserve the meaning, factual details, intent, tone, language, and formatting.",
+            "When the text is a coding-agent request, make its existing goal, requested action, constraints, and success criteria explicit and easy for an AI coding agent to follow; otherwise improve it as general writing.",
+            "Preserve the meaning, factual details, intent, tone, source language, meaningful structure, and formatting.",
+            "Keep every requirement, qualification, exception, uncertainty, negation, file name, path, command, identifier, and number; preserve technical literals exactly as written.",
             "Fix spelling, grammar, punctuation, and awkward or unnatural phrasing.",
             "Do not add new information or remove any.",
+            "Return the text unchanged if it already reads clearly and correctly.",
         ]
     )
 
@@ -146,7 +149,8 @@ enum PromptBuilder {
             "State the goal first, in direct imperative voice.",
             "Pull constraints, requirements, and success criteria into short explicit lines.",
             "Keep every file name, path, command, identifier, number, and error message exactly as written.",
-            "Do not add requirements, assumptions, or details that are not in the text, and do not remove any.",
+            "Preserve the source language, meaningful structure, qualifications, exceptions, uncertainty, and negation.",
+            "Do not add requirements, assumptions, details, or new intent that are not in the text, and do not remove any.",
             "Fix spelling, grammar, and awkward phrasing along the way.",
         ]
     )
@@ -158,8 +162,9 @@ enum PromptBuilder {
         task:
             "Rewrite the text as a request for the agent to investigate and propose a plan before making any changes.",
         requirements: [
-            "Keep the original goal, constraints, and every concrete detail (files, paths, commands, names, numbers) intact.",
-            "Frame the ask as: explore the relevant code, then present a step-by-step plan and any open questions, and wait for approval before implementing.",
+            "Keep the original goal, constraints, source language, meaningful structure, qualifications, exceptions, uncertainty, and negation intact.",
+            "Preserve every concrete detail (files, paths, commands, names, identifiers, and numbers) exactly as written.",
+            "Frame the ask as: explore the relevant code, then present a short plan with explicit goals and verifiers, and wait for approval before implementing.",
             "Do not invent steps, files, or requirements that are not implied by the text.",
             "Do not answer the request or produce the plan yourself — rewrite the request so the agent will.",
             "Keep it compact: a short planning preamble plus the cleaned-up request, not a document.",
@@ -172,9 +177,11 @@ enum PromptBuilder {
     static let tightenTemplate = PromptTemplate(
         task: "Rewrite the text as the shortest version that preserves every requirement.",
         requirements: [
-            "Keep every constraint, file name, path, command, identifier, number, and acceptance criterion.",
-            "Cut filler, hedging, repetition, and politeness; use direct imperative phrasing.",
+            "Keep every requirement, constraint, qualification, exception, uncertainty, negation, file name, path, command, identifier, number, and acceptance criterion; preserve technical literals exactly as written.",
+            "Preserve the source language and any structure needed to keep the requirements clear.",
+            "Cut filler and repetition without imposing a different tone or removing meaningful uncertainty.",
             "Do not drop or weaken any requirement, and do not add anything.",
+            "Return the text unchanged if it cannot be meaningfully shortened.",
         ]
     )
 
@@ -191,6 +198,71 @@ enum PromptBuilder {
     /// Testable seam: build with a caller-supplied delimiter nonce.
     static func build(action: EditAction, text: String, note: String? = nil, nonce: String) -> String {
         template(for: action, note: note).render(text: text, nonce: nonce)
+    }
+
+    /// Normalize provider output without imposing preset formatting rules on a
+    /// free-form Custom action.
+    ///
+    /// For an inline preset edit, the source selection owns its outer
+    /// whitespace. Model-added outer whitespace is discarded, then the exact
+    /// source boundary whitespace is restored. Whole-document and Custom
+    /// outputs retain their boundaries unchanged.
+    static func normalizeOutput(
+        action: EditAction,
+        source: String,
+        output: String,
+        preserveSourceBoundaryWhitespace: Bool
+    ) throws -> String {
+        let sourceIsFenced = unwrapWrappingCodeFence(source) != source
+        var normalized = action.isCustom || sourceIsFenced ? output : unwrapWrappingCodeFence(output)
+
+        if preserveSourceBoundaryWhitespace, !action.isCustom {
+            let leading = source.prefix(while: \.isWhitespace)
+            let trailing = source.reversed().prefix(while: \.isWhitespace).reversed()
+            normalized = String(leading)
+                + normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+                + String(trailing)
+        }
+
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProviderError.emptyOutput
+        }
+        return normalized
+    }
+
+    /// Remove a Markdown fence only when it is the complete response wrapper.
+    /// The delimiter line endings are transport, while whitespace inside the
+    /// body remains part of the requested result.
+    static func unwrapWrappingCodeFence(_ output: String) -> String {
+        guard output.hasPrefix("```"),
+              let openingNewline = output.firstIndex(of: "\n")
+        else { return output }
+
+        var responseEnd = output.endIndex
+        if output[..<responseEnd].hasSuffix("\n") {
+            responseEnd = output.index(before: responseEnd)
+            if output[..<responseEnd].hasSuffix("\r") {
+                responseEnd = output.index(before: responseEnd)
+            }
+        }
+        guard output[..<responseEnd].hasSuffix("```") else { return output }
+
+        let closingFenceStart = output.index(responseEnd, offsetBy: -3)
+        guard closingFenceStart > openingNewline else { return output }
+
+        var bodyEnd = closingFenceStart
+        guard output.index(before: bodyEnd) >= openingNewline,
+              output[output.index(before: bodyEnd)] == "\n"
+        else { return output }
+        bodyEnd = output.index(before: bodyEnd)
+        if bodyEnd > openingNewline, output[output.index(before: bodyEnd)] == "\r" {
+            bodyEnd = output.index(before: bodyEnd)
+        }
+
+        let bodyStart = output.index(after: openingNewline)
+        if bodyEnd == openingNewline { return "" }
+        guard bodyStart <= bodyEnd else { return output }
+        return String(output[bodyStart..<bodyEnd])
     }
 
     /// The template for an action, with any typed guidance attached.
@@ -267,8 +339,8 @@ struct PromptTemplate: Equatable, Sendable {
             task: "Apply the user instruction to the input text.",
             requirements: [
                 "Follow the user instruction exactly, without adding unrelated changes.",
-                "Preserve any content, details, formatting, tone, and language not targeted by the instruction.",
-                "If the instruction asks for a format change, apply only that format change.",
+                "The instruction may intentionally translate, reformat, or change tone; make those requested changes.",
+                "Preserve all content, details, formatting, tone, and language not targeted by the instruction.",
             ],
             userInstruction: request
         )

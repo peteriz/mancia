@@ -157,14 +157,18 @@ final class CopilotCLIProvider: LLMProvider {
         return (error as? ProviderError) != .timedOut
     }
 
-    /// Trim surrounding whitespace and strip a single wrapping code-fence pair.
+    /// Preserve provider output exactly. Action-specific cleanup belongs in
+    /// `PromptBuilder.normalizeOutput`, where Custom formatting is known.
     static func postProcess(_ raw: String) -> String {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.hasPrefix("```"), let firstNewline = text.firstIndex(of: "\n") else { return text }
-        let body = text[text.index(after: firstNewline)...]
-        guard let closing = body.range(of: "```", options: .backwards) else { return text }
-        text = String(body[..<closing.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return text
+        raw
+    }
+
+    static func validatedOutput(_ raw: String) throws -> String {
+        let output = postProcess(raw)
+        guard !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ProviderError.emptyOutput
+        }
+        return output
     }
 
     // MARK: - LLMProvider
@@ -181,7 +185,7 @@ final class CopilotCLIProvider: LLMProvider {
                 prompt,
                 config: CopilotACPConfig(executable: executable, model: model, reasoningEffort: reasoningEffort)
             )
-            return Self.postProcess(output)
+            return try Self.validatedOutput(output)
         } catch {
             if !Self.shouldFallbackFromACPError(error) { throw error }
             // ACP is a latency optimization. Keep the old one-shot CLI path as
@@ -224,9 +228,7 @@ final class CopilotCLIProvider: LLMProvider {
             throw ProviderError.nonZeroExit(result.exitCode, Self.tail(of: combined))
         }
 
-        let output = Self.postProcess(result.stdout)
-        guard !output.isEmpty else { throw ProviderError.emptyOutput }
-        return output
+        return try Self.validatedOutput(result.stdout)
     }
 
     func checkAvailability() async -> ProviderStatus {
@@ -240,7 +242,6 @@ final class CopilotCLIProvider: LLMProvider {
             if result.exitCode == 0 { return .ready }
             let combined = result.stdout + result.stderr
             if Self.looksMissingBinary(exitCode: result.exitCode, text: combined) { return .notFound }
-            if Self.looksUnauthenticated(combined) { return .error("Not signed in") }
             return .error(Self.tail(of: combined))
         } catch ProviderError.launchFailed {
             return .notFound

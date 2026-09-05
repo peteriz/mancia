@@ -3,44 +3,16 @@
 > **Historical design document.** This is the original v0.1 design spec, kept
 > for context. The implemented behavior has since evolved; see
 > [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
-> behavior. Notably:
+> behavior. The sections below are not the current implementation contract.
 >
-> - **The floating panel is gone.** The edit session now runs in the
->   **command ribbon**: a lane that sits against the selected text — just
->   under it, or just over it when the selection is too near the foot of the
->   host — and falls back to one predictable place (flush under the menu bar,
->   or under the frontmost window's title bar when the menu bar is not
->   reserving a strip) when there is no selection to sit against. It takes the
->   standard or Custom-expanded preferred width, clamped to the host and
->   centered, so it never chases the caret sideways. Its default cells are
->   Target, five Action buttons, and Run; Custom moves left and inserts
->   Direction when selected. The bullets that follow describe the panel that
->   preceded it; the behavior they record carried over to the lane, the
->   placement and the ~360 pt command row did not.
-> - The panel was a single command row (~360 pt wide): a free-form
->   instruction field whose trailing controls are a **preset dropdown**
->   (`PanelPreset`) and an accent **run** button. Return and the run button take
->   the same path — an empty field means **Improve** (a proofread-and-rewrite
->   blend), a typed one runs that instruction. There is no separate hero button.
-> - The dropdown runs a named preset's specialized template; anything typed in
->   the field rides along as *additional guidance* for that preset rather than
->   replacing it (`PromptBuilder.build(action:text:note:)`). Today the list holds
->   Improve alone. The Rewrite / Summarize / Proofread templates still exist and
->   remain reachable through the debug CLI (`--complete`).
-> - There is no Translate or Reply action, and no "Entire document" preview: the
->   scope caption still lets you switch between the selection and the whole
->   document, but there is no separate scope menu screen.
-> - Edits **apply immediately** (no preview-then-Apply step). After an edit the
->   surface keeps an iteration history; ⌘Z steps backward through the original
->   and each generated version.
-> - After applying, the surface either auto-closes after a short beat or stays
->   open, per the **post-apply behavior** setting. The
->   auto-close beat is abandoned by any sign the user is still working — a
->   keypress, or the ribbon losing key because they clicked back into the host
->   app to select the next span.
-> - The Copilot provider now prefers a warmed, single-use ACP session
->   (`copilot --acp --stdio`) for lower latency; the original one-shot
->   `copilot -p` invocation remains the fallback path.
+> Today the ribbon keeps Improve, Sharpen, Plan first, Tighten, and Custom in
+> a stable order, with a visible target and a multiline Custom editor.
+> Whole-document access requires approval before capture and generation.
+> Replacement has a separate, configurable confirmation with an original/result
+> comparison. Applying and navigating versions require matching Accessibility
+> evidence; unsafe replacements remain available to copy. Clipboard restoration
+> respects newer user copies. See the architecture notes for these rules and
+> the current ACP-first provider lifecycle.
 
 A macOS menu bar app providing system-wide, selection-based AI text editing.
 Press a global hotkey in **any** app, and a command ribbon appears at the top of

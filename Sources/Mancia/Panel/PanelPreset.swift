@@ -26,6 +26,6 @@ struct PanelPreset: Identifiable, Equatable, Sendable {
     /// compress it without losing requirements.
     static let all: [PanelPreset] = [.improve, .sharpen, .planFirst, .tighten]
 
-    /// The four built-in actions with immediate keyboard execution: ⌘1…⌘4.
+    /// The four built-in actions with immediate keyboard execution: 1…4.
     static let keyboardActions: [PanelPreset] = all
 }

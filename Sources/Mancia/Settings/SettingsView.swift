@@ -60,26 +60,6 @@ struct SettingsView: View {
                         Text(behavior.label).tag(behavior)
                     }
                 }
-                HStack {
-                    ColorPicker(
-                        "Working color:",
-                        selection: Binding(
-                            get: { Color(nsColor: settings.swooshColor) },
-                            set: { settings.swooshColor = NSColor($0) }
-                        ),
-                        supportsOpacity: false
-                    )
-                    Button {
-                        settings.swooshColor = AppSettings.color(
-                            from: AppSettings.defaultSwooshColorHex)
-                    } label: {
-                        Image(systemName: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(settings.swooshColorIsDefault)
-                    .help("Restore the default working color")
-                    .accessibilityLabel("Restore the default working color")
-                }
             }
 
             Section("General") {
@@ -135,9 +115,14 @@ struct SettingsView: View {
             : .attention("Not granted — Mancia can't read or replace text without it")
     }
 
+    /// The ready case names the CLI's install state only — "Installed", not
+    /// "Ready" — and folds in the sign-in caveat right where it's read, so this
+    /// row never reads as a claim that sign-in has been verified. Sign-in is
+    /// only ever checked when an action actually runs.
     private var providerState: ReadinessState {
         switch providerStatus {
-        case .ready: return .ready("Ready")
+        case .ready:
+            return .ready("Installed — sign-in is checked when you run an action")
         case .notFound: return .attention("Not found")
         case .error(let message): return .attention(message)
         }
@@ -221,36 +206,63 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        HStack {
+            ColorPicker(
+                "Working color:",
+                selection: Binding(
+                    get: { Color(nsColor: settings.swooshColor) },
+                    set: { settings.swooshColor = NSColor($0) }
+                ),
+                supportsOpacity: false
+            )
+            Button {
+                settings.swooshColor = AppSettings.color(
+                    from: AppSettings.defaultSwooshColorHex)
+            } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .disabled(settings.swooshColorIsDefault)
+            .help("Restore the default working color")
+            .accessibilityLabel("Restore the default working color")
+        }
     }
 
     // MARK: - Status & guidance
 
     /// Inline, always-visible guidance for a non-ready provider, plus a
     /// context button so the user has a concrete next step rather than a
-    /// hover-only tooltip.
+    /// hover-only tooltip. Never rendered for `.ready` — the caller only shows
+    /// this when `providerStatus != .ready`.
     @ViewBuilder
     private var remediation: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(providerStatus.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                switch providerStatus {
-                case .notFound:
+            switch providerStatus {
+            case .notFound:
+                Text(providerStatus.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
                     Button("Copy install command") {
                         copyToPasteboard(Self.installCommand)
                         detectFeedback = "Copied: \(Self.installCommand)"
                     }
-                case .error where isNotSignedIn:
-                    Text("Run `copilot` once in Terminal to sign in, then Check again.")
+                    Link("Copilot CLI docs", destination: Self.docsURL)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
-                default:
-                    EmptyView()
                 }
+            case .error:
+                // `checkAvailability` only confirms the CLI runs, so this
+                // never guesses at a sign-in fix — that's verified only when
+                // an action actually runs, and reported there if it fails.
+                Text("Run `copilot` directly in Terminal to see the full error.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Link("Copilot CLI docs", destination: Self.docsURL)
                     .font(.caption)
+            case .ready:
+                EmptyView()
             }
         }
         .padding(10)
@@ -266,26 +278,21 @@ struct SettingsView: View {
         }
     }
 
-    private var isNotSignedIn: Bool {
-        if case .error(let message) = providerStatus {
-            return message.lowercased().contains("sign")
-        }
-        return false
-    }
-
     /// Models grouped into latency tiers, fastest first, for the sectioned
     /// picker above.
     private var modelTiers: [ModelTier] {
         CopilotModelCatalog.tiered(models)
     }
 
-    /// The measured ultra-fast default, so its row can be marked.
+    /// The measured ultra-fast, lowest-cost default, so its row can be marked.
     private var recommendedModelID: String? {
         CopilotModelCatalog.recommendedFastModel(from: models)
     }
 
+    /// Labeled by what the ranking actually measures — latency and price — never
+    /// as a quality judgment the catalog has no data to support.
     private func modelLabel(for model: CopilotModel) -> String {
-        model.id == recommendedModelID ? "\(model.name) (Recommended)" : model.name
+        model.id == recommendedModelID ? "\(model.name) (Fast, low cost)" : model.name
     }
 
     /// Effort levels for the selected model. Unknown support shows only the

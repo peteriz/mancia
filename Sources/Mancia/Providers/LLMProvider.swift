@@ -8,7 +8,7 @@ enum ProviderStatus: Sendable, Equatable {
 
     var label: String {
         switch self {
-        case .ready: return "Ready"
+        case .ready: return "Installed"
         case .notFound: return "Not found"
         case .error: return "Error"
         }
@@ -16,7 +16,7 @@ enum ProviderStatus: Sendable, Equatable {
 
     var detail: String {
         switch self {
-        case .ready: return "Copilot CLI is available."
+        case .ready: return "Copilot CLI is installed. Sign-in is checked when you run an action."
         case .notFound: return ProviderError.notFound.localizedDescription
         case .error(let message): return message
         }

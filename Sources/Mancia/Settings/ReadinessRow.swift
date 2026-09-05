@@ -17,8 +17,8 @@ enum ReadinessState {
 
     var tint: Color {
         switch self {
-        case .ready: return .green
-        case .attention: return .orange
+        case .ready: return Palette.applied
+        case .attention: return Palette.attention
         }
     }
 }

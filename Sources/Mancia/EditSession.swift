@@ -1,288 +1,524 @@
 import Foundation
 
-/// Every rule about which text an edit cycle sends to the provider and how the
-/// result goes back into the document.
-///
-/// Pure and free of AppKit, so every branch is unit-testable — the same bargain
-/// `RibbonPlacement` and `ApplyConfirmation` already make. `EditCoordinator`
-/// owns the ribbon, the tasks and the pasteboard mechanism; this owns the
-/// decisions, which is the half that used to be reachable only by posting real
-/// ⌘C/⌘A/⌘V/⌘Z into another process.
-///
-/// The shape is a step machine rather than one function because resolving a
-/// cycle is a *conversation*: which probe runs next depends on the last answer.
-/// The coordinator asks for a `Step`, goes and finds out, and reports back an
-/// `Observation`. Ordering therefore lives here, where it can be asserted on —
-/// and the ordering is load-bearing. A run belongs to the app the user is
-/// actually in, so the frontmost check comes ahead of both scope branches; and
-/// a fresh selection is adopted ahead of the baseline check, because text
-/// identical to the last result can still have been re-selected somewhere else.
-///
-/// Scope and `hasSelection` are inputs rather than state: the user owns them
-/// through ⌘T and the Target menu, so `PanelModel` stays their source of truth
-/// and each resolution is told what they currently are.
+/// Pure policy for target consent, stale-result rejection, and verified history.
 struct EditSession: Equatable {
-    /// How an apply cycle replaces text in the target document.
-    enum ApplyStrategy: Equatable {
-        /// ⌘A + ⌘V (entire-document scope; every cycle).
-        case entireDocument
-        /// ⌘V over the live selection (first cycle or fresh user selection).
-        case liveSelection
-        /// ⌘Z first (undo the previous paste, which restores and re-selects
-        /// the replaced text in NSTextView-based apps), then ⌘V over it.
-        case undoThenPaste
-    }
-
-    /// Which span the cycle is aimed at. Mirrors `PanelModel.Scope`, kept
-    /// separate so this module doesn't depend on the view's state.
     enum Scope: Equatable { case selection, document }
 
-    /// A resolved cycle: the text to send, how to put the result back, and the
-    /// side effects the coordinator still has to perform.
-    struct Run: Equatable {
+    /// Supplements the panel's broad phase with the active safety boundary.
+    enum Stage: Equatable {
+        case idle
+        case awaitingDocumentApproval
+        case capturingDocument
+        case generating
+        case awaitingReplacementApproval
+        case applying
+        case navigating
+    }
+
+    /// Stable identity for one editable Accessibility element.
+    struct TargetID: Equatable, Hashable {
+        var pid: pid_t
+        var elementIdentifier: UInt64?
+    }
+
+    struct TextRange: Equatable, Hashable {
+        var location: Int
+        var length: Int
+
+        var isValid: Bool { location >= 0 && length > 0 }
+    }
+
+    /// `range` may be absent in capture results, but provider work and history
+    /// require it because replacement must be able to reselect the exact span.
+    struct SelectionEvidence: Equatable {
         var text: String
-        var strategy: ApplyStrategy
-        /// The session is now aimed at a freshly captured live selection, so
-        /// the coordinator re-states the target and tells the lane the work
-        /// moved. Note this can be true for text identical to the last result.
-        var adoptedSelection: Bool
-        /// The run re-targeted to another app, so the coordinator swaps in the
-        /// capture it just took — that capture carries the new pid every
-        /// keystroke is posted to *and* the new app's pasteboard snapshot.
-        var committedNewTarget: Bool
+        var target: TargetID
+        var range: TextRange?
     }
 
-    /// What the core needs the coordinator to go and find out.
-    /// What the session needs next. Each case either asks the coordinator to
-    /// go and find something out, or ends the resolution.
-    enum Step: Equatable {
-        /// Which app is the user actually in? `capture` — and with it the pid
-        /// every synthetic keystroke is posted to — is frozen when the session
-        /// starts, so a session that never asked would pull the *original* app
-        /// forward and edit whatever was still selected in it, with nothing on
-        /// screen saying so.
-        case probeFrontmost
-        /// Take a full capture in the app the user moved to.
-        case captureNewTarget
-        /// ⌘C: has the user selected something since the session opened?
-        case probeFreshSelection
-        /// ⌘A + ⌘C: read the whole document, so manual edits made between
-        /// cycles are respected.
-        case captureDocument
-        /// Resolved: send this text and put the result back this way.
-        case run(Run)
-        /// Nothing to send — there is no evidence about what the user wants
-        /// edited, so the cycle does nothing rather than guess.
-        case abort
+    /// A proved empty selection is distinct from a failed or ambiguous read.
+    enum CaptureEvidence: Equatable {
+        case selection(SelectionEvidence)
+        case noSelection(TargetID)
+        case uncertain(targetPid: pid_t?)
     }
 
-    /// What the coordinator found out.
-    enum Observation: Equatable {
-        case start(scope: Scope, hasSelection: Bool)
-        case frontmost(pid: pid_t?)
-        case newTarget(text: String?, pid: pid_t?)
-        case freshSelection(String?)
-        case document(String?)
+    enum DocumentCapture: Equatable {
+        case captured(text: String, target: TargetID)
+        case uncertain
     }
 
-    /// Which probe is outstanding. A fresh-selection probe means different
-    /// things in the two branches that issue one, so the answer needs to know
-    /// which question it is answering.
-    private enum Pending: Equatable {
-        case none
-        /// Document scope with nothing selected, looking for a live selection
-        /// to switch the session over to.
-        case documentSelection
-        /// A later selection-scope cycle, looking for a new user selection.
-        case laterSelection
+    enum TargetEvidence: Equatable {
+        case selection(target: TargetID, range: TextRange?)
+        case document(TargetID)
     }
 
-    /// Mancia's own pid. The lane takes key without activating the app, so the
-    /// frontmost app is normally the host — but ⌘, and the permission alert
-    /// both make Mancia frontmost, and re-targeting onto ourselves would
-    /// capture nothing and strand the session on the wrong pid.
+    struct Baseline: Equatable {
+        var text: String
+        var target: TargetEvidence
+        var scope: Scope
+        fileprivate var revision: UInt64
+    }
+
+    struct GenerationRequest: Equatable {
+        fileprivate var id: UInt64
+        var baseline: Baseline
+
+        var text: String { baseline.text }
+    }
+
+    /// Provider output remains tied to the baseline and target that produced it.
+    struct GeneratedResult: Equatable {
+        var output: String
+        var request: GenerationRequest
+
+        init(output: String, for request: GenerationRequest) {
+            self.output = output
+            self.request = request
+        }
+
+        var baseline: Baseline { request.baseline }
+    }
+
+    struct ApplyPlan: Equatable {
+        var result: GeneratedResult
+
+        var target: TargetEvidence { result.baseline.target }
+        var isWholeDocument: Bool {
+            if case .document = target { return true }
+            return false
+        }
+    }
+
+    struct AppliedEvidence: Equatable {
+        var text: String
+        var target: TargetEvidence
+    }
+
+    enum Failure: Error, Equatable {
+        case busy
+        case uncertainCapture
+        case noSelection
+        case emptyInput
+        case emptyResult
+        case invalidTarget
+        case missingReselectionMetadata
+        case targetChanged
+        case staleResult
+        case invalidTransition
+        case operationFailed
+    }
+
+    enum CancellationBoundary: Equatable {
+        case beforeGeneration
+        case generation
+        case beforeApply
+        case apply
+        case navigation
+    }
+
+    enum Outcome: Equatable {
+        case applied(AppliedEvidence)
+        case retained
+        case cancelled(CancellationBoundary)
+        case failure(Failure)
+    }
+
+    enum GenerationDecision: Equatable {
+        case requestDocumentApproval
+        case captureDocument(TargetID)
+        case send(GenerationRequest)
+        case failure(Failure)
+    }
+
+    enum ResultDecision: Equatable {
+        case retained
+        case requestReplacementApproval(GeneratedResult)
+        case apply(ApplyPlan)
+        case failure(Failure)
+    }
+
+    struct Version: Equatable {
+        var text: String
+        fileprivate(set) var target: TargetEvidence
+    }
+
+    struct NavigationTarget: Equatable {
+        var text: String
+        var target: TargetID
+        var range: TextRange?
+        var scope: Scope
+    }
+
+    /// The coordinator must reselect and verify `current` before replacing it.
+    /// Creating a plan does not move `currentIndex`.
+    struct NavigationPlan: Equatable {
+        fileprivate var id: UInt64
+        var fromIndex: Int
+        var toIndex: Int
+        var current: NavigationTarget
+        var replacement: String
+    }
+
+    private enum CurrentTarget: Equatable {
+        case selection(SelectionEvidence)
+        case noSelection(TargetID)
+        case document(text: String, target: TargetID)
+        case uncertain(targetPid: pid_t?)
+    }
+
     private let ownPid: pid_t
+    private var current: CurrentTarget = .uncertain(targetPid: nil)
+    private var revision: UInt64 = 0
+    private var nextID: UInt64 = 0
+    private var pendingGeneration: GenerationRequest?
+    private var pendingResult: GeneratedResult?
+    private var pendingNavigation: NavigationPlan?
 
-    /// Iteration history: `versions[0]` is the session original (reset when the
-    /// user makes a fresh selection or manual edit mid-session), followed by
-    /// one entry per applied result.
-    private(set) var versions: [String] = []
-    /// Which version the document currently shows.
+    private(set) var scope: Scope = .selection
+    private(set) var stage: Stage = .idle
+    private(set) var versions: [Version] = []
     private(set) var currentIndex = 0
-
-    /// The text captured when the session opened, which the first selection
-    /// cycle sends — the original selection is still live in the target app.
-    private var originalSelection: String?
-    /// The pid the session is aimed at, compared against the frontmost app to
-    /// notice the user moving to another app mid-session.
-    private var targetPid: pid_t?
-
-    private var scope: Scope = .selection
-    private var hasSelection = true
-    private var pending: Pending = .none
 
     init(ownPid: pid_t) {
         self.ownPid = ownPid
     }
 
     var versionCount: Int { versions.count }
+    var versionTexts: [String] { versions.map(\.text) }
 
-    // MARK: - Session lifecycle
+    /// `nil` tells the coordinator not to silently choose document scope.
+    var suggestedScope: Scope? {
+        switch current {
+        case .selection: return .selection
+        case .noSelection, .document: return .document
+        case .uncertain: return nil
+        }
+    }
 
-    /// Start a fresh session. Called twice per session: once when the lane
-    /// opens, and again when the background capture lands and can say what was
-    /// selected and which app owns it.
-    mutating func begin(capturedText: String?, targetPid: pid_t?) {
+    @discardableResult
+    mutating func begin(with capture: CaptureEvidence) -> Failure? {
+        revision &+= 1
+        scope = {
+            if case .noSelection = capture { return .document }
+            return .selection
+        }()
+        current = .uncertain(targetPid: nil)
         versions = []
         currentIndex = 0
-        originalSelection = capturedText
-        self.targetPid = targetPid
-        pending = .none
+        invalidatePending()
+        return replaceCurrent(with: capture)
     }
 
-    // MARK: - Resolving a cycle
-
-    /// Advance the resolution by one step. Every path either asks for exactly
-    /// one more observation or finishes, and no observation returns the step
-    /// that produced it, so a driver loop always terminates.
-    mutating func next(after observation: Observation) -> Step {
-        switch observation {
-        case .start(let scope, let hasSelection):
-            self.scope = scope
-            self.hasSelection = hasSelection
-            pending = .none
-            // Ahead of both scope branches: a run belongs to the app the user
-            // is actually in, and neither branch can tell that the session's
-            // target went stale underneath it.
-            return .probeFrontmost
-
-        case .frontmost(let pid):
-            guard let pid, pid != targetPid, pid != ownPid else { return resolveInScope() }
-            // A full capture rather than a bare probe: the new app needs its
-            // own pasteboard snapshot to restore after the paste, and its own
-            // target for every keystroke from here on.
-            return .captureNewTarget
-
-        case .newTarget(let text, let pid):
-            // Only a live selection re-targets. With nothing selected in the
-            // new app there is no evidence about what the user wants edited,
-            // so the session stays where it is rather than guessing at a
-            // whole-document rewrite.
-            guard let text, !text.isEmpty else { return resolveInScope() }
-            targetPid = pid
-            // Re-targeting always resets the baseline, which clears the version
-            // history. That history describes edits Mancia made in the old app;
-            // replaying it through `.undoThenPaste` would post ⌘Z into an app
-            // Mancia never pasted into and undo an edit of the user's own.
-            resetBaseline(to: text)
-            return .run(Run(
-                text: text, strategy: .liveSelection,
-                adoptedSelection: true, committedNewTarget: true))
-
-        case .freshSelection(let fresh):
-            let pending = self.pending
-            self.pending = .none
-            switch pending {
-            case .documentSelection:
-                guard let fresh, !fresh.isEmpty,
-                      versions.isEmpty || fresh != versions[currentIndex]
-                else { return .captureDocument }
-                resetBaseline(to: fresh)
-                return .run(Run(
-                    text: fresh, strategy: .liveSelection,
-                    adoptedSelection: true, committedNewTarget: false))
-
-            case .laterSelection:
-                if let fresh, !fresh.isEmpty {
-                    // Adoption is unconditional, and ahead of the baseline
-                    // check: even text identical to the last result can have
-                    // been re-selected somewhere else, and the Target chip has
-                    // to describe the span this run will actually send.
-                    if fresh != versions[currentIndex] {
-                        // A genuinely new selection starts a new baseline.
-                        resetBaseline(to: fresh)
-                    }
-                    return .run(Run(
-                        text: fresh, strategy: .liveSelection,
-                        adoptedSelection: true, committedNewTarget: false))
-                }
-                let text = versions[currentIndex]
-                guard !text.isEmpty else { return .abort }
-                return .run(Run(
-                    text: text, strategy: .undoThenPaste,
-                    adoptedSelection: false, committedNewTarget: false))
-
-            case .none:
-                return .abort
-            }
-
-        case .document(let text):
-            guard let text, !text.isEmpty else { return .abort }
-            // Captured text that differs from the currently shown version is a
-            // manual edit the user made between cycles, and becomes the new
-            // session baseline.
-            if versions.isEmpty || text != versions[currentIndex] {
-                resetBaseline(to: text)
-            }
-            return .run(Run(
-                text: text, strategy: .entireDocument,
-                adoptedSelection: false, committedNewTarget: false))
-        }
-    }
-
-    /// The two scope branches, reached once the target has been settled.
-    private mutating func resolveInScope() -> Step {
-        if scope == .document {
-            // A session that originally found no selection probes for a live
-            // one before falling back to re-capturing the whole document.
-            if !hasSelection {
-                pending = .documentSelection
-                return .probeFreshSelection
-            }
-            return .captureDocument
-        }
-        if versions.isEmpty {
-            guard let text = originalSelection, !text.isEmpty else { return .abort }
-            return .run(Run(
-                text: text, strategy: .liveSelection,
-                adoptedSelection: false, committedNewTarget: false))
-        }
-        pending = .laterSelection
-        return .probeFreshSelection
-    }
-
-    // MARK: - History
-
-    /// Record an applied result: drop any forward history, then append.
-    mutating func recordApplied(output: String, baseline: String) {
-        if versions.isEmpty { versions = [baseline] }
-        versions = Array(versions.prefix(currentIndex + 1))
-        versions.append(output)
-        currentIndex = versions.count - 1
-    }
-
-    /// Move the document to `versions[index]`.
-    ///
-    /// - Selection scope: ⌘Z (undo of the outstanding paste restores and
-    ///   re-selects the replaced region in NSTextView-based apps) followed by
-    ///   ⌘V — always undo-then-paste, including for index 0, so exactly one
-    ///   paste stays outstanding.
-    /// - Document scope: ⌘A + ⌘V, which stays correct even when the user
-    ///   manually edited between cycles.
-    ///
-    /// Returns `nil` when the index names nowhere to go.
-    mutating func navigate(to index: Int, scope: Scope) -> Run? {
-        guard index >= 0, index < versions.count, index != currentIndex else { return nil }
-        currentIndex = index
-        return Run(
-            text: versions[index],
-            strategy: scope == .document ? .entireDocument : .undoThenPaste,
-            adoptedSelection: false, committedNewTarget: false)
-    }
-
-    /// A fresh selection or manual edit becomes the new session baseline.
-    private mutating func resetBaseline(to text: String) {
-        versions = [text]
+    /// Any scope change makes in-flight approvals and provider output stale.
+    mutating func setScope(_ scope: Scope) {
+        guard self.scope != scope else { return }
+        self.scope = scope
+        revision &+= 1
+        versions = []
         currentIndex = 0
+        invalidatePending()
+    }
+
+    /// Target and range identity take precedence over matching text.
+    @discardableResult
+    mutating func adopt(_ capture: CaptureEvidence) -> Failure? {
+        let previous = current
+        if let failure = replaceCurrent(with: capture) { return failure }
+        guard current != previous else { return nil }
+        revision &+= 1
+        versions = []
+        currentIndex = 0
+        invalidatePending()
+        return nil
+    }
+
+    /// Document scope always pauses before capture and provider send.
+    mutating func requestGeneration() -> GenerationDecision {
+        guard stage == .idle else { return .failure(.busy) }
+        if scope == .document {
+            guard currentTargetID != nil else { return .failure(captureFailure) }
+            stage = .awaitingDocumentApproval
+            return .requestDocumentApproval
+        }
+
+        guard case .selection(let evidence) = current else {
+            return .failure(captureFailure)
+        }
+        guard !evidence.text.isEmpty else { return .failure(.emptyInput) }
+        return startGeneration(
+            text: evidence.text,
+            target: .selection(target: evidence.target, range: evidence.range))
+    }
+
+    mutating func approveDocumentGeneration() -> GenerationDecision {
+        guard stage == .awaitingDocumentApproval, scope == .document,
+              let target = currentTargetID
+        else { return .failure(.invalidTransition) }
+        stage = .capturingDocument
+        return .captureDocument(target)
+    }
+
+    mutating func acceptDocumentCapture(_ capture: DocumentCapture) -> GenerationDecision {
+        guard stage == .capturingDocument, scope == .document,
+              let approvedTarget = currentTargetID
+        else { return .failure(.invalidTransition) }
+
+        switch capture {
+        case .uncertain:
+            stage = .idle
+            return .failure(.uncertainCapture)
+        case .captured(let text, let target):
+            guard target == approvedTarget, target.pid != ownPid else {
+                stage = .idle
+                return .failure(.targetChanged)
+            }
+            guard !text.isEmpty else {
+                stage = .idle
+                return .failure(.emptyInput)
+            }
+            current = .document(text: text, target: target)
+            return startGeneration(text: text, target: .document(target))
+        }
+    }
+
+    /// Unchanged output is retained without producing an apply plan.
+    mutating func consider(
+        _ result: GeneratedResult,
+        replacementConfirmationRequired: Bool
+    ) -> ResultDecision {
+        guard stage == .generating,
+              pendingGeneration == result.request,
+              result.baseline.revision == revision,
+              result.baseline.scope == scope
+        else { return .failure(.staleResult) }
+
+        pendingGeneration = nil
+        guard !result.output.isEmpty else {
+            stage = .idle
+            return .failure(.emptyResult)
+        }
+        guard result.output != result.baseline.text else {
+            stage = .idle
+            return .retained
+        }
+
+        pendingResult = result
+        if result.baseline.scope == .document && replacementConfirmationRequired {
+            stage = .awaitingReplacementApproval
+            return .requestReplacementApproval(result)
+        }
+        stage = .applying
+        return .apply(ApplyPlan(result: result))
+    }
+
+    mutating func approveReplacement() -> ResultDecision {
+        guard stage == .awaitingReplacementApproval,
+              let result = pendingResult,
+              result.baseline.scope == .document
+        else { return .failure(.invalidTransition) }
+        stage = .applying
+        return .apply(ApplyPlan(result: result))
+    }
+
+    @discardableResult
+    mutating func retainPendingResult() -> Outcome? {
+        guard stage == .awaitingReplacementApproval, pendingResult != nil else { return nil }
+        invalidatePending()
+        return .retained
+    }
+
+    /// Only a matching verified apply can advance history.
+    @discardableResult
+    mutating func finishApply(_ plan: ApplyPlan, outcome: Outcome) -> Bool {
+        guard stage == .applying, pendingResult == plan.result else { return false }
+        defer { invalidatePending() }
+        guard case .applied(let evidence) = outcome else { return true }
+        guard appliedEvidence(evidence, matches: plan.result) else { return false }
+        commitApplied(evidence, result: plan.result)
+        return true
+    }
+
+    /// Navigation verifies the version currently shown and never mutates the
+    /// index before the replacement is confirmed.
+    mutating func navigation(to index: Int) -> NavigationPlan? {
+        guard stage == .idle,
+              versions.indices.contains(index), index != currentIndex,
+              versions.indices.contains(currentIndex)
+        else { return nil }
+
+        let shown = versions[currentIndex]
+        let currentTarget: NavigationTarget
+        switch shown.target {
+        case .selection(let target, let range):
+            currentTarget = NavigationTarget(
+                text: shown.text,
+                target: target,
+                range: range,
+                scope: .selection)
+        case .document(let target):
+            currentTarget = NavigationTarget(
+                text: shown.text,
+                target: target,
+                range: nil,
+                scope: .document)
+        }
+        nextID &+= 1
+        let plan = NavigationPlan(
+            id: nextID,
+            fromIndex: currentIndex,
+            toIndex: index,
+            current: currentTarget,
+            replacement: versions[index].text)
+        pendingNavigation = plan
+        stage = .navigating
+        return plan
+    }
+
+    @discardableResult
+    mutating func finishNavigation(_ plan: NavigationPlan, outcome: Outcome) -> Bool {
+        guard stage == .navigating, pendingNavigation == plan else { return false }
+        defer { invalidatePending() }
+        guard case .applied(let evidence) = outcome else { return true }
+        guard evidence.text == plan.replacement,
+              navigationEvidence(evidence, matches: plan.current)
+        else { return false }
+
+        versions[plan.toIndex].target = evidence.target
+        currentIndex = plan.toIndex
+        adoptAppliedEvidence(evidence)
+        revision &+= 1
+        return true
+    }
+
+    @discardableResult
+    mutating func cancel(at boundary: CancellationBoundary) -> Outcome {
+        invalidatePending()
+        return .cancelled(boundary)
+    }
+
+    @discardableResult
+    mutating func fail() -> Outcome {
+        invalidatePending()
+        return .failure(.operationFailed)
+    }
+
+    private var currentTargetID: TargetID? {
+        switch current {
+        case .selection(let evidence): return evidence.target
+        case .noSelection(let target), .document(_, let target): return target
+        case .uncertain: return nil
+        }
+    }
+
+    private var captureFailure: Failure {
+        switch current {
+        case .uncertain: return .uncertainCapture
+        case .noSelection, .document: return .noSelection
+        case .selection: return .invalidTransition
+        }
+    }
+
+    private mutating func replaceCurrent(with capture: CaptureEvidence) -> Failure? {
+        switch capture {
+        case .selection(let evidence):
+            guard evidence.target.pid != ownPid else { return .invalidTarget }
+            if let range = evidence.range, !range.isValid {
+                return .missingReselectionMetadata
+            }
+            current = .selection(evidence)
+        case .noSelection(let target):
+            guard target.pid != ownPid else { return .invalidTarget }
+            current = .noSelection(target)
+        case .uncertain(let pid):
+            current = .uncertain(targetPid: pid)
+        }
+        return nil
+    }
+
+    private mutating func startGeneration(
+        text: String,
+        target: TargetEvidence
+    ) -> GenerationDecision {
+        nextID &+= 1
+        let request = GenerationRequest(
+            id: nextID,
+            baseline: Baseline(
+                text: text, target: target, scope: scope, revision: revision))
+        pendingGeneration = request
+        stage = .generating
+        return .send(request)
+    }
+
+    private func appliedEvidence(
+        _ evidence: AppliedEvidence,
+        matches result: GeneratedResult
+    ) -> Bool {
+        guard evidence.text == result.output else { return false }
+        switch (result.baseline.target, evidence.target) {
+        case (.document(let expected), .document(let actual)):
+            return expected == actual
+        case (
+            .selection(let expectedTarget, .some(let expectedRange)),
+            .selection(let actualTarget, .some(let actualRange))
+        ):
+            return expectedTarget == actualTarget
+                && actualRange.isValid
+                && actualRange.location == expectedRange.location
+        default:
+            return false
+        }
+    }
+
+    private mutating func commitApplied(
+        _ evidence: AppliedEvidence,
+        result: GeneratedResult
+    ) {
+        revision &+= 1
+        let baseline = Version(
+            text: result.baseline.text,
+            target: result.baseline.target)
+        if versions.indices.contains(currentIndex), versions[currentIndex] == baseline {
+            versions = Array(versions.prefix(currentIndex + 1))
+        } else {
+            versions = [baseline]
+            currentIndex = 0
+        }
+        versions.append(Version(text: evidence.text, target: evidence.target))
+        currentIndex = versions.count - 1
+        adoptAppliedEvidence(evidence)
+    }
+
+    private func navigationEvidence(
+        _ evidence: AppliedEvidence,
+        matches expected: NavigationTarget
+    ) -> Bool {
+        switch (expected.scope, evidence.target) {
+        case (.document, .document(let target)):
+            return target == expected.target
+        case (.selection, .selection(let target, .some(let range))):
+            return target == expected.target
+                && range.isValid
+                && range.location == expected.range?.location
+        default:
+            return false
+        }
+    }
+
+    private mutating func adoptAppliedEvidence(_ evidence: AppliedEvidence) {
+        switch evidence.target {
+        case .selection(let target, let range):
+            current = .selection(
+                SelectionEvidence(text: evidence.text, target: target, range: range))
+        case .document(let target):
+            current = .document(text: evidence.text, target: target)
+        }
+    }
+
+    private mutating func invalidatePending() {
+        pendingGeneration = nil
+        pendingResult = nil
+        pendingNavigation = nil
+        stage = .idle
     }
 }
