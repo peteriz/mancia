@@ -1,48 +1,71 @@
 import AppKit
 
-/// Orchestrates a cyclical edit session: capture selection → show the ribbon →
-/// run provider → apply inline → undo or run further actions, until the
-/// user closes the session. Owns the ribbon and the
-/// in-flight task. The ribbon stays visible throughout — synthetic keystrokes
-/// are posted to the target app's pid, so they can't be swallowed by it.
+struct CoordinatorOperationEpoch: Equatable {
+    private(set) var value: UInt64 = 0
+
+    mutating func advance() -> UInt64 {
+        value &+= 1
+        return value
+    }
+
+    func isCurrent(_ candidate: UInt64) -> Bool {
+        value == candidate
+    }
+}
+
+enum SelectionRefreshDecision: Equatable {
+    case reuseTarget
+    case reactivateTarget
+    case captureFrontmost
+
+    static func decide(frontmostPid: pid_t?, targetPid: pid_t, ownPid: pid_t) -> Self {
+        if frontmostPid == targetPid { return .reuseTarget }
+        if frontmostPid == ownPid { return .reactivateTarget }
+        return .captureFrontmost
+    }
+}
+
+/// Orchestrates capture, explicit scope approval, generation, verified apply,
+/// and AX-backed version navigation for one ribbon session.
 @MainActor
 final class EditCoordinator {
+    private struct PendingAction {
+        let action: EditAction
+        let note: String?
+    }
+
+    private struct PendingApply {
+        let target: SelectionTargetEvidence
+        let actionName: String
+    }
+
     private let provider: LLMProvider
     private let settings: AppSettings
     private let model = PanelModel()
-    /// The ribbon, built on first use and kept for the app's lifetime so
-    /// re-opening a session doesn't tear down and re-create a window
-    /// mid-animation.
     private lazy var ribbon: RibbonWindow = {
         let ribbon = RibbonWindow(model: model, settings: settings)
         ribbon.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        ribbon.onPointerActivity = { [weak self] in
+            self?.autoCloseTask?.cancel()
+            self?.autoCloseTask = nil
+        }
         ribbon.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         return ribbon
     }()
 
     private var capture: SelectionCaptureResult?
     private var currentTask: Task<Void, Never>?
-    /// True while the selection is being captured after an instant show; an
-    /// action fired during this window is queued in `pendingAction`.
-    private var capturing = false
-    private var pendingAction: EditAction?
-    private var pendingNote: String?
-    /// The post-apply auto-close beat (hybrid behavior). Cancelled on any panel
-    /// key press so the user can keep editing.
     private var autoCloseTask: Task<Void, Never>?
-    /// Iteration history and every rule about which text a cycle sends. Pure
-    /// and separately tested; this class exists to answer its questions.
+    private var queuedAction: PendingAction?
+    private var pendingDocumentAction: PendingAction?
+    private var pendingApply: PendingApply?
+    private var capturing = false
+    private var navigating = false
+    private var sessionActive = false
+    private var operationEpoch = CoordinatorOperationEpoch()
     private var session = EditSession(
         ownPid: NSRunningApplication.current.processIdentifier)
-    /// Guards against overlapping version-restore keystroke sequences.
-    private var navigating = false
-    /// True from the moment a session begins starting until the panel closes,
-    /// so a repeated hotkey/menu trigger can't spawn an overlapping capture.
-    private var sessionActive = false
-    /// A completed whole-document result awaiting explicit confirmation before
-    /// it overwrites the document (`.confirm` phase).
-    private var pendingApply: (output: String, baseline: String)?
-    /// Wired by AppDelegate; invoked by the ribbon's ⌘, shortcut.
+
     var onOpenSettings: (() -> Void)?
 
     init(provider: LLMProvider, settings: AppSettings) {
@@ -52,351 +75,859 @@ final class EditCoordinator {
     }
 
     private func wire() {
-        model.onPerform = { [weak self] action, note in self?.perform(action, note: note) }
-        model.onUndoVersion = { [weak self] in self?.undoLastVersion() ?? false }
+        model.onPerform = { [weak self] action, note in
+            self?.perform(action, note: note)
+        }
+        model.onScopeChange = { [weak self] scope in
+            self?.scopeChanged(scope)
+        }
+        model.onUndoVersion = { [weak self] in
+            self?.undoLastVersion() ?? false
+        }
         model.onRetry = { [weak self] in self?.retry() }
+        model.onApproveDocumentGeneration = { [weak self] in
+            self?.approveDocumentGeneration()
+        }
         model.onConfirmApply = { [weak self] in self?.confirmApply() }
+        model.onDeclinePending = { [weak self] in self?.declinePending() }
+        model.onCopyRetainedResult = { [weak self] in self?.copyRetainedResult() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
         model.onCancel = { [weak self] in self?.cancel() }
     }
 
-    /// Entry point from hotkey or menu. Starts a fresh session. Ignores
-    /// re-triggers while a session is already active, so overlapping capture
-    /// sequences can't clobber each other's pasteboard/keystroke state.
-    ///
-    /// The ribbon appears immediately (perceived latency ≈ 0); the selection is
-    /// captured in the background. If the user fires Improve/Enter before the
-    /// capture completes, the action is queued and runs the moment text is ready.
     func start() {
-        guard !sessionActive else { ribbon.focus(); return }
+        guard !sessionActive else {
+            ribbon.focus()
+            return
+        }
         guard ensureAccessibility() else { return }
+
         sessionActive = true
-        currentTask?.cancel()
         autoCloseTask?.cancel()
-        autoCloseTask = nil
-        pendingAction = nil
-        pendingNote = nil
-        pendingApply = nil
+        clearPending()
         capture = nil
-        session.begin(capturedText: nil, targetPid: nil)
         navigating = false
         capturing = true
-        // Optimistically assume a selection until capture proves otherwise;
-        // the status line reads "Reading selection…" until it resolves.
         model.reset(hasSelection: true, charCount: 0)
         model.capturing = true
         ribbon.show()
         ribbon.focus()
         warmProvider()
-        currentTask = Task {
-            let result = await SelectionCapture.captureSelection()
-            if Task.isCancelled { return }
-            self.capture = result
-            session.begin(
-                capturedText: result.text,
-                targetPid: result.targetApp?.processIdentifier)
-            self.capturing = false
-            let hasSelection = result.text != nil
-            model.capturing = false
-            model.hasSelection = hasSelection
-            model.selectionCharCount = result.text?.count ?? 0
-            model.scope = hasSelection ? .selection : .document
-            if let pending = pendingAction {
-                let note = pendingNote
-                pendingAction = nil
-                pendingNote = nil
-                perform(pending, note: note)
-            }
-        }
-    }
 
-    // MARK: - Actions
-
-    private func perform(_ action: EditAction, note: String? = nil) {
-        // Fired before the background capture finished: queue it and show the
-        // spinner; it runs the moment the selection is ready.
-        if capturing {
-            pendingAction = action
-            pendingNote = note
-            model.runningTitle = action.progressLabel
-            model.phase = .running
-            return
-        }
-        currentTask?.cancel()
-        autoCloseTask?.cancel()
-        autoCloseTask = nil
-        currentTask = Task {
-            let previousPhase = model.phase
-            model.runningTitle = action.progressLabel
-            model.phase = .running
-            guard let resolved = await resolveInput() else {
-                ribbon.focus()
-                if !Task.isCancelled, model.phase == .running { fail("There is no text to edit.") }
-                return
-            }
-            // Input capture may have activated the target app; retake key
-            // status so Esc reaches the panel while the provider runs.
-            ribbon.focus()
-            let prompt: String
+        startOperation { [self] operation in
             do {
-                try PromptGuard.validate(action: action, text: resolved.text, note: note)
-                prompt = PromptBuilder.build(action: action, text: resolved.text, note: note)
-            } catch {
-                if !Task.isCancelled { fail(error.localizedDescription) }
-                return
-            }
-            do {
-                let output = try await provider.complete(prompt)
-                if Task.isCancelled { return }
-                guard let capture else { return }
-                // Gate a whole-document overwrite behind explicit confirmation:
-                // an injection-influenced or runaway result there would silently
-                // replace the entire document. Selection edits apply immediately.
-                if ApplyConfirmation.isRequired(
-                    isWholeDocument: resolved.strategy == .entireDocument,
-                    userOptedIn: settings.confirmWholeDocumentReplace
-                ) {
-                    presentConfirmation(output: output, baseline: resolved.text)
-                    return
-                }
-                // Apply immediately. Keystrokes are posted to the target
-                // app's pid, so the panel stays visible throughout.
-                await applyResolved(output: output, strategy: resolved.strategy, capture: capture)
-                if Task.isCancelled { return }
-                dodgeAppliedText()
-                recordApplied(output: output, baseline: resolved.text)
+                let result = try await SelectionCapture.captureSelection()
+                try Task.checkCancellation()
+                guard self.isCurrent(operation) else { return }
+                finishInitialCapture(result)
             } catch is CancellationError {
-                if model.phase == .running { model.phase = previousPhase }
                 return
             } catch {
-                if Task.isCancelled { return }
+                guard self.isCurrent(operation) else { return }
+                capturing = false
+                model.capturing = false
                 fail(error.localizedDescription)
             }
         }
     }
 
-    /// Perform the actual text replacement for a resolved strategy.
-    private func applyResolved(output: String, strategy: EditSession.ApplyStrategy, capture: SelectionCaptureResult) async {
-        switch strategy {
-        case .entireDocument:
-            await SelectionCapture.apply(text: output, to: capture, entireDocument: true)
-        case .liveSelection:
-            await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
-        case .undoThenPaste:
-            await SelectionCapture.undo(in: capture)
-            await SelectionCapture.apply(text: output, to: capture, entireDocument: false)
+    private func finishInitialCapture(_ result: SelectionCaptureResult) {
+        capture = result
+        model.targetAppName = result.target?.targetApp.localizedName ?? ""
+        capturing = false
+        model.capturing = false
+
+        let evidence = sessionEvidence(from: result)
+        _ = session.begin(with: evidence)
+        switch result.outcome {
+        case .selected(let text):
+            model.hasSelection = true
+            model.selectionCharCount = text.count
+            model.scope = .selection
+        case .noSelection:
+            model.hasSelection = false
+            model.selectionCharCount = 0
+            model.scope = .document
+        case .uncertain(let failure), .failed(let failure):
+            model.hasSelection = false
+            model.selectionCharCount = 0
+            model.scope = .selection
+            fail(captureGuidance(for: failure))
+        }
+        syncIterationState()
+
+        if let queuedAction {
+            self.queuedAction = nil
+            perform(queuedAction.action, note: queuedAction.note)
         }
     }
 
-    /// Where the paste left the caret, read while the target app still owns
-    /// focus — once the lane retakes key the system-wide focused element is
-    /// the Direction field and the caret can no longer be read. The lane
-    /// steps off the updated text if it landed on it, so every apply path
-    /// calls this before refocusing the ribbon.
-    private func dodgeAppliedText() {
-        ribbon.avoidUpdatedText(caretRect: SelectionCapture.selectionScreenRect())
+    // MARK: - Generation
+
+    private func perform(_ action: EditAction, note: String?) {
+        if capturing {
+            queuedAction = PendingAction(action: action, note: note)
+            model.runningTitle = action.progressLabel
+            model.phase = .running
+            return
+        }
+
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        pendingApply = nil
+        clearRetainedPresentation()
+        model.pendingResultPreview = ""
+        model.pendingOriginalPreview = ""
+        model.appliedStatusText = nil
+        if session.stage != .idle {
+            _ = session.cancel(at: cancellationBoundary(for: session.stage))
+        }
+        session.setScope(sessionScope)
+        let pending = PendingAction(action: action, note: note)
+        model.runningTitle = sessionScope == .selection ? "Reading selection" : action.progressLabel
+        model.phase = .running
+        ribbon.focus()
+
+        startOperation { [self] operation in
+            do {
+                if sessionScope == .selection {
+                    try await refreshSelectionTarget(operation: operation)
+                }
+                try Task.checkCancellation()
+                guard self.isCurrent(operation) else { return }
+                await handleGenerationDecision(
+                    session.requestGeneration(),
+                    pending: pending,
+                    operation: operation
+                )
+            } catch is CancellationError {
+                guard self.isCurrent(operation) else { return }
+                _ = session.cancel(at: .beforeGeneration)
+                restoreRestingPhase()
+            } catch {
+                guard self.isCurrent(operation) else { return }
+                _ = session.fail()
+                fail(error.localizedDescription)
+            }
+        }
     }
 
-    /// Record an applied result in the iteration history and move to the applied
-    /// phase (shared by the immediate and confirmed apply paths).
-    private func recordApplied(output: String, baseline: String) {
-        session.recordApplied(output: output, baseline: baseline)
+    private func refreshSelectionTarget(operation: UInt64) async throws {
+        guard let capture, let target = capture.target else {
+            throw CoordinatorError.uncertainTarget
+        }
+        let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let refreshed: SelectionCaptureResult
+        let refreshDecision = SelectionRefreshDecision.decide(
+            frontmostPid: frontmostPid,
+            targetPid: target.pid,
+            ownPid: NSRunningApplication.current.processIdentifier
+        )
+        switch refreshDecision {
+        case .reuseTarget, .reactivateTarget:
+            refreshed = try await SelectionCapture.captureFreshSelection(from: capture)
+        case .captureFrontmost:
+            refreshed = try await SelectionCapture.captureSelection()
+        }
+        try Task.checkCancellation()
+        guard isCurrent(operation) else { throw CancellationError() }
+        guard refreshed.target?.pid != NSRunningApplication.current.processIdentifier else {
+            throw CoordinatorError.uncertainTarget
+        }
+
+        switch refreshed.outcome {
+        case .selected(let text):
+            guard session.adopt(sessionEvidence(from: refreshed)) == nil else {
+                throw CoordinatorError.uncertainTarget
+            }
+            self.capture = refreshed
+            model.targetAppName = refreshed.target?.targetApp.localizedName ?? ""
+            model.hasSelection = true
+            model.selectionCharCount = text.count
+            model.scope = .selection
+            ribbon.noteSelectionMoved(SelectionCapture.selectionScreenRect())
+        case .noSelection:
+            guard refreshDecision != .captureFrontmost, session.versionCount > 1 else {
+                throw CoordinatorError.noSelection
+            }
+            // After a verified paste, a standard text view normally leaves a
+            // caret. The saved AX range is the only safe iteration target.
+        case .uncertain(let failure), .failed(let failure):
+            throw CoordinatorError.capture(failure)
+        }
+    }
+
+    private func handleGenerationDecision(
+        _ decision: EditSession.GenerationDecision,
+        pending: PendingAction,
+        operation: UInt64
+    ) async {
+        guard isCurrent(operation) else { return }
+        switch decision {
+        case .requestDocumentApproval:
+            pendingDocumentAction = pending
+            model.pendingScopeApprovalActionTitle = pending.action.title
+            model.phase = .scopeApproval
+            ribbon.focus()
+        case .captureDocument:
+            fail("Approve document access before Mancia reads it.")
+        case .send(let request):
+            guard let target = capture?.target else {
+                _ = session.fail()
+                fail(CoordinatorError.uncertainTarget.localizedDescription)
+                return
+            }
+            await generate(
+                pending,
+                request: request,
+                target: target,
+                operation: operation)
+        case .failure(let failure):
+            fail(message(for: failure))
+        }
+    }
+
+    private func approveDocumentGeneration() {
+        guard model.phase == .scopeApproval,
+              let pending = pendingDocumentAction,
+              let capture
+        else { return }
+
+        pendingDocumentAction = nil
+        model.pendingScopeApprovalActionTitle = ""
+        model.runningTitle = "Reading document"
+        model.phase = .running
+
+        switch session.approveDocumentGeneration() {
+        case .captureDocument:
+            startOperation { [self] operation in
+                do {
+                    let document = try await SelectionCapture.captureEntireDocument(
+                        from: capture)
+                    try Task.checkCancellation()
+                    guard self.isCurrent(operation) else { return }
+                    guard case .selected(let text) = document.outcome,
+                          let targetID = targetID(from: document.target)
+                    else {
+                        _ = session.acceptDocumentCapture(.uncertain)
+                        retain(
+                            output: "",
+                            reason: documentFailureMessage(document.outcome)
+                        )
+                        return
+                    }
+                    self.capture = document
+                    let decision = session.acceptDocumentCapture(
+                        .captured(text: text, target: targetID))
+                    await handleGenerationDecision(
+                        decision,
+                        pending: pending,
+                        operation: operation)
+                } catch is CancellationError {
+                    guard self.isCurrent(operation) else { return }
+                    _ = session.cancel(at: .beforeGeneration)
+                    restoreRestingPhase()
+                } catch {
+                    guard self.isCurrent(operation) else { return }
+                    _ = session.fail()
+                    fail(error.localizedDescription)
+                }
+            }
+        case .failure(let failure):
+            fail(message(for: failure))
+        default:
+            fail("The document approval is no longer current.")
+        }
+    }
+
+    private func generate(
+        _ pending: PendingAction,
+        request: EditSession.GenerationRequest,
+        target: SelectionTargetEvidence,
+        operation: UInt64
+    ) async {
+        guard isCurrent(operation) else { return }
+        model.runningTitle = pending.action.progressLabel
+        model.phase = .running
+        ribbon.focus()
+
+        do {
+            try PromptGuard.validate(
+                action: pending.action,
+                text: request.text,
+                note: pending.note)
+            let prompt = PromptBuilder.build(
+                action: pending.action,
+                text: request.text,
+                note: pending.note)
+            let rawOutput = try await provider.complete(prompt)
+            try Task.checkCancellation()
+            guard isCurrent(operation) else { return }
+            let output = try PromptBuilder.normalizeOutput(
+                action: pending.action,
+                source: request.text,
+                output: rawOutput,
+                preserveSourceBoundaryWhitespace: request.baseline.scope == .selection)
+            let result = EditSession.GeneratedResult(output: output, for: request)
+            switch session.consider(
+                result,
+                replacementConfirmationRequired:
+                    ApplyConfirmation.requiresReplacementApproval(
+                        isWholeDocument: request.baseline.scope == .document,
+                        userOptedIn: settings.confirmWholeDocumentReplace)
+            ) {
+            case .retained:
+                syncIterationState()
+                model.appliedStatusText = "No changes needed"
+                model.restoreButtonsAfterApply()
+                model.phase = .applied
+                ribbon.focus()
+                scheduleAutoCloseIfHybrid()
+            case .requestReplacementApproval(let result):
+                pendingApply = PendingApply(
+                    target: target,
+                    actionName: pending.action.title)
+                presentReplacementConfirmation(result)
+            case .apply(let plan):
+                await executeApply(
+                    plan,
+                    target: target,
+                    actionName: pending.action.title,
+                    operation: operation)
+            case .failure(let failure):
+                fail(message(for: failure))
+            }
+        } catch is CancellationError {
+            guard isCurrent(operation) else { return }
+            _ = session.cancel(at: .generation)
+            restoreRestingPhase()
+        } catch {
+            guard isCurrent(operation) else { return }
+            _ = session.fail()
+            fail(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Apply and retention
+
+    private func presentReplacementConfirmation(
+        _ result: EditSession.GeneratedResult
+    ) {
+        model.pendingOriginalCharCount = result.baseline.text.count
+        model.pendingResultCharCount = result.output.count
+        model.pendingResultPreview = result.output
+        model.pendingOriginalPreview = result.baseline.text
+        model.phase = .confirm
+        ribbon.focus()
+    }
+
+    private func confirmApply() {
+        guard model.phase == .confirm,
+              let pendingApply
+        else { return }
+        guard case .apply(let plan) = session.approveReplacement() else {
+            fail("The pending replacement is no longer current.")
+            return
+        }
+
+        self.pendingApply = nil
+        model.pendingResultPreview = ""
+        model.pendingOriginalPreview = ""
+        model.runningTitle = "Replacing document"
+        model.phase = .running
+        startOperation { [self] operation in
+            await executeApply(
+                plan,
+                target: pendingApply.target,
+                actionName: pendingApply.actionName,
+                operation: operation)
+        }
+    }
+
+    private func executeApply(
+        _ plan: EditSession.ApplyPlan,
+        target: SelectionTargetEvidence,
+        actionName: String,
+        operation: UInt64
+    ) async {
+        guard isCurrent(operation) else { return }
+        model.runningTitle = "Applying"
+        model.phase = .running
+        ribbon.focus()
+        let outcome = await SelectionCapture.apply(
+            text: plan.result.output,
+            replacing: target)
+        guard isCurrent(operation) else { return }
+
+        switch outcome {
+        case .applied(let appliedTarget, _):
+            let evidence = appliedEvidence(
+                text: plan.result.output,
+                target: appliedTarget)
+            guard session.finishApply(plan, outcome: .applied(evidence)) else {
+                retain(
+                    output: plan.result.output,
+                    reason: "Mancia pasted the text but could not verify its history metadata."
+                )
+                return
+            }
+            capture = SelectionCaptureResult(
+                outcome: .selected(plan.result.output),
+                target: appliedTarget)
+            dodgeAppliedText()
+            finishApplied(actionName: actionName)
+        case .retained(let reason):
+            _ = session.finishApply(plan, outcome: .retained)
+            retain(
+                output: plan.result.output,
+                reason: reason.localizedDescription)
+        case .cancelled:
+            _ = session.finishApply(plan, outcome: .cancelled(.apply))
+            restoreRestingPhase()
+        case .failure(let failure):
+            _ = session.finishApply(
+                plan,
+                outcome: .failure(.operationFailed))
+            retain(
+                output: plan.result.output,
+                reason: failure.localizedDescription)
+        }
+    }
+
+    private func finishApplied(actionName: String) {
         syncIterationState()
-        model.restoreDefaultAction()
+        model.appliedStatusText = nil
+        model.appliedActionName = actionName
+        model.restoreButtonsAfterApply()
         model.phase = .applied
         ribbon.focus()
         scheduleAutoCloseIfHybrid()
     }
 
-    // MARK: - Whole-document confirmation
-
-    /// Pause a completed whole-document result in the confirm phase, surfacing
-    /// the size change so the user can decide before overwriting everything.
-    private func presentConfirmation(output: String, baseline: String) {
-        pendingApply = (output, baseline)
-        model.pendingOriginalCharCount = baseline.count
-        model.pendingResultCharCount = output.count
-        model.pendingResultPreview = output
-        model.phase = .confirm
+    private func retain(output: String, reason: String) {
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        if !output.isEmpty {
+            model.retainedResult = output
+        }
+        model.retainedReason = reason
+        model.pendingResultPreview = ""
+        model.pendingOriginalPreview = ""
+        model.phase = .retained
         ribbon.focus()
     }
 
-    /// Apply the pending whole-document replacement after the user confirmed.
-    /// Commit into `.running` before the destructive ⌘A+⌘V so the confirm
-    /// affordance can't imply "nothing has happened yet" mid-overwrite; this
-    /// mirrors the immediate apply path, which is `.running` while it pastes.
-    private func confirmApply() {
-        guard model.phase == .confirm, let capture, let pending = pendingApply else { return }
-        pendingApply = nil
-        model.pendingResultPreview = ""
-        model.runningTitle = "Replacing document"
-        model.phase = .running
-        currentTask?.cancel()
-        currentTask = Task {
-            await SelectionCapture.apply(text: pending.output, to: capture, entireDocument: true)
-            if Task.isCancelled { return }
-            dodgeAppliedText()
-            recordApplied(output: pending.output, baseline: pending.baseline)
+    private func declinePending() {
+        switch model.phase {
+        case .scopeApproval:
+            pendingDocumentAction = nil
+            model.pendingScopeApprovalActionTitle = ""
+            _ = session.cancel(at: .beforeGeneration)
+            restoreRestingPhase()
+        case .confirm:
+            let output = model.pendingResultPreview
+            _ = session.retainPendingResult()
+            pendingApply = nil
+            retain(
+                output: output,
+                reason: "The document replacement was not applied.")
+        default:
+            break
         }
     }
 
-    /// Determine this cycle's input text and apply strategy.
-    ///
-    /// The rules are `EditSession`'s, and are documented and tested there.
-    /// This drives it: the session asks for one observation at a time, this
-    /// goes and finds out, and the loop ends at a run or an abort.
-    private func resolveInput() async -> EditSession.Run? {
-        // A capture made for a re-target is held here until the session says
-        // the re-target committed. If the new app turns out to have nothing
-        // selected, the session stays where it is and this is dropped.
-        var newTarget: SelectionCaptureResult?
-        var observation = EditSession.Observation.start(
-            scope: sessionScope, hasSelection: model.hasSelection)
-        while true {
-            switch session.next(after: observation) {
-            case .probeFrontmost:
-                observation = .frontmost(
-                    pid: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+    private func copyRetainedResult() {
+        guard !model.retainedResult.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.retainedResult, forType: .string)
+    }
 
-            case .captureNewTarget:
-                // A full capture rather than a bare probe: the new app needs
-                // its own pasteboard snapshot to restore after the paste, and
-                // its own `targetApp` for every keystroke from here on.
-                let result = await SelectionCapture.captureSelection()
-                newTarget = result
-                observation = .newTarget(
-                    text: result.text, pid: result.targetApp?.processIdentifier)
+    // MARK: - History
 
-            case .probeFreshSelection:
-                guard let capture else { return nil }
-                observation = .freshSelection(
-                    await SelectionCapture.captureFreshSelection(from: capture))
+    @discardableResult
+    private func restoreVersion(at index: Int) -> Bool {
+        guard model.phase == .applied,
+              !navigating,
+              let plan = session.navigation(to: index),
+              let target = navigationTarget(for: plan)
+        else { return false }
 
-            case .captureDocument:
-                guard let capture else { return nil }
-                observation = .document(
-                    await SelectionCapture.captureEntireDocument(from: capture))
-
-            case .run(let run):
-                if run.committedNewTarget, let newTarget { capture = newTarget }
-                if run.adoptedSelection { adoptFreshSelection(run.text) }
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        navigating = true
+        model.undoAvailable = false
+        model.runningTitle = "Restoring version"
+        model.phase = .running
+        ribbon.focus()
+        startOperation { [self] operation in
+            defer {
+                if self.isCurrent(operation) {
+                    navigating = false
+                }
+            }
+            let outcome = await SelectionCapture.apply(
+                text: plan.replacement,
+                replacing: target)
+            guard self.isCurrent(operation) else { return }
+            switch outcome {
+            case .applied(let appliedTarget, _):
+                let evidence = appliedEvidence(
+                    text: plan.replacement,
+                    target: appliedTarget)
+                guard session.finishNavigation(
+                    plan,
+                    outcome: .applied(evidence))
+                else {
+                    retain(
+                        output: plan.replacement,
+                        reason: "Mancia could not verify the restored version.")
+                    return
+                }
+                capture = SelectionCaptureResult(
+                    outcome: .selected(plan.replacement),
+                    target: appliedTarget)
+                dodgeAppliedText()
                 syncIterationState()
-                return run
-
-            case .abort:
-                return nil
+                model.appliedStatusText = "Previous version restored"
+                model.phase = .applied
+                ribbon.focus()
+            case .retained(let reason):
+                _ = session.finishNavigation(plan, outcome: .retained)
+                retain(output: plan.replacement, reason: reason.localizedDescription)
+            case .cancelled:
+                _ = session.finishNavigation(
+                    plan,
+                    outcome: .cancelled(.navigation))
+                restoreRestingPhase()
+            case .failure(let failure):
+                _ = session.finishNavigation(
+                    plan,
+                    outcome: .failure(.operationFailed))
+                retain(output: plan.replacement, reason: failure.localizedDescription)
             }
         }
+        return true
+    }
+
+    private func undoLastVersion() -> Bool {
+        restoreVersion(at: session.currentIndex - 1)
+    }
+
+    private func navigationTarget(
+        for plan: EditSession.NavigationPlan
+    ) -> SelectionTargetEvidence? {
+        guard let current = capture?.target,
+              current.pid == plan.current.target.pid,
+              current.elementIdentifier == plan.current.target.elementIdentifier
+        else { return nil }
+        let scope: SelectionTargetEvidence.Scope
+        let range: CFRange?
+        switch plan.current.scope {
+        case .selection:
+            guard let selectedRange = plan.current.range else { return nil }
+            scope = .selection
+            range = CFRange(
+                location: selectedRange.location,
+                length: selectedRange.length)
+        case .document:
+            scope = .entireDocument
+            range = current.selectedRange
+        }
+        return SelectionTargetEvidence(
+            pid: current.pid,
+            capturedBaseline: plan.current.text,
+            capturedFieldValue: current.capturedFieldValue,
+            scope: scope,
+            targetApp: current.targetApp,
+            window: current.window,
+            focusedElement: current.focusedElement,
+            selectedRange: range
+        )
+    }
+
+    // MARK: - Session lifecycle
+
+    private func scopeChanged(_ scope: PanelModel.Scope) {
+        invalidateOperation()
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        pendingDocumentAction = nil
+        pendingApply = nil
+        model.pendingScopeApprovalActionTitle = ""
+        model.pendingOriginalCharCount = 0
+        model.pendingResultCharCount = 0
+        model.pendingResultPreview = ""
+        model.pendingOriginalPreview = ""
+        model.appliedStatusText = nil
+        clearRetainedPresentation()
+        session.setScope(scope == .document ? .document : .selection)
+        restoreRestingPhase()
+    }
+
+    private func retry() {
+        model.runPrimary()
+    }
+
+    private func cancelRun() {
+        if model.phase == .confirm {
+            declinePending()
+            return
+        }
+        if capturing {
+            queuedAction = nil
+            model.phase = .idle
+            ribbon.focus()
+            return
+        }
+        currentTask?.cancel()
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+    }
+
+    func refocusPanel() {
+        ribbon.focus()
+    }
+
+    private func cancel() {
+        invalidateOperation()
+        autoCloseTask?.cancel()
+        autoCloseTask = nil
+        clearPending()
+        capture = nil
+        queuedAction = nil
+        capturing = false
+        navigating = false
+        model.instruction = ""
+        model.errorText = ""
+        model.runningTitle = ""
+        model.appliedActionName = ""
+        model.appliedStatusText = nil
+        clearRetainedPresentation()
+        sessionActive = false
+        ribbon.close()
+        warmProviderAfterClose()
+    }
+
+    private func clearPending() {
+        queuedAction = nil
+        pendingDocumentAction = nil
+        pendingApply = nil
+        model.pendingScopeApprovalActionTitle = ""
+        model.pendingOriginalCharCount = 0
+        model.pendingResultCharCount = 0
+        model.pendingResultPreview = ""
+        model.pendingOriginalPreview = ""
+    }
+
+    private func clearRetainedPresentation() {
+        model.retainedResult = ""
+        model.retainedReason = ""
+    }
+
+    private func restoreRestingPhase() {
+        syncIterationState()
+        model.phase = session.versionCount > 1 ? .applied : .idle
+        ribbon.focus()
+    }
+
+    private func syncIterationState() {
+        model.versionCount = session.versionCount
+        model.currentIndex = session.currentIndex
+        let target = capture?.target
+        let targetIsNavigable = switch target?.scope {
+        case .selection:
+            target?.hasVerifiedRangeIdentity == true
+        case .entireDocument:
+            target?.focusedElement != nil && target?.capturedFieldValue != nil
+        case nil:
+            false
+        }
+        model.undoAvailable = session.currentIndex > 0 && targetIsNavigable
     }
 
     private var sessionScope: EditSession.Scope {
         model.scope == .document ? .document : .selection
     }
 
-    /// A freshly captured live selection becomes the session's target.
-    ///
-    /// The session decides *when* this happens; this only states what is now
-    /// selected, so the Target chip describes the span the run will actually
-    /// send rather than the one the session opened on.
-    ///
-    /// The target app owns focus at every call site, which is what makes the
-    /// selection's bounds readable here.
-    private func adoptFreshSelection(_ text: String) {
-        model.hasSelection = true
-        model.selectionCharCount = text.count
-        model.scope = .selection
-        ribbon.noteSelectionMoved(SelectionCapture.selectionScreenRect())
+    private func cancellationBoundary(
+        for stage: EditSession.Stage
+    ) -> EditSession.CancellationBoundary {
+        switch stage {
+        case .generating:
+            .generation
+        case .applying:
+            .apply
+        case .navigating:
+            .navigation
+        case .idle, .awaitingDocumentApproval, .capturingDocument,
+             .awaitingReplacementApproval:
+            .beforeGeneration
+        }
     }
 
-    private func syncIterationState() {
-        model.versionCount = session.versionCount
-        model.currentIndex = session.currentIndex
+    private func dodgeAppliedText() {
+        ribbon.avoidUpdatedText(caretRect: SelectionCapture.selectionScreenRect())
     }
 
-    /// Step the document to another version in the session's history.
-    ///
-    /// - Selection scope: ⌘Z (undo of the outstanding paste restores and
-    ///   re-selects the replaced region in NSTextView-based apps) followed by
-    ///   ⌘V — always undo-then-paste, including for index 0, so exactly one
-    ///   paste stays outstanding.
-    /// - Document scope: ⌘A + ⌘V, which stays correct even when the user
-    ///   manually edited between cycles.
-    ///
-    /// Which text that is, and how it goes back, are `EditSession`'s to say.
-    @discardableResult
-    private func restoreVersion(at index: Int) -> Bool {
-        guard let capture, model.phase == .applied, !navigating else { return false }
-        guard let run = session.navigate(to: index, scope: sessionScope) else { return false }
+    // MARK: - Evidence mapping
+
+    private func sessionEvidence(
+        from result: SelectionCaptureResult
+    ) -> EditSession.CaptureEvidence {
+        guard let targetID = targetID(from: result.target) else {
+            return .uncertain(targetPid: result.target?.pid)
+        }
+        switch result.outcome {
+        case .selected(let text):
+            return .selection(.init(
+                text: text,
+                target: targetID,
+                range: result.target?.selectedRange.map {
+                    .init(location: $0.location, length: $0.length)
+                }))
+        case .noSelection:
+            return .noSelection(targetID)
+        case .uncertain, .failed:
+            return .uncertain(targetPid: result.target?.pid)
+        }
+    }
+
+    private func targetID(
+        from target: SelectionTargetEvidence?
+    ) -> EditSession.TargetID? {
+        guard let target else { return nil }
+        return .init(
+            pid: target.pid,
+            elementIdentifier: target.elementIdentifier)
+    }
+
+    private func appliedEvidence(
+        text: String,
+        target: SelectionTargetEvidence
+    ) -> EditSession.AppliedEvidence {
+        let targetID = targetID(from: target)
+            ?? .init(pid: target.pid, elementIdentifier: nil)
+        switch target.scope {
+        case .selection:
+            let range = target.selectedRange.map {
+                EditSession.TextRange(location: $0.location, length: $0.length)
+            } ?? .init(location: -1, length: 0)
+            return .init(
+                text: text,
+                target: .selection(target: targetID, range: range))
+        case .entireDocument:
+            return .init(text: text, target: .document(targetID))
+        }
+    }
+
+    // MARK: - Presentation
+
+    private func message(for failure: EditSession.Failure) -> String {
+        switch failure {
+        case .busy:
+            "Finish or cancel the current action first."
+        case .uncertainCapture:
+            "Mancia could not prove what text is selected. Select the text again in a standard editable field."
+        case .noSelection:
+            "There is no selected text to edit."
+        case .emptyInput:
+            "There is no text to edit."
+        case .emptyResult:
+            "The provider returned no text."
+        case .invalidTarget, .missingReselectionMetadata:
+            "Mancia can read this host, but cannot safely replace its text. Use Copy instead."
+        case .targetChanged, .staleResult:
+            "The target changed. Run the action again on the current selection."
+        case .invalidTransition:
+            "That approval is no longer current."
+        case .operationFailed:
+            "Mancia could not complete the edit."
+        }
+    }
+
+    private func captureGuidance(for failure: SelectionCaptureFailure) -> String {
+        switch failure {
+        case .copyTimedOut, .targetChanged:
+            "Mancia could not tell whether this app has a selection. Select text in a standard editable field and try again."
+        default:
+            failure.localizedDescription
+        }
+    }
+
+    private func documentFailureMessage(_ outcome: SelectionReadOutcome) -> String {
+        switch outcome {
+        case .selected:
+            "Mancia could not verify the document target."
+        case .noSelection:
+            "The document is empty."
+        case .uncertain(let failure), .failed(let failure):
+            captureGuidance(for: failure)
+        }
+    }
+
+    private func fail(_ message: String) {
         autoCloseTask?.cancel()
         autoCloseTask = nil
-        navigating = true
-        syncIterationState()
-        currentTask = Task {
-            defer { navigating = false }
-            await applyResolved(output: run.text, strategy: run.strategy, capture: capture)
-            dodgeAppliedText()
-            ribbon.focus()
-        }
-        return true
+        model.errorText = message
+        model.phase = .error
+        ribbon.focus()
     }
 
-    /// ⌘Z walks backward through Mancia's applied versions. For selection
-    /// edits `restoreVersion` still leaves exactly one target-app paste on its
-    /// undo stack, preserving the existing safe replacement behavior.
-    private func undoLastVersion() -> Bool {
-        restoreVersion(at: session.currentIndex - 1)
-    }
+    // MARK: - Post-apply behavior
 
-    /// Retry after an error by running what the ribbon currently describes.
-    /// Switching to Custom first therefore retries with the newly typed request;
-    /// hidden draft text never rides along with a preset.
-    private func retry() {
-        model.runPrimary()
-    }
-
-    /// Stop the in-flight action but keep the session open.
-    private func cancelRun() {
-        // While still capturing, the "in-flight" work is only the queued
-        // action — dropping it must NOT cancel the capture task, or the session
-        // would wedge with `capturing` stuck true. Let the capture finish.
-        if capturing {
-            pendingAction = nil
-            pendingNote = nil
-            model.phase = .idle
-            ribbon.focus()
+    private func scheduleAutoCloseIfHybrid() {
+        autoCloseTask?.cancel()
+        guard settings.postApplyBehavior == .hybrid else {
+            autoCloseTask = nil
             return
         }
-        currentTask?.cancel()
-        currentTask = nil
-        autoCloseTask?.cancel()
-        autoCloseTask = nil
-        // Discard any result awaiting confirmation and return to a resting state.
-        pendingApply = nil
-        model.pendingResultPreview = ""
-        model.phase = session.versionCount > 1 ? .applied : .idle
-        ribbon.focus()
+        autoCloseTask = Task {
+            let operation = operationEpoch.value
+            do {
+                try await Task.sleep(for: .milliseconds(1200))
+                try Task.checkCancellation()
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard isCurrent(operation),
+                  model.phase == .applied,
+                  ribbon.isKey
+            else { return }
+            cancel()
+        }
     }
 
-    /// Retake key status for the panel if a session is on screen — used when
-    /// the Settings window closes after stealing key from the panel (⌘,).
-    func refocusPanel() {
-        ribbon.focus()
-    }
-
-    /// Close the session (Esc / Done), keeping the document as shown.
-    private func cancel() {
-        currentTask?.cancel()
-        currentTask = nil
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
         autoCloseTask?.cancel()
         autoCloseTask = nil
-        pendingApply = nil
-        // The review gate's preview is the whole generated document. Esc is a
-        // decision like any other, so it discards the text on the same beat
-        // confirming or declining does — not at the next session's `reset`.
-        model.pendingResultPreview = ""
-        sessionActive = false
-        ribbon.close()
-        warmProviderAfterClose()
+        return false
+    }
+
+    private func startOperation(
+        _ body: @escaping @MainActor (UInt64) async -> Void
+    ) {
+        let operation = operationEpoch.advance()
+        let previous = currentTask
+        previous?.cancel()
+        currentTask = Task { [weak self] in
+            await previous?.value
+            guard let self,
+                  self.isCurrent(operation),
+                  !Task.isCancelled
+            else { return }
+            await body(operation)
+        }
+    }
+
+    private func invalidateOperation() {
+        _ = operationEpoch.advance()
+        currentTask?.cancel()
+    }
+
+    private func isCurrent(_ operation: UInt64) -> Bool {
+        operationEpoch.isCurrent(operation)
     }
 
     private func warmProvider() {
@@ -409,71 +940,29 @@ final class EditCoordinator {
         Task { await provider.panelDidClose() }
     }
 
-    // MARK: - Post-apply behavior
-
-    /// After an edit lands, hybrid behavior flashes completion then auto-closes
-    /// the panel after a short beat. `stayOpen` leaves it up for another action
-    /// or ⌘Z.
-    private func scheduleAutoCloseIfHybrid() {
-        autoCloseTask?.cancel()
-        guard settings.postApplyBehavior == .hybrid else {
-            autoCloseTask = nil
-            return
-        }
-        autoCloseTask = Task {
-            try? await Task.sleep(for: .milliseconds(1200))
-            if Task.isCancelled { return }
-            guard model.phase == .applied else { return }
-            // A keypress is not the only sign the user is still working. The
-            // lane holds key without activating Mancia, so losing it during
-            // the beat means the user clicked back into the host app — in a
-            // session that has just applied an edit, almost always to select
-            // the next span. Closing under them would end the session they
-            // are still in, so the beat is abandoned rather than rescheduled;
-            // Esc and Done still close.
-            guard ribbon.isKey else { return }
-            cancel()
-        }
-    }
-
-    /// Handle a key press routed to the panel. Always cancels the post-apply
-    /// auto-close beat so the user can keep editing. Version undo is a key
-    /// equivalent handled by `KeyablePanel`, after the instruction field's own
-    /// undo stack has had first refusal. Returns whether the event was consumed.
-    private func handleKeyDown(_ event: NSEvent) -> Bool {
-        autoCloseTask?.cancel()
-        autoCloseTask = nil
-        if model.phase == .confirm {
-            // Return / keypad Enter confirms the pending whole-document replace.
-            if event.keyCode == 36 || event.keyCode == 76 {
-                confirmApply()
-                return true
-            }
-            return false
-        }
-        return false
-    }
-
-    private func fail(_ message: String) {
-        model.errorText = message
-        model.phase = .error
-        ribbon.focus()
-    }
-
     // MARK: - Accessibility
 
     private func ensureAccessibility() -> Bool {
         if Permissions.isAccessibilityTrusted { return true }
         Permissions.requestAccessibility()
-        let alert = NSAlert()
-        alert.messageText = "Accessibility permission needed"
-        alert.informativeText = "Mancia needs Accessibility access to read your selection and paste results.\n\nEnable it in System Settings ▸ Privacy & Security ▸ Accessibility, then try again."
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            Permissions.openAccessibilitySettings()
-        }
+        onOpenSettings?()
         return false
+    }
+}
+
+private enum CoordinatorError: LocalizedError {
+    case noSelection
+    case uncertainTarget
+    case capture(SelectionCaptureFailure)
+
+    var errorDescription: String? {
+        switch self {
+        case .noSelection:
+            "There is no selected text to edit."
+        case .uncertainTarget:
+            "Mancia could not verify the selected field. Select the text again in a standard editable field."
+        case .capture(let failure):
+            failure.localizedDescription
+        }
     }
 }

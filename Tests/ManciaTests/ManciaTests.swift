@@ -1396,16 +1396,16 @@ func panelKeyCommandsResolve() {
         (",", .command, .openSettings),
         ("\r", .command, .submit),
         ("t", .command, .toggleTarget),
-        ("1", .command, .activateAction(0)),
-        ("2", .command, .activateAction(1)),
-        ("3", .command, .activateAction(2)),
-        ("4", .command, .activateAction(3)),
-        ("5", .command, .activateAction(4)),
+        ("1", [], .activateAction(0)),
+        ("2", [], .activateAction(1)),
+        ("3", [], .activateAction(2)),
+        ("4", [], .activateAction(3)),
+        ("5", [], .activateAction(4)),
     ]
     for c in cases {
         #expect(
             PanelKeyCommand.resolve(characters: c.chars, modifiers: c.mods) == c.expected,
-            "⌘-shortcut for \(c.chars) should resolve to \(c.expected)")
+            "Shortcut for \(c.chars) should resolve to \(c.expected)")
     }
 }
 
@@ -1420,7 +1420,13 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
-    #expect(PanelKeyCommand.resolve(characters: "1", modifiers: []) == nil)
+    for digit in ["1", "2", "3", "4", "5"] {
+        for modifiers: NSEvent.ModifierFlags in [.command, .shift, .option, .control] {
+            #expect(PanelKeyCommand.resolve(characters: digit, modifiers: modifiers) == nil)
+        }
+    }
+    #expect(PanelKeyCommand.resolve(characters: "0", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "6", modifiers: []) == nil)
     #expect(PanelKeyCommand.resolve(characters: "0", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "6", modifiers: .command) == nil)
 }
@@ -1456,8 +1462,10 @@ func ribbonEscapeBacksOutOfTheRunFirst() {
     model.reset(hasSelection: true, charCount: 12)
     var cancelledRuns = 0
     var closes = 0
+    var declines = 0
     model.onCancelRun = { cancelledRuns += 1 }
     model.onCancel = { closes += 1 }
+    model.onDeclinePending = { declines += 1 }
 
     model.phase = .running
     model.escape()
@@ -1470,12 +1478,18 @@ func ribbonEscapeBacksOutOfTheRunFirst() {
     #expect(closes == 1)
 
     // A finished run is not an in-flight one: Esc leaves after it, as before.
-    for phase in [PanelModel.Phase.applied, .error, .confirm] {
+    for phase in [PanelModel.Phase.applied, .error] {
         model.phase = phase
         model.escape()
     }
     #expect(cancelledRuns == 1)
-    #expect(closes == 4)
+    #expect(closes == 3)
+    for phase in [PanelModel.Phase.scopeApproval, .confirm] {
+        model.phase = phase
+        model.escape()
+    }
+    #expect(declines == 2)
+    #expect(closes == 3)
 }
 
 @MainActor
@@ -1485,19 +1499,19 @@ func ribbonFocusCycles() {
     model.reset(hasSelection: true, charCount: 12)
     #expect(model.focusedCell == .none)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4),
+        .action(0), .action(1), .action(2), .action(3), .action(4), .target,
     ])
 
     model.moveFocus(.next)
     #expect(model.focusedCell == .action(0))
 
     model.moveFocus(.previous)
-    #expect(model.focusedCell == .action(4))
+    #expect(model.focusedCell == .target)
 
     model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .direction, .run,
+        .action(0), .action(1), .action(2), .action(3), .direction, .run, .target,
     ])
     model.moveFocus(.next)
     #expect(model.focusedCell == .run)
@@ -1831,12 +1845,12 @@ func onlyCustomPrefersExpandedRibbon() {
 }
 
 @MainActor
-@Test("Every action exposes the matching Command-number hover label")
+@Test("Every action exposes the matching number shortcut")
 func actionShortcutLabels() {
     let model = PanelModel()
 
     #expect(PanelModel.actionIndices.map { model.actionShortcut(at: $0) } == [
-        "⌘1", "⌘2", "⌘3", "⌘4", "⌘5",
+        "1", "2", "3", "4", "5",
     ])
     #expect(model.actionShortcut(at: -1) == nil)
     #expect(model.actionShortcut(at: 5) == nil)
@@ -1899,6 +1913,7 @@ func versionUndoAvailability() {
 
     model.versionCount = 2
     model.currentIndex = 1
+    model.undoAvailable = true
     #expect(model.undoLastVersion())
     #expect(calls == 1)
 
@@ -2035,17 +2050,17 @@ func selectedPresetIgnoresHiddenDraft() {
     #expect(model.hasCustomInstruction)
 }
 
-@Test("Restoring the default action clears and hides Custom")
+@Test("Restoring the default action hides Custom but preserves its draft")
 @MainActor
-func restoreDefaultActionClearsCustom() {
+func restoreDefaultActionPreservesCustom() {
     let model = PanelModel()
     model.selectCustomInstruction()
     model.instruction = "make it formal"
 
-    model.restoreDefaultAction()
+    model.restoreButtonsAfterApply()
 
     #expect(model.actionChoice == .preset(.improve))
-    #expect(model.instruction.isEmpty)
+    #expect(model.instruction == "make it formal")
     #expect(!model.isCustomInstructionSelected)
     #expect(model.focusedCell == .none)
 }
@@ -2690,6 +2705,16 @@ func placementKeepsItsPlaceWhenNeitherSideFits() {
     #expect(resolved.frame.maxY == ribbonVisible.maxY)
 }
 
+@Test("The cramped-end fallback accounts for the target row's measured height")
+func placementDoesNotClaimAGapShorterThanItsContent() {
+    let resolved = RibbonPlacement.resolve(
+        height: 80,
+        in: .init(
+            screenFrame: ribbonScreen, visibleFrame: ribbonVisible,
+            selectionRect: CGRect(x: 0, y: 130, width: 1440, height: 675)))
+    #expect(resolved.anchor == .screen)
+}
+
 @Test("A selection scrolled off the host leaves the lane where it belongs")
 func placementIgnoresAnOffHostSelection() {
     // Behind the Dock, below everything the lane is allowed to occupy.
@@ -2934,317 +2959,152 @@ private func startedSession(
     capturedText: String? = "original", targetPid: pid_t = sessionHostPid
 ) -> EditSession {
     var session = EditSession(ownPid: sessionOwnPid)
-    session.begin(capturedText: capturedText, targetPid: targetPid)
+    let target = EditSession.TargetID(pid: targetPid, elementIdentifier: 10)
+    if let capturedText {
+        _ = session.begin(with: .selection(.init(
+            text: capturedText, target: target,
+            range: capturedText.isEmpty ? nil : .init(location: 0, length: capturedText.utf16.count))))
+    } else {
+        _ = session.begin(with: .noSelection(target))
+    }
     return session
 }
 
-/// Drive a resolution and return every step it took, so the *order* of the
-/// probes is asserted rather than just the answer they arrive at.
-private func sessionSteps(
-    _ session: inout EditSession, _ observations: [EditSession.Observation]
-) -> [EditSession.Step] {
-    observations.map { session.next(after: $0) }
+private func sessionRequest(_ session: inout EditSession) throws -> EditSession.GenerationRequest {
+    guard case .send(let request) = session.requestGeneration() else {
+        throw SessionTestError.unexpectedDecision
+    }
+    return request
 }
 
-private func liveRun(
-    _ text: String, adopted: Bool = true, committedTarget: Bool = false
-) -> EditSession.Step {
-    .run(.init(
-        text: text, strategy: .liveSelection,
-        adoptedSelection: adopted, committedNewTarget: committedTarget))
+private enum SessionTestError: Error { case unexpectedDecision }
+
+private func applySessionResult(_ output: String, to session: inout EditSession) throws {
+    let request = try sessionRequest(&session)
+    guard case .apply(let plan) = session.consider(
+        .init(output: output, for: request), replacementConfirmationRequired: false),
+        case .selection(let target, .some(let range)) = request.baseline.target
+    else { throw SessionTestError.unexpectedDecision }
+    let finished = session.finishApply(plan, outcome: .applied(.init(
+        text: output, target: .selection(
+            target: target, range: .init(location: range.location, length: output.utf16.count)))))
+    #expect(finished)
 }
 
-@Test("The frontmost app is checked ahead of both scope branches")
-func sessionChecksFrontmostBeforeScope() {
+@Test("A captured selection can generate but document scope needs consent")
+func sessionScopeControlsGeneration() throws {
     var selection = startedSession()
-    #expect(selection.next(after: .start(scope: .selection, hasSelection: true)) == .probeFrontmost)
-
+    #expect(try sessionRequest(&selection).text == "original")
     var document = startedSession(capturedText: nil)
-    #expect(document.next(after: .start(scope: .document, hasSelection: false)) == .probeFrontmost)
+    #expect(document.requestGeneration() == .requestDocumentApproval)
 }
 
-@Test("Only a live selection re-targets to the app the user moved to")
-func sessionRetargetsOnlyOnALiveSelection() {
-    var adopted = startedSession()
-    #expect(sessionSteps(&adopted, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionOtherPid),
-        .newTarget(text: "over here", pid: sessionOtherPid),
-    ]) == [.probeFrontmost, .captureNewTarget, liveRun("over here", committedTarget: true)])
-
-    // Nothing selected in the new app is no evidence about what to edit, so the
-    // session stays on the text it opened against.
-    var declined = startedSession()
-    #expect(sessionSteps(&declined, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionOtherPid),
-        .newTarget(text: nil, pid: sessionOtherPid),
-    ]) == [.probeFrontmost, .captureNewTarget, liveRun("original", adopted: false)])
-
-    var empty = startedSession()
-    #expect(sessionSteps(&empty, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionOtherPid),
-        .newTarget(text: "", pid: sessionOtherPid),
-    ]).last == liveRun("original", adopted: false))
-}
-
-@Test("Re-targeting clears the history, so no undo can reach the new app")
-func sessionRetargetClearsHistory() {
+@Test("Re-targeting clears history and uses the new target evidence")
+func sessionRetargetClearsHistory() throws {
     var session = startedSession()
-    session.recordApplied(output: "v1", baseline: "original")
-    session.recordApplied(output: "v2", baseline: "v1")
+    try applySessionResult("v1", to: &session)
+    try applySessionResult("v2", to: &session)
     #expect(session.versionCount == 3)
-
-    let steps = sessionSteps(&session, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionOtherPid),
-        .newTarget(text: "elsewhere", pid: sessionOtherPid),
-    ])
-
-    #expect(steps.last == liveRun("elsewhere", committedTarget: true))
-    #expect(session.versions == ["elsewhere"], "history describes edits made in the old app")
-    // The danger this guards: ⌘Z posted into an app Mancia never pasted into
-    // would undo an edit of the user's own.
-    guard case .run(let run)? = steps.last else { return #expect(Bool(false)) }
-    #expect(run.strategy != .undoThenPaste)
+    let target = EditSession.TargetID(pid: sessionOtherPid, elementIdentifier: 12)
+    #expect(session.adopt(.selection(.init(
+        text: "elsewhere", target: target, range: .init(location: 5, length: 9)))) == nil)
+    #expect(session.versionCount == 0)
+    let request = try sessionRequest(&session)
+    #expect(request.text == "elsewhere")
+    #expect(request.baseline.target == .selection(target: target, range: .init(location: 5, length: 9)))
 }
 
 @Test("Mancia's own pid never re-targets the session onto itself")
-func sessionNeverRetargetsOntoItself() {
+func sessionNeverRetargetsOntoItself() throws {
     var session = startedSession()
-    // ⌘, and the permission alert both make Mancia frontmost mid-session.
-    #expect(sessionSteps(&session, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionOwnPid),
-    ]) == [.probeFrontmost, liveRun("original", adopted: false)])
-
-    // The session's own target is likewise not a move.
-    var same = startedSession()
-    #expect(sessionSteps(&same, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-    ]).last == liveRun("original", adopted: false))
+    #expect(session.adopt(.noSelection(.init(
+        pid: sessionOwnPid, elementIdentifier: 10))) == .invalidTarget)
+    #expect(try sessionRequest(&session).text == "original")
 }
 
-@Test("Document scope with nothing selected probes for a selection before ⌘A")
-func sessionDocumentScopeProbesForSelectionFirst() {
-    var promoted = startedSession(capturedText: nil)
-    #expect(sessionSteps(&promoted, [
-        .start(scope: .document, hasSelection: false),
-        .frontmost(pid: sessionHostPid),
-        .freshSelection("just selected"),
-    ]) == [.probeFrontmost, .probeFreshSelection, liveRun("just selected")])
-    #expect(promoted.versions == ["just selected"])
-
-    // Still nothing selected: fall back to the whole document.
-    var fallback = startedSession(capturedText: nil)
-    #expect(sessionSteps(&fallback, [
-        .start(scope: .document, hasSelection: false),
-        .frontmost(pid: sessionHostPid),
-        .freshSelection(nil),
-    ]) == [.probeFrontmost, .probeFreshSelection, .captureDocument])
-
-    // A session that already knows it has a selection goes straight to ⌘A.
-    var direct = startedSession()
-    #expect(sessionSteps(&direct, [
-        .start(scope: .document, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-    ]) == [.probeFrontmost, .captureDocument])
-}
-
-@Test("A manual edit between document cycles becomes the new baseline")
-func sessionDocumentScopeAdoptsManualEdits() {
+@Test("Document approval captures a fresh baseline and rejects a changed field")
+func sessionDocumentScopeAdoptsManualEdits() throws {
     var session = startedSession()
-    session.recordApplied(output: "generated", baseline: "original")
-    #expect(session.versions == ["original", "generated"])
-
-    var edited = session
-    #expect(sessionSteps(&edited, [
-        .start(scope: .document, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-        .document("the user typed over it"),
-    ]).last == .run(.init(
-        text: "the user typed over it", strategy: .entireDocument,
-        adoptedSelection: false, committedNewTarget: false)))
-    #expect(edited.versions == ["the user typed over it"], "a manual edit restarts the history")
-
-    // Unchanged text leaves the history alone.
-    var untouched = session
-    #expect(sessionSteps(&untouched, [
-        .start(scope: .document, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-        .document("generated"),
-    ]).last?.isRun == true)
-    #expect(untouched.versions == ["original", "generated"])
+    session.setScope(.document)
+    #expect(session.requestGeneration() == .requestDocumentApproval)
+    let target = EditSession.TargetID(pid: sessionHostPid, elementIdentifier: 10)
+    #expect(session.approveDocumentGeneration() == .captureDocument(target))
+    var stale = session
+    #expect(stale.acceptDocumentCapture(.captured(
+        text: "another field", target: .init(pid: sessionHostPid, elementIdentifier: 20)))
+        == .failure(.targetChanged))
+    guard case .send(let request) = session.acceptDocumentCapture(.captured(
+        text: "the user typed over it", target: target))
+    else { throw SessionTestError.unexpectedDecision }
+    #expect(request.text == "the user typed over it")
 }
 
-@Test("A fresh selection is adopted even when identical to the last result")
-func sessionAdoptsIdenticalFreshSelection() {
+@Test("Identical selection evidence keeps history but a moved range resets it")
+func sessionAdoptsIdenticalFreshSelection() throws {
     var session = startedSession()
-    session.recordApplied(output: "same words", baseline: "original")
-
-    let steps = sessionSteps(&session, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-        .freshSelection("same words"),
-    ])
-
-    // Adoption is unconditional and ahead of the baseline check: the same text
-    // can have been re-selected somewhere else, and the Target chip has to
-    // describe the span this run will actually send.
-    #expect(steps.last == liveRun("same words"))
-    #expect(session.versions == ["original", "same words"], "identical text is not a new baseline")
-
-    // Genuinely different text does restart the baseline.
-    var moved = startedSession()
-    moved.recordApplied(output: "same words", baseline: "original")
-    #expect(sessionSteps(&moved, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-        .freshSelection("a different sentence"),
-    ]).last == liveRun("a different sentence"))
-    #expect(moved.versions == ["a different sentence"])
-}
-
-@Test("The first selection cycle pastes over the live selection, later ones undo first")
-func sessionSelectionStrategyFollowsTheCycle() {
-    var first = startedSession()
-    #expect(sessionSteps(&first, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-    ]).last == liveRun("original", adopted: false), "the original selection is still live")
-
-    var later = startedSession()
-    later.recordApplied(output: "v1", baseline: "original")
-    #expect(sessionSteps(&later, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-        .freshSelection(nil),
-    ]) == [.probeFrontmost, .probeFreshSelection, .run(.init(
-        text: "v1", strategy: .undoThenPaste,
-        adoptedSelection: false, committedNewTarget: false))],
-    "exactly one paste stays outstanding")
+    try applySessionResult("same words", to: &session)
+    let target = EditSession.TargetID(pid: sessionHostPid, elementIdentifier: 10)
+    #expect(session.adopt(.selection(.init(
+        text: "same words", target: target, range: .init(location: 0, length: 10)))) == nil)
+    #expect(session.versionTexts == ["original", "same words"])
+    #expect(session.adopt(.selection(.init(
+        text: "same words", target: target, range: .init(location: 40, length: 10)))) == nil)
+    #expect(session.versionCount == 0)
 }
 
 @Test("Recording an applied result drops any forward history")
-func sessionRecordAppliedTruncatesForwardHistory() {
+func sessionRecordAppliedTruncatesForwardHistory() throws {
     var session = startedSession()
-    session.recordApplied(output: "v1", baseline: "original")
-    session.recordApplied(output: "v2", baseline: "v1")
-    #expect(session.versions == ["original", "v1", "v2"])
+    try applySessionResult("v1", to: &session)
+    try applySessionResult("v2", to: &session)
+    #expect(session.versionTexts == ["original", "v1", "v2"])
+    let navigation = session.navigation(to: 1)
+    let plan = try #require(navigation)
+    let finished = session.finishNavigation(plan, outcome: .applied(.init(
+        text: "v1", target: .selection(
+            target: plan.current.target, range: .init(location: 0, length: 2)))))
+    #expect(finished)
+    try applySessionResult("v3", to: &session)
+    #expect(session.versionTexts == ["original", "v1", "v3"])
     #expect(session.currentIndex == 2)
-
-    _ = session.navigate(to: 1, scope: .selection)
-    session.recordApplied(output: "v3", baseline: "v1")
-    #expect(session.versions == ["original", "v1", "v3"])
-    #expect(session.currentIndex == 2)
-
-    // A first result seeds the original from the baseline it replaced.
-    var seeded = startedSession()
-    seeded.recordApplied(output: "only", baseline: "the original text")
-    #expect(seeded.versions == ["the original text", "only"])
 }
 
-@Test("Navigation strategy follows the scope, including back to index 0")
-func sessionNavigationStrategyFollowsScope() {
+@Test("Navigation needs a valid version and does not commit on failure")
+func sessionNavigationRequiresVerifiedOutcome() throws {
     var session = startedSession()
-    session.recordApplied(output: "v1", baseline: "original")
-    session.recordApplied(output: "v2", baseline: "v1")
-
-    // Selection scope always undoes first, index 0 included, so exactly one
-    // paste stays outstanding.
-    #expect(session.navigate(to: 0, scope: .selection)?.strategy == .undoThenPaste)
-    #expect(session.currentIndex == 0)
-    #expect(session.navigate(to: 2, scope: .document)?.strategy == .entireDocument)
-    #expect(session.navigate(to: 1, scope: .selection)?.text == "v1")
-
-    // Nowhere to go.
-    #expect(session.navigate(to: 1, scope: .selection) == nil, "already there")
-    #expect(session.navigate(to: -1, scope: .selection) == nil)
-    #expect(session.navigate(to: 3, scope: .selection) == nil)
-    #expect(session.currentIndex == 1, "a refused move leaves the position alone")
+    try applySessionResult("v1", to: &session)
+    #expect(session.navigation(to: 1) == nil)
+    #expect(session.navigation(to: -1) == nil)
+    #expect(session.navigation(to: 2) == nil)
+    let navigation = session.navigation(to: 0)
+    let plan = try #require(navigation)
+    #expect(session.currentIndex == 1)
+    let finished = session.finishNavigation(plan, outcome: .failure(.operationFailed))
+    #expect(finished)
+    #expect(session.currentIndex == 1)
 }
 
 @Test("Nothing to edit aborts rather than sending empty text")
 func sessionAbortsWithNothingToEdit() {
     var noCapture = startedSession(capturedText: nil)
-    #expect(sessionSteps(&noCapture, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-    ]).last == .abort)
-
+    noCapture.setScope(.selection)
+    #expect(noCapture.requestGeneration() == .failure(.noSelection))
     var emptyCapture = startedSession(capturedText: "")
-    #expect(sessionSteps(&emptyCapture, [
-        .start(scope: .selection, hasSelection: true),
-        .frontmost(pid: sessionHostPid),
-    ]).last == .abort)
-
-    for empty: String? in [nil, ""] {
-        var document = startedSession()
-        #expect(sessionSteps(&document, [
-            .start(scope: .document, hasSelection: true),
-            .frontmost(pid: sessionHostPid),
-            .document(empty),
-        ]).last == .abort)
-    }
+    #expect(emptyCapture.requestGeneration() == .failure(.emptyInput))
 }
 
-@Test("Every resolution reaches a run or an abort, whatever the target reports")
-func sessionResolutionAlwaysTerminates() {
-    let answers: [String?] = [nil, "", "text"]
-    let pids: [pid_t?] = [nil, sessionHostPid, sessionOtherPid, sessionOwnPid]
-
-    for scope in [EditSession.Scope.selection, .document] {
-        for hasSelection in [true, false] {
-            for captured in answers {
-                for frontmost in pids {
-                    for newTarget in answers {
-                        for fresh in answers {
-                            for document in answers {
-                                var session = startedSession(capturedText: captured)
-                                session.recordApplied(output: "v1", baseline: "seed")
-                                var observation = EditSession.Observation
-                                    .start(scope: scope, hasSelection: hasSelection)
-                                var taken = 0
-                                var finished = false
-                                while taken < 8, !finished {
-                                    taken += 1
-                                    switch session.next(after: observation) {
-                                    case .probeFrontmost:
-                                        observation = .frontmost(pid: frontmost)
-                                    case .captureNewTarget:
-                                        observation = .newTarget(text: newTarget, pid: sessionOtherPid)
-                                    case .probeFreshSelection:
-                                        observation = .freshSelection(fresh)
-                                    case .captureDocument:
-                                        observation = .document(document)
-                                    case .run, .abort:
-                                        finished = true
-                                    }
-                                }
-                                #expect(finished, """
-                                    never settled — scope \(scope), hasSelection \(hasSelection), \
-                                    captured \(String(describing: captured)), \
-                                    frontmost \(String(describing: frontmost))
-                                    """)
-                                // The longest legitimate path: probe the
-                                // frontmost app, capture a new target that
-                                // turns out to hold no selection, probe for a
-                                // fresh selection, fall back to ⌘A, then run.
-                                #expect(taken <= 5, "a cycle should never need more than five steps")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private extension EditSession.Step {
-    var isRun: Bool {
-        if case .run = self { return true }
-        return false
-    }
+@Test("An in-flight request rejects another run and ignores late output after cancellation")
+func sessionRejectsOverlappingGeneration() throws {
+    var session = startedSession()
+    let first = try sessionRequest(&session)
+    #expect(session.requestGeneration() == .failure(.busy))
+    _ = session.cancel(at: .generation)
+    let second = try sessionRequest(&session)
+    #expect(first != second)
+    #expect(session.consider(.init(output: "late", for: first),
+        replacementConfirmationRequired: false) == .failure(.staleResult))
+    #expect(session.stage == .generating)
+    guard case .apply = session.consider(.init(output: "current", for: second),
+        replacementConfirmationRequired: false)
+    else { throw SessionTestError.unexpectedDecision }
 }

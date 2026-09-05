@@ -199,9 +199,15 @@ enum RibbonPlacement {
     /// the panel.
     static let standardWidth: CGFloat = 558
 
-    /// Custom's fixed width: four icon actions, a 428pt direction group, and equal
-    /// outer margins.
-    static let expandedWidth: CGFloat = 897
+    /// Custom's preferred width. It is wide enough for four stable presets,
+    /// a useful instruction field, and Run without turning into a screen-wide
+    /// bar. Placement may shrink it to `customMinimumWidth` when the selected
+    /// span or host is narrower.
+    static let expandedWidth: CGFloat = 780
+
+    /// The narrowest Custom layout that still leaves a four-line instruction
+    /// field and Run usable beside the four stable presets.
+    static let customMinimumWidth: CGFloat = 720
 
     /// …and never let placement get wider than this. On a 5K or ultrawide display a
     /// full-width lane is thousands of points of mostly empty ink. Capping and
@@ -389,7 +395,7 @@ enum RibbonPlacement {
             // directions. Sit at whichever end can still hold the lane as it
             // opens — see `crampedRoom` — rather than covering the head of the
             // block from the far end of the screen.
-            if max(below, above) >= crampedRoom {
+            if max(below, above) >= max(crampedRoom, height + selectionClearance) {
                 return below >= above ? .belowSelection : .aboveSelection
             }
 

@@ -44,6 +44,13 @@ final class RibbonWindow: NSObject {
     var onKeyDown: ((NSEvent) -> Bool)?
     /// Invoked by ⌘, — the app has no menu bar to own this shortcut.
     var onOpenSettings: (() -> Void)?
+    /// Invoked on any mouse activity over the lane — a click, or the pointer
+    /// simply moving across it. `EditCoordinator` has no view of AppKit mouse
+    /// events of its own (`RibbonWindow` owns the panel), so this is the seam
+    /// it uses to pause the post-apply auto-close beat the same way a
+    /// keystroke already does: a user reaching for Undo with the mouse is
+    /// still working the session, even before the click lands.
+    var onPointerActivity: (() -> Void)?
 
     init(model: PanelModel, settings: AppSettings) {
         self.model = model
@@ -314,7 +321,7 @@ final class RibbonWindow: NSObject {
                 ? RibbonPlacement.expandedWidth
                 : RibbonPlacement.standardWidth,
             minimumContentWidth: expanded
-                ? RibbonPlacement.expandedWidth
+                ? RibbonPlacement.customMinimumWidth
                 : RibbonPlacement.minimumWidth
         )
     }
@@ -452,25 +459,16 @@ final class RibbonWindow: NSObject {
                 model.moveFocus(move)
                 return true
             }
-            // Return activates the focused action. Direction answers its own
+            // Return activates the focused control. Direction answers its own
             // through `onSubmit`, so it is excluded or Custom would run twice.
+            // Every other cell — including the scope-approval and
+            // whole-document review gates' own buttons — is handled generically
+            // by focus rather than by phase, so Return always does exactly what
+            // clicking the focused control would, never a global fallback.
             if PanelKeyCommand.isPrimaryReturn(
-                keyCode: event.keyCode, modifiers: event.modifierFlags),
-                model.phase != .running, model.phase != .confirm
+                keyCode: event.keyCode, modifiers: event.modifierFlags)
             {
-                switch model.focusedCell {
-                case .none:
-                    return false
-                case .action(let index):
-                    model.activateAction(at: index)
-                    return true
-                case .run:
-                    guard model.canRunPrimary else { return false }
-                    model.runPrimary()
-                    return true
-                case .direction:
-                    return false
-                }
+                return self.activateFocusedCell()
             }
             return false
         }
@@ -482,9 +480,78 @@ final class RibbonWindow: NSObject {
             guard let model = self?.model else { return }
             // Mirror the Return key: inert while a request runs or a
             // whole-document replacement awaits confirmation.
-            guard model.phase != .running, model.phase != .confirm, model.canRunPrimary else { return }
+            guard !model.isLocked, model.canRunPrimary else { return }
             model.runPrimary()
         }
+        // Any pointer activity resets the coordinator's post-apply auto-close
+        // fuse, same as a keystroke — a user reaching for the mouse (to click
+        // Undo, say) is still working the session, not walking away from it.
+        panel.acceptsMouseMovedEvents = true
+        panel.onPointerActivity = { [weak self] in self?.onPointerActivity?() }
         return panel
+    }
+
+    /// Return's generic dispatch: invoke whatever the focused cell would do if
+    /// clicked. Mirrors each control's own click handler exactly, so Return
+    /// never becomes a second, divergent way to trigger the same control.
+    private func activateFocusedCell() -> Bool {
+        switch model.focusedCell {
+        case .none:
+            return false
+        case .action(let index):
+            if model.phase == .running, model.isActionSelected(at: index) {
+                model.onCancelRun?()
+            } else {
+                model.activateAction(at: index)
+            }
+            return true
+        case .run:
+            if model.phase == .running {
+                model.onCancelRun?()
+            } else {
+                guard model.canRunPrimary else { return false }
+                model.runPrimary()
+            }
+            return true
+        case .direction:
+            // The field answers its own Return through `onSubmit`.
+            return false
+        case .target:
+            model.toggleScope()
+            return true
+        case .scopeDecline:
+            model.onDeclinePending?()
+            return true
+        case .scopeApprove:
+            model.onApproveDocumentGeneration?()
+            return true
+        case .reviewDisclosure:
+            model.previewExpanded.toggle()
+            return true
+        case .reviewDecline:
+            model.onDeclinePending?()
+            return true
+        case .reviewApprove:
+            model.onConfirmApply?()
+            return true
+        case .appliedUndo:
+            _ = model.undoLastVersion()
+            return true
+        case .retainedDisclosure:
+            model.retainedResultExpanded.toggle()
+            return true
+        case .retainedCopy:
+            model.onCopyRetainedResult?()
+            return true
+        case .errorDetails:
+            model.errorDetailsExpanded.toggle()
+            return true
+        case .errorCopy:
+            model.copyErrorToPasteboard()
+            return true
+        case .errorRetry:
+            model.onRetry?()
+            return true
+        }
     }
 }

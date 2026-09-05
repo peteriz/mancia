@@ -1,20 +1,29 @@
 import Foundation
 
-/// Policy for pausing a completed edit for explicit confirmation before it is
-/// applied to the target document.
-///
-/// Only a whole-document replacement (⌘A then ⌘V) is gated: it overwrites the
-/// entire document, so a bad or injection-influenced result there is high
-/// blast-radius. A selection edit replaces only the text the user highlighted
-/// and is trivially undone, so it stays immediate. The gate is pure and
-/// side-effect free so the policy can be unit-tested away from the panel.
+/// Pure approval policy for whole-document edits.
 enum ApplyConfirmation {
-    /// Whether a finished edit should stop in the confirm phase before applying.
-    /// - Parameters:
-    ///   - isWholeDocument: the result would replace the entire document.
-    ///   - userOptedIn: the user has left whole-document confirmation enabled.
-    static func isRequired(isWholeDocument: Bool, userOptedIn: Bool) -> Bool {
+    /// Document text must not be captured or sent to the provider until the
+    /// user approves that scope. This gate is mandatory and independent of the
+    /// replacement-confirmation setting.
+    static func requiresGenerationApproval(isWholeDocument: Bool) -> Bool {
+        isWholeDocument
+    }
+
+    /// A completed document replacement may have a second approval gate. This
+    /// preserves the existing user setting without conflating it with consent
+    /// to send the document to the provider.
+    static func requiresReplacementApproval(
+        isWholeDocument: Bool,
+        userOptedIn: Bool
+    ) -> Bool {
         isWholeDocument && userOptedIn
+    }
+
+    /// Compatibility spelling for the existing replacement policy.
+    static func isRequired(isWholeDocument: Bool, userOptedIn: Bool) -> Bool {
+        requiresReplacementApproval(
+            isWholeDocument: isWholeDocument,
+            userOptedIn: userOptedIn)
     }
 
     /// A one-line, human-readable summary of the pending replacement's size
