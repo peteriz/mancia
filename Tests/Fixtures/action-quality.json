@@ -1,0 +1,96 @@
+[
+  {
+    "name": "coding-request-improve",
+    "action": "improve",
+    "input": "pls fix auth bug in Sources/Mancia/Auth.swift run make test and keep APIError.unauthorized",
+    "requiredLiterals": [
+      "Sources/Mancia/Auth.swift",
+      "make test",
+      "APIError.unauthorized"
+    ],
+    "forbiddenLiterals": [],
+    "review": "The result should read as a clear coding-agent request without inventing implementation details."
+  },
+  {
+    "name": "general-prose-improve",
+    "action": "improve",
+    "input": "The meeting was useful but the ending was kind of confusing for everyone.",
+    "requiredLiterals": [],
+    "forbiddenLiterals": [],
+    "review": "The result should remain ordinary prose rather than becoming a coding instruction."
+  },
+  {
+    "name": "negation-uncertainty-tighten",
+    "action": "tighten",
+    "input": "We probably should not remove retryCount = 3 unless the timeout is definitely below 200ms; however, do not change --no-remote.",
+    "requiredLiterals": [
+      "retryCount = 3",
+      "200ms",
+      "--no-remote"
+    ],
+    "forbiddenLiterals": [],
+    "review": "The shorter result must retain uncertainty, both negations, and the conditional exception."
+  },
+  {
+    "name": "technical-literals-sharpen",
+    "action": "sharpen",
+    "input": "Update /Users/example/app/config.json, run npm test -- --runInBand, and keep HTTP 429 handling in fetchUser(id:).",
+    "requiredLiterals": [
+      "/Users/example/app/config.json",
+      "npm test -- --runInBand",
+      "HTTP 429",
+      "fetchUser(id:)"
+    ],
+    "forbiddenLiterals": [],
+    "review": "The result should lead with the goal and preserve every technical literal exactly."
+  },
+  {
+    "name": "multilingual-sharpen",
+    "action": "sharpen",
+    "input": "Corrige el fallo en LoginView.swift, pero no cambies AuthService ni el texto \"Iniciar sesión\".",
+    "requiredLiterals": [
+      "LoginView.swift",
+      "AuthService",
+      "\"Iniciar sesión\""
+    ],
+    "forbiddenLiterals": [],
+    "review": "The result should remain Spanish and preserve the prohibition."
+  },
+  {
+    "name": "already-concise-no-op",
+    "action": "tighten",
+    "input": "Run make test. Do not change Package.swift.",
+    "requiredLiterals": [
+      "make test",
+      "Package.swift"
+    ],
+    "forbiddenLiterals": [],
+    "review": "An unchanged result is acceptable; no requirement should be weakened."
+  },
+  {
+    "name": "downstream-plan-request",
+    "action": "plan-first",
+    "input": "Add caching to ImageLoader.swift and verify memory use stays below 50 MB. Do not implement until I approve.",
+    "requiredLiterals": [
+      "ImageLoader.swift",
+      "50 MB"
+    ],
+    "forbiddenLiterals": [
+      "Here is the plan:"
+    ],
+    "review": "The result must ask the downstream agent for a short plan with goals and verifiers, then approval; it must not supply the plan."
+  },
+  {
+    "name": "intentional-custom-transformation",
+    "action": "custom:Translate to English and format as two Markdown bullets.",
+    "input": "Estado: listo. Ruta: /v1/users.",
+    "requiredLiterals": [
+      "/v1/users"
+    ],
+    "forbiddenLiterals": [
+      "Estado:",
+      "Ruta:"
+    ],
+    "review": "The result should intentionally change language and format while leaving the untargeted API path unchanged."
+  }
+]

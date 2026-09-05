@@ -234,7 +234,7 @@ func unsupportedModelEffortRetriesAtDefault() async throws {
     let settings = AppSettings(defaults: defaults, modelCatalog: { [] })
     let output = try await CopilotCLIProvider(settings: settings).complete("test")
 
-    #expect(output == "retried at model default")
+    #expect(output == "retried at model default\n")
     #expect(settings.reasoningEffort == "")
     #expect(defaults.string(forKey: "reasoningEffort") == "")
 }
@@ -1274,17 +1274,17 @@ func argvEnvFallback() {
 
 // MARK: - Output post-processing
 
-@Test("Post-processing trims surrounding whitespace")
-func postProcessTrims() {
-    #expect(CopilotCLIProvider.postProcess("  \n hello world \n ") == "hello world")
+@Test("Provider output preserves surrounding whitespace")
+func postProcessPreservesBoundaries() {
+    #expect(CopilotCLIProvider.postProcess("  \n hello world \n ") == "  \n hello world \n ")
 }
 
-@Test("Post-processing strips a wrapping code fence, keeping inner content")
-func postProcessStripsFence() {
+@Test("Provider leaves fence interpretation to the action")
+func postProcessPreservesFence() {
     let fenced = "```\nline one\nline two\n```"
-    #expect(CopilotCLIProvider.postProcess(fenced) == "line one\nline two")
+    #expect(CopilotCLIProvider.postProcess(fenced) == fenced)
     let langFenced = "```swift\nlet x = 1\n```"
-    #expect(CopilotCLIProvider.postProcess(langFenced) == "let x = 1")
+    #expect(CopilotCLIProvider.postProcess(langFenced) == langFenced)
 }
 
 @Test("Post-processing leaves fence-free text untouched")
