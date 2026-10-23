@@ -124,7 +124,21 @@ actor CopilotACPClient: CopilotACPClientProtocol {
         let output = chunksBySession.removeValue(forKey: sessionID)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !output.isEmpty else { throw ProviderError.emptyOutput }
+        if Self.isCLIFailureReply(output) {
+            throw ProviderError.nonZeroExit(1, output)
+        }
         return output
+    }
+
+    /// Some CLI builds report a failed turn as ordinary reply text ("Warning:
+    /// …" then "Error: No response was returned…", streamed with no break
+    /// between them) and still end with `end_turn`. Treat such a reply as a
+    /// failure, so the provider falls back to the one-shot CLI instead of
+    /// pasting the message into the document. A false positive only costs
+    /// that one-shot rerun.
+    static func isCLIFailureReply(_ output: String) -> Bool {
+        (output.hasPrefix("Warning: ") || output.hasPrefix("Error: "))
+            && output.contains("Error: ")
     }
 
     func stop() async {

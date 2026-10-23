@@ -192,7 +192,7 @@ func argvAlwaysSandboxed() {
                     #expect(args.contains("--no-custom-instructions"))
                     // Ambient MCP and remote-session context stay off.
                     #expect(args.contains("--disable-builtin-mcps"))
-                    #expect(args.contains("--no-remote"))
+                    #expect(!args.contains("--no-remote"))
                 }
             }
         }
@@ -636,7 +636,7 @@ func argvHasEmptyAvailableTools() {
     #expect(args.contains("--no-color"))
     #expect(args.contains("--no-custom-instructions"))
     #expect(args.contains("--disable-builtin-mcps"))
-    #expect(args.contains("--no-remote"))
+    #expect(!args.contains("--no-remote"))
     // prompt is passed as its own element right after -p
     let promptIndex = args.firstIndex(of: "-p")
     #expect(promptIndex != nil)
@@ -653,7 +653,7 @@ func acpArgvDisablesAmbientContext() {
     #expect(args.contains("--available-tools="))
     #expect(args.contains("--no-custom-instructions"))
     #expect(args.contains("--disable-builtin-mcps"))
-    #expect(args.contains("--no-remote"))
+    #expect(!args.contains("--no-remote"))
     #expect(args.contains("--model"))
     #expect(args.contains("gpt-5.4-mini"))
     #expect(args.contains("--reasoning-effort"))
@@ -780,6 +780,18 @@ func acpResponseParsing() {
     let doneLine = #"{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}"#
     #expect(CopilotACPClient.stopReason(fromPromptResponse: doneLine) == "end_turn")
     #expect(CopilotACPClient.stopReason(fromPromptResponse: #"{"result":{}}"#) == nil)
+}
+
+@Test("ACP replies that are CLI error text count as failures")
+func acpFailureReplyDetection() {
+    let streamed = "Warning: Static system messages and tool definitions exceed the model's"
+        + " usable context budget. Reduce static context or switch to a larger-context model."
+        + "Error: No response was returned. Send your message again to retry."
+    #expect(CopilotACPClient.isCLIFailureReply(streamed))
+    #expect(CopilotACPClient.isCLIFailureReply("Error: No response was returned."))
+    #expect(!CopilotACPClient.isCLIFailureReply("They're going to the store."))
+    #expect(!CopilotACPClient.isCLIFailureReply("Warning: wet floor."))
+    #expect(!CopilotACPClient.isCLIFailureReply("Fix the Error: handling in parse()."))
 }
 
 @Test("ACP update parsing extracts only text message chunks")

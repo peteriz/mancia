@@ -119,7 +119,6 @@ final class CopilotCLIProvider: LLMProvider {
             "--no-custom-instructions",
             "--available-tools=",
             "--disable-builtin-mcps",
-            "--no-remote",
         ]
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
         if !trimmedModel.isEmpty { args += ["--model", trimmedModel] }
@@ -140,7 +139,6 @@ final class CopilotCLIProvider: LLMProvider {
             "--no-custom-instructions",
             "--available-tools=",
             "--disable-builtin-mcps",
-            "--no-remote",
         ]
         let trimmedModel = model.trimmingCharacters(in: .whitespaces)
         if !trimmedModel.isEmpty { args += ["--model", trimmedModel] }
