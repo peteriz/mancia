@@ -78,6 +78,8 @@ final class EditCoordinator {
         model.onPerform = { [weak self] action, note in
             self?.perform(action, note: note)
         }
+        model.presetGroup = settings.presetGroup
+        model.onPresetGroupChange = { [weak self] group in self?.settings.presetGroup = group }
         model.onScopeChange = { [weak self] scope in
             self?.scopeChanged(scope)
         }

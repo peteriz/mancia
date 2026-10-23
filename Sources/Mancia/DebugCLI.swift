@@ -102,7 +102,7 @@ enum DebugCLI {
     private static func complete(actionArg: String) async {
         guard let action = EditAction.parse(actionArg) else {
             printErr(
-                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|rewrite|summarize|fix-grammar|custom:<instruction>."
+                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|proofread|unslop|ste|markdown|rewrite|summarize|custom:<instruction>."
             )
             exit(2)
         }
@@ -339,6 +339,57 @@ enum DebugCLI {
                 failures.append("click (\(identifier)): expected \(expectedTitle), got \(titles)")
             }
         }
+
+        // MARK: preset groups
+
+        func clickPresetGroupChip() async {
+            guard let chip = axElement(id: "PresetGroup", in: axWindow),
+                  let frame = await windowFrame(of: chip, panel: panel)
+            else {
+                failures.append("idle: could not locate PresetGroup via accessibility")
+                return
+            }
+            click(panel, at: frame.center)
+            await settle()
+        }
+        await clickPresetGroupChip()
+        log.append("click (PresetGroup): now \(model.presetGroup.title)")
+        if model.presetGroup != .writing {
+            failures.append("click (PresetGroup): expected Writing, got \(model.presetGroup.title)")
+        }
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        await checkBounds("writing")
+        for (index, preset) in PresetGroup.writing.presets.enumerated() {
+            let identifier = "Action-\(index + 1)"
+            guard let element = axElement(id: identifier, in: axWindow),
+                  let frame = await windowFrame(of: element, panel: panel)
+            else {
+                failures.append("writing: could not locate \(identifier) via accessibility")
+                continue
+            }
+            ran.removeAll()
+            click(panel, at: frame.center)
+            await settle()
+            let titles = ran.map(\.action.title)
+            log.append("click (writing \(identifier)): ran \(titles.isEmpty ? "NOTHING" : titles.joined(separator: ", "))")
+            if titles != [preset.action.title] {
+                failures.append("click (writing \(identifier)): expected \(preset.action.title), got \(titles)")
+            }
+            // The running label is the widest thing a button shows.
+            model.phase = .running
+            resize(panel: panel, hosting: hosting, model: model)
+            await settle()
+            await checkBounds("writing running \(preset.title)")
+            model.phase = .idle
+        }
+        await clickPresetGroupChip()
+        if model.presetGroup != .prompt {
+            failures.append("click (PresetGroup): expected to wrap back to Prompt, got \(model.presetGroup.title)")
+        }
+        model.selectPreset(at: 1)
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
 
         model.phase = .running
         for stage in ["Reading selection", "Reading document", "Improving", "Applying", "Restoring version"] {

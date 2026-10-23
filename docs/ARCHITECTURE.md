@@ -33,7 +33,8 @@ Sources/Mancia/
 │   ├── KeyablePanel.swift        NSPanel subclass that can take key status while the
 │   │                             target app stays active (.nonactivatingPanel)
 │   ├── Palette.swift             Shared color tokens
-│   ├── PanelPreset.swift         Improve / Sharpen / Plan first / Tighten
+│   ├── PanelPreset.swift         The named presets (one EditAction + button title each)
+│   ├── PresetGroup.swift         Preset sets the strip switches between: Prompt, Writing
 │   └── PanelKeyCommand.swift     ⌘-shortcut and focus-move mapping for the editing surface
 │                                 (no menu bar, so it resolves Edit-menu-style key
 │                                 equivalents itself)
@@ -150,7 +151,7 @@ results share the same ribbon rather than separate windows.
 is the authority for Tab order and focus rings, including recovery and
 approval controls. Return activates the focused control, not an unconditional
 document replacement. Command-number shortcuts retain their action order;
-Command-T changes scope only when permitted. Escape backs out of the current
+Command-T changes scope only when permitted; Command-G cycles the preset group. Escape backs out of the current
 run or pending approval; Command-W closes the session.
 
 ## The `LLMProvider` protocol
@@ -369,13 +370,20 @@ prompt):
   the lane, and `plan-first` for **Plan first**.)
 
 `PromptBuilder` keeps every Copilot prompt template in `Actions.swift`. Improve,
-Sharpen, Plan first, Tighten, Proofread, Rewrite, and Summarize each use a named
+Sharpen, Plan first, Tighten, Proofread, Unslop, STE, Markdown, Rewrite, and
+Summarize each use a named
 `PromptTemplate`; Custom uses the same structure with the user's instruction in
 its own delimited section. Every rendered prompt has `Task`, `Requirements`, and
 delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
-The dropdown presets past Improve target text written for coding agents, and all
+The action strip shows one `PresetGroup` at a time — four presets in slots
+1…4, then Custom. The chip beside the target chip (or ⌘G) cycles groups;
+`PanelModel.presetGroup` survives `reset`, and `AppSettings.presetGroup`
+persists it. Adding a group means defining it in `PresetGroup.swift` with
+exactly `slotCount` presets and appending it to `PresetGroup.all`.
+
+The **Prompt** group's presets past Improve target text written for coding agents, and all
 three restructure rather than generate — they are forbidden from inventing
 requirements, which both protects the prompt's meaning and keeps output roughly
 input-sized (and so keeps the edit fast):
@@ -386,6 +394,19 @@ input-sized (and so keeps the edit fast):
   investigate-then-plan request, without answering it.
 - **Tighten** — shortest faithful version; cuts filler only, and unlike
   Summarize may not drop any requirement.
+
+The **Writing** group targets prose written for people:
+
+- **Proofread** — spelling, grammar, and punctuation only.
+- **Unslop** — removes AI-writing tells (inflated vocabulary, filler and
+  hedging, "not just X, it's Y", chatbot phrasing, em dashes) without adding
+  content; returns human-sounding text unchanged.
+- **STE** — rewrites in ASD-STE100 Simplified Technical English: short
+  sentences, one instruction per sentence, imperative, active voice, one term
+  per concept. The template asks for the dictionary's intent (common words, one
+  meaning) since the model cannot check the official word list.
+- **Markdown** — structures loose notes as GitHub-flavored Markdown (headings,
+  lists, backticked identifiers, fenced logs) without rewording them.
 
 Both run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no

@@ -27,6 +27,8 @@ enum PanelKeyCommand: Equatable {
     /// the user had selected. A two-state control is served just as well by one
     /// key, and `T` survives keyboard layouts that a shifted digit would not.
     case toggleTarget
+    /// ⌘G — switch the action strip to the next preset group.
+    case cyclePresetGroup
 
     /// Pure mapping from a key event's characters + modifiers, kept separate
     /// from NSEvent so it is unit-testable.
@@ -44,6 +46,7 @@ enum PanelKeyCommand: Equatable {
         case (",", [.command]): return .openSettings
         case ("\r", [.command]): return .submit
         case ("t", [.command]): return .toggleTarget
+        case ("g", [.command]): return .cyclePresetGroup
         case ("1", []): return .activateAction(0)
         case ("2", []): return .activateAction(1)
         case ("3", []): return .activateAction(2)

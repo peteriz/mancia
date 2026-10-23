@@ -5,8 +5,9 @@
 > [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
 > behavior. The sections below are not the current implementation contract.
 >
-> Today the ribbon keeps Improve, Sharpen, Plan first, Tighten, and Custom in
-> a stable order, with a visible target and a multiline Custom editor.
+> Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
+> first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
+> a stable order, switched by a chip beside the target (⌘G), with a visible target and a multiline Custom editor.
 > Whole-document access requires approval before capture and generation.
 > Replacement has a separate, configurable confirmation with an original/result
 > comparison. Applying and navigating versions require matching Accessibility
@@ -47,6 +48,7 @@ Mancia/
 │   │   ├── KeyablePanel.swift     # non-activating NSPanel that can take key status
 │   │   ├── PanelKeyCommand.swift  # ⌘-shortcut and focus-move mapping
 │   │   ├── PanelPreset.swift      # the specialized presets
+│   │   ├── PresetGroup.swift      # the preset sets the strip switches between
 │   │   └── Palette.swift          # shared color tokens
 │   ├── Ribbon/
 │   │   ├── RibbonWindow.swift     # hosts and places the lane

@@ -154,8 +154,9 @@ struct RibbonView: View {
     /// height, which the lane already resizes to per phase, rather than width,
     /// which `RibbonPlacement` has already budgeted down to the point.
     private var targetRow: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 6) {
             targetChip
+            presetGroupChip
             Spacer(minLength: 0)
             if model.phase == .running {
                 Text(runningLabel)
@@ -202,6 +203,45 @@ struct RibbonView: View {
         .accessibilityValue(targetChipLabel)
         .accessibilityHint(targetChipHelp)
         .accessibilityIdentifier("Target")
+    }
+
+    /// Switches the action strip between preset groups. Sits beside the
+    /// target chip because both answer "what will the buttons below do", and
+    /// shares its styling so the two read as one strip of session settings.
+    private var presetGroupChip: some View {
+        let group = model.presetGroup
+        let help = "\(group.summary). Click or Command G for \(group.next.title)."
+        return Button {
+            model.cyclePresetGroup()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: group.symbol)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(group.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(RibbonPalette.caption)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .background(Capsule(style: .continuous).fill(RibbonPalette.controlTint))
+        .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+        .disabled(locked)
+        .opacity(locked ? 0.5 : 1)
+        .focusable()
+        .focused($focus, equals: .presetGroup)
+        .ribbonFocusRing(model.focusedCell == .presetGroup, radius: 8, inset: -2)
+        .help(help)
+        .accessibilityLabel("Action set")
+        .accessibilityValue(group.title)
+        .accessibilityHint(help)
+        .accessibilityIdentifier("PresetGroup")
     }
 
     private var targetChipLabel: String {

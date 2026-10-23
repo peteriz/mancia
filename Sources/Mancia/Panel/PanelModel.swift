@@ -37,6 +37,7 @@ final class PanelModel {
         case direction
         case run
         case target
+        case presetGroup
         case scopeDecline
         case scopeApprove
         case reviewDisclosure
@@ -50,11 +51,11 @@ final class PanelModel {
         case errorRetry
     }
     /// The action described by the ribbon right now. Explicit selection keeps
-    /// an empty Custom field distinct from the default Improve action.
+    /// an empty Custom field distinct from the group's first preset.
     enum ActionChoice: Equatable { case preset(PanelPreset), custom }
 
-    /// Custom follows the four presets in the default strip and owns shortcut 5.
-    static let customActionIndex = PanelPreset.all.count
+    /// Custom follows the group's four presets and owns shortcut 5.
+    static let customActionIndex = PresetGroup.slotCount
     static let actionIndices = Array(0...customActionIndex)
 
     var phase: Phase = .idle {
@@ -91,6 +92,9 @@ final class PanelModel {
     var capturing = false
     var instruction = ""
     var actionChoice: ActionChoice = .preset(.improve)
+    /// The preset set on the action strip. Survives `reset` so a session opens
+    /// on the set the user last chose; the coordinator persists it.
+    var presetGroup: PresetGroup = .prompt
     var runningTitle = ""
     var errorText = ""
     /// Describes a whole-document generation request without exposing or
@@ -158,6 +162,7 @@ final class PanelModel {
     /// Run an action, optionally with guidance the user typed alongside it.
     var onPerform: ((EditAction, String?) -> Void)?
     var onScopeChange: ((Scope) -> Void)?
+    var onPresetGroupChange: ((PresetGroup) -> Void)?
     /// Restore the previous applied version. The instruction field gets first
     /// refusal on ⌘Z; this is the fallback once its own undo stack is empty.
     var onUndoVersion: (() -> Bool)?
@@ -205,7 +210,7 @@ final class PanelModel {
         scope = hasSelection ? .selection : .document
         capturing = false
         instruction = ""
-        actionChoice = .preset(.improve)
+        actionChoice = defaultActionChoice
         runningTitle = ""
         errorText = ""
         pendingScopeApprovalActionTitle = ""
@@ -245,11 +250,35 @@ final class PanelModel {
         setScope(scope == .selection ? .document : .selection)
     }
 
+    /// The presets the strip shows right now, in slot order.
+    var presets: [PanelPreset] { presetGroup.presets }
+
+    /// The first preset of the current group — what a fresh strip highlights.
+    private var defaultActionChoice: ActionChoice { .preset(presets[0]) }
+
+    /// The group switcher and ⌘G. A selected preset hands its slot over to the
+    /// new group's preset in the same position, so focus does not jump.
+    func selectPresetGroup(_ group: PresetGroup) {
+        guard !isLocked, group != presetGroup else { return }
+        let slot: Int? = if case .preset(let preset) = actionChoice {
+            presets.firstIndex(of: preset)
+        } else {
+            nil
+        }
+        presetGroup = group
+        if let slot { actionChoice = .preset(presets[min(slot, presets.count - 1)]) }
+        onPresetGroupChange?(group)
+    }
+
+    func cyclePresetGroup() {
+        selectPresetGroup(presetGroup.next)
+    }
+
     /// Select a preset without running it. Kept separate from activation for
     /// state restoration and tests; visible action buttons use `activateAction`.
     func selectPreset(at index: Int) {
-        guard !isLocked, PanelPreset.all.indices.contains(index) else { return }
-        actionChoice = .preset(PanelPreset.all[index])
+        guard !isLocked, presets.indices.contains(index) else { return }
+        actionChoice = .preset(presets[index])
         returnFocusToPrimaryControl()
     }
 
@@ -264,8 +293,8 @@ final class PanelModel {
     /// replaces its button with the field and hands focus to it.
     func activateAction(at index: Int) {
         guard !isLocked else { return }
-        if PanelPreset.keyboardActions.indices.contains(index) {
-            let preset = PanelPreset.keyboardActions[index]
+        if presets.indices.contains(index) {
+            let preset = presets[index]
             actionChoice = .preset(preset)
             returnFocusToPrimaryControl()
             onPerform?(preset.action, nil)
@@ -298,7 +327,7 @@ final class PanelModel {
     var primaryFocusCell: Cell {
         switch actionChoice {
         case .preset(let preset):
-            return .action(PanelPreset.all.firstIndex(of: preset) ?? 0)
+            return .action(presets.firstIndex(of: preset) ?? 0)
         case .custom:
             return .direction
         }
@@ -309,7 +338,7 @@ final class PanelModel {
     private var runningFocusCell: Cell {
         switch actionChoice {
         case .preset(let preset):
-            return .action(PanelPreset.all.firstIndex(of: preset) ?? 0)
+            return .action(presets.firstIndex(of: preset) ?? 0)
         case .custom:
             return .run
         }
@@ -374,6 +403,7 @@ final class PanelModel {
         }
         if isCustomInstructionSelected { cells.append(.run) }
         if targetChipEnabled { cells.append(.target) }
+        cells.append(.presetGroup)
         return cells
     }
 
@@ -383,12 +413,12 @@ final class PanelModel {
     }
 
     func actionTitle(at index: Int) -> String? {
-        if PanelPreset.all.indices.contains(index) { return PanelPreset.all[index].title }
+        if presets.indices.contains(index) { return presets[index].title }
         return index == Self.customActionIndex ? "Custom" : nil
     }
 
     func actionSymbol(at index: Int) -> String? {
-        if PanelPreset.all.indices.contains(index) { return PanelPreset.all[index].action.symbol }
+        if presets.indices.contains(index) { return presets[index].action.symbol }
         return index == Self.customActionIndex ? EditAction.custom("").symbol : nil
     }
 
@@ -401,8 +431,8 @@ final class PanelModel {
 
     /// Reserved beside the idle label so status changes never resize the strip.
     func actionProgressLabel(at index: Int) -> String? {
-        if PanelPreset.all.indices.contains(index) {
-            return PanelPreset.all[index].action.progressLabel
+        if presets.indices.contains(index) {
+            return presets[index].action.progressLabel
         }
         return index == Self.customActionIndex ? EditAction.custom("").progressLabel : nil
     }
@@ -424,7 +454,7 @@ final class PanelModel {
     func isActionSelected(at index: Int) -> Bool {
         switch actionChoice {
         case .preset(let selected):
-            return PanelPreset.all.indices.contains(index) && PanelPreset.all[index] == selected
+            return presets.indices.contains(index) && presets[index] == selected
         case .custom:
             return index == Self.customActionIndex
         }
@@ -460,12 +490,16 @@ final class PanelModel {
     /// these mirror the wording `PanelPreset` and `EditAction` already
     /// document, so a tooltip and the action's real behavior cannot drift.
     func actionDescription(at index: Int) -> String? {
-        if PanelPreset.all.indices.contains(index) {
-            switch PanelPreset.all[index].action {
+        if presets.indices.contains(index) {
+            switch presets[index].action {
             case .improve: return "General proofread and rewrite"
             case .sharpen: return "Restructure text written for a coding agent"
             case .planFirst: return "Ask for a short plan with goals and verifiers"
             case .tighten: return "Compress without losing requirements"
+            case .fixGrammar: return "Fix spelling, grammar, and punctuation only"
+            case .unslop: return "Strip AI-writing tells and filler"
+            case .ste: return "Rewrite in ASD-STE100 Simplified Technical English"
+            case .markdown: return "Structure as GitHub-flavored Markdown"
             default: return nil
             }
         }
@@ -531,7 +565,7 @@ final class PanelModel {
     /// Return to the buttons-only default after an edit lands. A Custom draft
     /// survives for the rest of the session and is cleared by `reset`.
     func restoreButtonsAfterApply() {
-        actionChoice = .preset(.improve)
+        actionChoice = defaultActionChoice
         focusedCell = .none
     }
 }

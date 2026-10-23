@@ -18,6 +18,7 @@ final class KeyablePanel: NSPanel {
     var onSubmit: (() -> Void)?
     /// ⌘T — swap the target between the selection and the whole document.
     var onToggleTarget: (() -> Void)?
+    var onCyclePresetGroup: (() -> Void)?
     /// 1…5 — activate an action while focused, except when editing text.
     var onActivateAction: ((Int) -> Void)?
     /// ⌘Z after the instruction field has exhausted its own undo stack.
@@ -88,6 +89,7 @@ final class KeyablePanel: NSPanel {
         case .openSettings: onOpenSettings?()
         case .submit: onSubmit?()
         case .toggleTarget: onToggleTarget?()
+        case .cyclePresetGroup: onCyclePresetGroup?()
         case .activateAction(let index): onActivateAction?(index)
         }
         // Always consume a recognized shortcut, like a menu item would —

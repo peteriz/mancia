@@ -473,6 +473,7 @@ final class RibbonWindow: NSObject {
             return false
         }
         panel.onToggleTarget = { [weak self] in self?.model.toggleScope() }
+        panel.onCyclePresetGroup = { [weak self] in self?.model.cyclePresetGroup() }
         panel.onActivateAction = { [weak self] index in self?.model.activateAction(at: index) }
         panel.onUndoVersion = { [weak self] in self?.model.undoLastVersion() ?? false }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
@@ -518,6 +519,9 @@ final class RibbonWindow: NSObject {
             return false
         case .target:
             model.toggleScope()
+            return true
+        case .presetGroup:
+            model.cyclePresetGroup()
             return true
         case .scopeDecline:
             model.onDeclinePending?()

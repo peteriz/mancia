@@ -39,6 +39,7 @@ final class AppSettings {
         static let postApplyBehavior = "postApplyBehavior"
         static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
         static let swooshColor = "swooshColor"
+        static let presetGroup = "presetGroup"
     }
 
     private let defaults: UserDefaults
@@ -94,6 +95,10 @@ final class AppSettings {
     }
     /// True while the swoosh still runs in the stock color.
     var swooshColorIsDefault: Bool { swooshColorHex == Self.defaultSwooshColorHex }
+    /// The ribbon's last-chosen preset group, so the next session opens on it.
+    var presetGroup: PresetGroup {
+        didSet { defaults.set(presetGroup.id, forKey: Key.presetGroup) }
+    }
 
     /// Designated initializer. `modelCatalog` is injected (rather than always
     /// reading `~/.copilot/data.db` directly) so the first-run recommendation
@@ -157,6 +162,7 @@ final class AppSettings {
         self.confirmWholeDocumentReplace =
             defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
         self.swooshColorHex = Self.normalizedColorHex(defaults.string(forKey: Key.swooshColor))
+        self.presetGroup = PresetGroup.group(id: defaults.string(forKey: Key.presetGroup))
     }
 
     // MARK: - Swoosh color
