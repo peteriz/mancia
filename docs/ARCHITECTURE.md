@@ -179,7 +179,7 @@ the places that need completion or availability checks.
   cancellation and timeout stop the request.
 
 Both paths run in private empty temp directories and use the same ambient-context
-disable flags: `--available-tools=`, `--disable-builtin-mcps`, `--no-remote`,
+disable flags: `--available-tools=`, `--disable-builtin-mcps`,
 and `--no-custom-instructions`.
 
 Availability probing runs `copilot --version`. Success means **Installed**,
@@ -257,7 +257,7 @@ instruction:
 - **Sandboxed provider (the real boundary).** Every completion runs through
   either `copilot --acp --stdio` or the one-shot `copilot -p` fallback in a
   private empty temp `cwd`. Both paths pass
-  `--available-tools= --disable-builtin-mcps --no-remote --no-custom-instructions`;
+  `--available-tools= --disable-builtin-mcps --no-custom-instructions`;
   the prompt is sent as ACP JSON-RPC text or as one single `-p` argv element
   (never through a shell). The model therefore has no tools, no repo context, no
   remote-session context, and no shell — the blast radius is "text in, text out".
@@ -378,9 +378,12 @@ delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
 The action strip shows one `PresetGroup` at a time — four presets in slots
-1…4, then Custom. The chip beside the target chip (or ⌘G) cycles groups;
-`PanelModel.presetGroup` survives `reset`, and `AppSettings.presetGroup`
-persists it. Adding a group means defining it in `PresetGroup.swift` with
+1…4, then Custom. A segmented toggle beside the target chip selects the
+group (⌘G cycles it); `PanelModel.presetGroup` survives `reset`, and
+`AppSettings.presetGroup` persists it. Each action slot is sized to the widest
+title or running label any group can show there
+(`PanelModel.actionLabelCandidates`), so switching groups or starting a run
+never moves a button. Adding a group means defining it in `PresetGroup.swift` with
 exactly `slotCount` presets and appending it to `PresetGroup.all`.
 
 The **Prompt** group's presets past Improve target text written for coding agents, and all

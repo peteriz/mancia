@@ -7,7 +7,7 @@
 >
 > Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
 > first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
-> a stable order, switched by a chip beside the target (⌘G), with a visible target and a multiline Custom editor.
+> a stable order, switched by a segmented toggle beside the target (⌘G), with a visible target and a multiline Custom editor.
 > Whole-document access requires approval before capture and generation.
 > Replacement has a separate, configurable confirmation with an original/result
 > comparison. Applying and navigating versions require matching Accessibility
@@ -205,7 +205,7 @@ the coordinator, status menu, settings view, and debug CLI.
   cancellation does not.
 - **Important:** pass `--available-tools=` as a *single argv element* (empty
   value) in both paths — it disables all agent tools. Both paths also pass
-  `--disable-builtin-mcps`, `--no-remote`, and `--no-custom-instructions`.
+  `--disable-builtin-mcps`, and `--no-custom-instructions`.
 - Working directory: a private empty temp dir in both paths (avoid the CLI
   scanning a repo).
 - 90 s prompt timeout via structured concurrency; kill the one-shot process on

@@ -430,6 +430,22 @@ final class PanelModel {
     }
 
     /// Reserved beside the idle label so status changes never resize the strip.
+    /// Every label slot `index` can show in any group or phase. The ribbon
+    /// sizes each slot to the widest of these so switching groups or starting
+    /// a run never moves a button.
+    func actionLabelCandidates(at index: Int) -> [String] {
+        guard Self.actionIndices.contains(index) else { return [] }
+        var labels = ["Cancel", "\(index + 1)"]
+        if index == Self.customActionIndex {
+            labels += ["Custom", EditAction.custom("").progressLabel]
+        }
+        for group in PresetGroup.all where group.presets.indices.contains(index) {
+            let preset = group.presets[index]
+            labels += [preset.title, preset.action.progressLabel]
+        }
+        return labels
+    }
+
     func actionProgressLabel(at index: Int) -> String? {
         if presets.indices.contains(index) {
             return presets[index].action.progressLabel

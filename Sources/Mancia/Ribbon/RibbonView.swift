@@ -205,31 +205,20 @@ struct RibbonView: View {
         .accessibilityIdentifier("Target")
     }
 
-    /// Switches the action strip between preset groups. Sits beside the
-    /// target chip because both answer "what will the buttons below do", and
-    /// shares its styling so the two read as one strip of session settings.
+    /// A segmented toggle between preset groups, one segment per group, so
+    /// every set is visible and the active one is plainly marked. Sits beside
+    /// the target chip because both answer "what will the buttons below do",
+    /// and shares its capsule styling so the two read as one strip of session
+    /// settings. Keyboard focus lands on the whole toggle; Return and ⌘G
+    /// advance it.
     private var presetGroupChip: some View {
-        let group = model.presetGroup
-        let help = "\(group.summary). Click or Command G for \(group.next.title)."
-        return Button {
-            model.cyclePresetGroup()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: group.symbol)
-                    .font(.system(size: 10, weight: .semibold))
-                Text(group.title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .lineLimit(1)
-                    .fixedSize()
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+        HStack(spacing: 2) {
+            ForEach(PresetGroup.all) { group in
+                presetGroupSegment(group)
             }
-            .foregroundStyle(RibbonPalette.caption)
-            .padding(.horizontal, 9)
-            .frame(height: 22)
-            .contentShape(Capsule(style: .continuous))
         }
-        .buttonStyle(.plain)
+        .padding(2)
+        .frame(height: 22)
         .background(Capsule(style: .continuous).fill(RibbonPalette.controlTint))
         .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
         .disabled(locked)
@@ -237,11 +226,46 @@ struct RibbonView: View {
         .focusable()
         .focused($focus, equals: .presetGroup)
         .ribbonFocusRing(model.focusedCell == .presetGroup, radius: 8, inset: -2)
-        .help(help)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Action set")
-        .accessibilityValue(group.title)
-        .accessibilityHint(help)
+        .accessibilityValue(model.presetGroup.title)
         .accessibilityIdentifier("PresetGroup")
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.presetGroup)
+    }
+
+    private func presetGroupSegment(_ group: PresetGroup) -> some View {
+        let selected = model.presetGroup == group
+        return Button {
+            model.selectPresetGroup(group)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: group.symbol)
+                    .font(.system(size: 9, weight: .semibold))
+                Text(group.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(selected ? RibbonPalette.text : RibbonPalette.caption)
+            .padding(.horizontal, 8)
+            .frame(maxHeight: .infinity)
+            .background {
+                if selected {
+                    Capsule(style: .continuous)
+                        .fill(RibbonPalette.controlHoverTint)
+                        .overlay(Capsule(style: .continuous)
+                            .strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+                }
+            }
+            .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help("\(group.summary). Command G switches sets.")
+        .accessibilityLabel(group.title)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("PresetGroup-\(group.id)")
     }
 
     private var targetChipLabel: String {
@@ -333,6 +357,9 @@ struct RibbonView: View {
                     .foregroundStyle(RibbonPalette.symbol)
                     .frame(width: 14)
                 ZStack {
+                    ForEach(model.actionLabelCandidates(at: index), id: \.self) { label in
+                        Text(label).hidden()
+                    }
                     Text(title).opacity(!processing && !showShortcut ? 1 : 0)
                     Text(shortcut).opacity(showShortcut ? 1 : 0)
                     Text(status).opacity(processing && !isHovered ? 1 : 0)
@@ -342,7 +369,7 @@ struct RibbonView: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(RibbonPalette.text)
             .lineLimit(1)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 9)
             .frame(height: controlHeight)
             .contentShape(Rectangle())
         }

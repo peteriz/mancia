@@ -342,23 +342,40 @@ enum DebugCLI {
 
         // MARK: preset groups
 
-        func clickPresetGroupChip() async {
-            guard let chip = axElement(id: "PresetGroup", in: axWindow),
-                  let frame = await windowFrame(of: chip, panel: panel)
+        func clickPresetGroup(_ group: PresetGroup) async {
+            let identifier = "PresetGroup-\(group.id)"
+            guard let segment = axElement(id: identifier, in: axWindow),
+                  let frame = await windowFrame(of: segment, panel: panel)
             else {
-                failures.append("idle: could not locate PresetGroup via accessibility")
+                failures.append("idle: could not locate \(identifier) via accessibility")
                 return
             }
             click(panel, at: frame.center)
             await settle()
         }
-        await clickPresetGroupChip()
-        log.append("click (PresetGroup): now \(model.presetGroup.title)")
+        // Switching sets must not move or resize a single action button.
+        func actionFrames() async -> [NSRect] {
+            var frames: [NSRect] = []
+            for index in PanelModel.actionIndices {
+                if let element = axElement(id: "Action-\(index + 1)", in: axWindow),
+                   let frame = await windowFrame(of: element, panel: panel) {
+                    frames.append(frame)
+                }
+            }
+            return frames
+        }
+        let promptFrames = await actionFrames()
+        await clickPresetGroup(.writing)
+        log.append("click (PresetGroup-writing): now \(model.presetGroup.title)")
         if model.presetGroup != .writing {
-            failures.append("click (PresetGroup): expected Writing, got \(model.presetGroup.title)")
+            failures.append("click (PresetGroup-writing): expected Writing, got \(model.presetGroup.title)")
         }
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
+        let writingFrames = await actionFrames()
+        if promptFrames.count != PanelModel.actionIndices.count || promptFrames != writingFrames {
+            failures.append("preset groups: action frames moved between sets: \(promptFrames) vs \(writingFrames)")
+        }
         await checkBounds("writing")
         for (index, preset) in PresetGroup.writing.presets.enumerated() {
             let identifier = "Action-\(index + 1)"
@@ -381,11 +398,20 @@ enum DebugCLI {
             resize(panel: panel, hosting: hosting, model: model)
             await settle()
             await checkBounds("writing running \(preset.title)")
+            // The running border can widen the hit frame by a fraction of a point.
+            let runningFrames = await actionFrames()
+            let moved = runningFrames.count != writingFrames.count
+                || zip(runningFrames, writingFrames).contains {
+                    abs($0.midX - $1.midX) > 1 || abs($0.width - $1.width) > 2
+                }
+            if moved {
+                failures.append("writing running \(preset.title): action frames moved while running \(runningFrames) vs \(writingFrames)")
+            }
             model.phase = .idle
         }
-        await clickPresetGroupChip()
+        await clickPresetGroup(.prompt)
         if model.presetGroup != .prompt {
-            failures.append("click (PresetGroup): expected to wrap back to Prompt, got \(model.presetGroup.title)")
+            failures.append("click (PresetGroup-prompt): expected Prompt, got \(model.presetGroup.title)")
         }
         model.selectPreset(at: 1)
         resize(panel: panel, hosting: hosting, model: model)
