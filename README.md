@@ -88,8 +88,8 @@ signed, so macOS asks again after each rebuild.
 
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
-3. Click one of the four action buttons to run it immediately. The Prompt / Writing
-   switch beside the target (or <kbd>⌘E</kbd>, configurable in Settings) flips
+3. Click one of the four action buttons to run it immediately. The action-set
+   chip beside the target (or <kbd>⌘E</kbd>, configurable in Settings) flips
    between two action sets:
    - **Prompt**, for text written to coding agents: **Improve**, **Sharpen**,
      **Plan first**, **Tighten**.
@@ -108,9 +108,9 @@ the selection in place. If the target changed or cannot be verified, Mancia
 keeps the result available through **Copy result**.
 
 With no selection, Mancia asks before reading and sending the whole document
-through Copilot. It then asks separately before replacing the document, with
-the result and an optional comparison available to inspect. Only the second
-confirmation can be disabled in Settings.
+through Copilot. The result then replaces the document directly, under the
+same verification as a selection; use **Undo** or <kbd>⌘Z</kbd> to restore the
+previous version.
 
 Custom instructions stay available for refinement during the open session.
 Presets preserve meaningful selection-edge whitespace; Custom can deliberately
@@ -122,7 +122,7 @@ and links are not guaranteed to survive.
 | <kbd>⌃⌥⌘E</kbd> | Open an edit session (configurable in Settings) |
 | <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> / <kbd>4</kbd> | Run the current set's four actions while the ribbon has focus, except when typing in Custom |
 | <kbd>5</kbd> | Open Custom while the ribbon has focus; digits remain normal text inside its editor |
-| <kbd>Return</kbd> | Activate the focused control or submit Custom; review and approval buttons must be focused explicitly |
+| <kbd>Return</kbd> | Activate the focused control or submit Custom; approval buttons must be focused explicitly |
 | <kbd>⌘Return</kbd> | Run the current action unless a request or approval is in progress |
 | <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> | Move forward / backward through the ribbon controls |
 | <kbd>⌘T</kbd> | Switch between the current selection and the whole document when a selection exists |
@@ -134,8 +134,8 @@ and links are not guaranteed to survive.
 | <kbd>Esc</kbd> | Cancel a request, decline a pending approval, or collapse an open retained result; otherwise close |
 | <kbd>⌘W</kbd> | Close the ribbon |
 
-**Settings** changes the global shortcut, whole-document replacement
-confirmation, post-edit close behavior, and launch at login. Its Advanced
+**Settings** changes the global shortcut, post-edit close behavior, and launch
+at login. Its Advanced
 section controls the Copilot model, reasoning effort, CLI path, and working
 color. Provider **Installed** means the CLI launches; sign-in and service
 availability are checked when an action runs. The model recommendation is

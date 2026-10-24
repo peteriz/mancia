@@ -7,10 +7,11 @@
 >
 > Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
 > first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
-> a stable order, switched by a sliding switch beside a plain target label (⌘E, configurable in Settings), with a visible target and a multiline Custom editor.
+> a stable order, switched by a chip beside the target (⌘E, configurable in
+> Settings), all on one row of a fixed-width graphite panel.
 > Whole-document access requires approval before capture and generation.
-> Replacement has a separate, configurable confirmation with an original/result
-> comparison. Applying and navigating versions require matching Accessibility
+> Whole-document results apply directly; Custom opens its editor in a drawer
+> under the action row. Applying and navigating versions require matching Accessibility
 > evidence; unsafe replacements remain available to copy. Clipboard restoration
 > respects newer user copies. See the architecture notes for these rules and
 > the current ACP-first provider lifecycle.
@@ -55,7 +56,6 @@ Mancia/
 │   │   ├── RibbonPlacement.swift  # pure placement resolver
 │   │   ├── HostWindowProbe.swift  # frontmost window frame + full-screen state
 │   │   ├── RibbonView.swift       # the lane's content
-│   │   ├── RibbonReviewView.swift # whole-document review gate
 │   │   ├── RibbonControls.swift   # controls shared across registers
 │   │   └── RibbonPalette.swift    # the lane's color tokens
 │   ├── Providers/

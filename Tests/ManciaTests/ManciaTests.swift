@@ -309,70 +309,6 @@ func validationErrorsHaveMessages() {
     }
 }
 
-// MARK: - Whole-document confirmation gate
-
-@Test("Confirmation is required only for whole-document edits with the setting on")
-func confirmationRequiredMatrix() {
-    #expect(ApplyConfirmation.isRequired(isWholeDocument: true, userOptedIn: true))
-    #expect(!ApplyConfirmation.isRequired(isWholeDocument: true, userOptedIn: false))
-    #expect(!ApplyConfirmation.isRequired(isWholeDocument: false, userOptedIn: true))
-    #expect(!ApplyConfirmation.isRequired(isWholeDocument: false, userOptedIn: false))
-}
-
-@Test("Confirmation summary shows the size change")
-func confirmationSummary() {
-    #expect(ApplyConfirmation.summary(originalCharacters: 5000, resultCharacters: 30) == "5000 → 30 chars")
-    #expect(ApplyConfirmation.summary(originalCharacters: 0, resultCharacters: 0) == "0 → 0 chars")
-}
-
-@Test("The review region's summary is spelled out and grouped")
-func detailedConfirmationSummary() {
-    // Pinned locales, because every part of the output moves with the locale:
-    // the separator, whether four digits group at all, and the digits
-    // themselves. Testing against the machine's locale tests the machine.
-    let english = ApplyConfirmation.detailedSummary(
-        originalCharacters: 3842, resultCharacters: 3716,
-        locale: Locale(identifier: "en_US"))
-    #expect(english == "3,842 → 3,716 characters")
-
-    // Same number, a locale that groups with a period.
-    let german = ApplyConfirmation.detailedSummary(
-        originalCharacters: 3842, resultCharacters: 3716,
-        locale: Locale(identifier: "de_DE"))
-    #expect(german == "3.842 → 3.716 characters", "the separator follows the locale")
-
-    // And one that does not group four-digit numbers at all, which is why the
-    // old "it got longer, so it must have grouped" assertion was wrong.
-    let polish = ApplyConfirmation.detailedSummary(
-        originalCharacters: 3842, resultCharacters: 3716,
-        locale: Locale(identifier: "pl_PL"))
-    #expect(polish.hasSuffix(" characters"))
-    #expect(polish.contains("→"))
-
-    let small = ApplyConfirmation.detailedSummary(
-        originalCharacters: 0, resultCharacters: 12,
-        locale: Locale(identifier: "en_US"))
-    #expect(small == "0 → 12 characters", "short counts get no separator")
-}
-
-@MainActor
-@Test("Whole-document confirmation defaults on and persists")
-func confirmSettingDefaultsOnAndPersists() {
-    let suite = "mancia-test-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suite)!
-    defer { defaults.removePersistentDomain(forName: suite) }
-
-    // Absent key → the safety gate is on by default. No model catalog needed
-    // for this test, so inject an empty one to keep it off real disk I/O.
-    let first = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(first.confirmWholeDocumentReplace == true)
-
-    // The opt-out persists across instances.
-    first.confirmWholeDocumentReplace = false
-    let second = AppSettings(defaults: defaults, modelCatalog: { [] })
-    #expect(second.confirmWholeDocumentReplace == false)
-}
-
 @MainActor
 @Test("Swoosh color defaults to the stock accent, normalizes, and persists")
 func swooshColorNormalizesAndPersists() {
@@ -1527,11 +1463,9 @@ func ribbonEscapeBacksOutOfTheRunFirst() {
     }
     #expect(cancelledRuns == 1)
     #expect(closes == 3)
-    for phase in [PanelModel.Phase.scopeApproval, .confirm] {
-        model.phase = phase
-        model.escape()
-    }
-    #expect(declines == 2)
+    model.phase = .scopeApproval
+    model.escape()
+    #expect(declines == 1)
     #expect(closes == 3)
 }
 
@@ -1554,7 +1488,7 @@ func ribbonFocusCycles() {
     model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .direction, .run, .target, .presetGroup,
+        .action(0), .action(1), .action(2), .action(3), .action(4), .direction, .run, .target, .presetGroup,
     ])
     model.moveFocus(.next)
     #expect(model.focusedCell == .run)
@@ -1581,7 +1515,7 @@ func ribbonFocusIgnoresSelectionCapture() {
 
     model.selectCustomInstruction()
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .direction, .run, .presetGroup,
+        .action(0), .action(1), .action(2), .action(3), .action(4), .direction, .run, .presetGroup,
     ])
 }
 
@@ -1668,7 +1602,7 @@ func ribbonShortcutsRespectTheLock() {
 
     // The cells are greyed out and disabled in these phases, but the shortcuts
     // are resolved by the window, above the SwiftUI tree, so they never see it.
-    for phase in [PanelModel.Phase.running, .confirm] {
+    for phase in [PanelModel.Phase.running, .scopeApproval] {
         model.phase = phase
         model.activateAction(at: 1)
         model.toggleScope()
@@ -1743,13 +1677,11 @@ func ribbonRunCollapsesDisclosures() {
     let model = PanelModel()
     model.phase = .error
     model.errorDetailsExpanded = true
-    model.previewExpanded = true
 
     model.phase = .running
 
-    #expect(model.errorDetailsExpanded == false)
     #expect(
-        model.previewExpanded == false,
+        model.errorDetailsExpanded == false,
         "a stale disclosure desyncs the flag from the height the lane was measured at")
 }
 
@@ -1973,11 +1905,10 @@ func presetGroupShortcutAvailability() {
 }
 
 @MainActor
-@Test("The four built-in actions stay put when Custom becomes the input")
+@Test("All five actions stay put when Custom opens its drawer")
 func actionButtonOrder() {
     let model = PanelModel()
 
-    #expect(!model.prefersExpandedRibbon)
     #expect(model.actionDisplayOrder == [0, 1, 2, 3, 4])
     #expect(PanelModel.actionIndices.map { model.actionTitle(at: $0) } == [
         "Improve", "Sharpen", "Plan first", "Tighten", "Custom",
@@ -1986,25 +1917,9 @@ func actionButtonOrder() {
 
     model.selectCustomInstruction()
 
-    #expect(model.prefersExpandedRibbon)
     #expect(model.actionDisplayOrder == [0, 1, 2, 3, 4])
     #expect(model.isActionSelected(at: 4))
     #expect(!model.isActionSelected(at: 0))
-}
-
-@MainActor
-@Test("Only Custom requests the expanded ribbon")
-func onlyCustomPrefersExpandedRibbon() {
-    let model = PanelModel()
-
-    for phase in [PanelModel.Phase.idle, .running, .confirm, .applied, .error] {
-        model.phase = phase
-        #expect(!model.prefersExpandedRibbon)
-    }
-
-    model.phase = .idle
-    model.selectCustomInstruction()
-    #expect(model.prefersExpandedRibbon)
 }
 
 @MainActor
@@ -2252,7 +2167,7 @@ private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
 
 @Test("Placement honors standard and expanded preferred widths")
 func placementHonorsPreferredWidth() {
-    #expect(RibbonPlacement.standardWidth == 558)
+    #expect(RibbonPlacement.standardWidth == 820)
     let standard = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2310,8 +2225,8 @@ func placementClampsPreferredWidth() {
     #expect(aboveMaximum.frame.width == RibbonPlacement.maximumWidth)
 }
 
-@Test("Expanded Custom width ignores a narrow host")
-func placementKeepsExpandedCustomWidth() {
+@Test("The lane keeps its width over a narrow host")
+func placementKeepsLaneWidthOverNarrowHost() {
     let host = CGRect(x: 300, y: 200, width: 420, height: 400)
     let resolved = RibbonPlacement.resolve(
         height: 56,
@@ -2319,11 +2234,11 @@ func placementKeepsExpandedCustomWidth() {
             screenFrame: ribbonScreen,
             visibleFrame: ribbonScreen,
             hostWindowFrame: host,
-            preferredWidth: RibbonPlacement.expandedWidth,
-            minimumContentWidth: RibbonPlacement.expandedWidth))
+            preferredWidth: RibbonPlacement.standardWidth,
+            minimumContentWidth: RibbonPlacement.standardWidth))
 
     #expect(resolved.anchor == .hostWindow)
-    #expect(resolved.frame.width == RibbonPlacement.expandedWidth)
+    #expect(resolved.frame.width == RibbonPlacement.standardWidth)
     #expect(resolved.frame.midX == host.midX)
 }
 
@@ -2395,8 +2310,10 @@ func placementNotchWidensTheClearance() {
         "clearance is the safe-area inset plus 4, once that exceeds the 28pt default")
 }
 
-@Test("Split View spans the focused half, not the whole screen")
+@Test("Split View anchors to the focused half, keeping the row's full width")
 func placementSplitViewSpansTheHostHalf() {
+    // A 720pt half is narrower than the row, so the lane keeps its minimum
+    // width and overhangs the half rather than truncating its controls.
     let leftHalf = CGRect(x: 0, y: 0, width: 720, height: 900)
     let resolved = RibbonPlacement.resolve(
         height: 56,
@@ -2404,7 +2321,7 @@ func placementSplitViewSpansTheHostHalf() {
             screenFrame: ribbonScreen, visibleFrame: ribbonScreen, hostWindowFrame: leftHalf))
 
     #expect(resolved.anchor == .hostWindow)
-    #expect(resolved.frame.width == leftHalf.width)
+    #expect(resolved.frame.width == RibbonPlacement.minimumWidth)
     #expect(resolved.frame.minX == leftHalf.minX)
 }
 
@@ -2623,7 +2540,7 @@ func placementClampsASelectionAnchoredLaneToTheScreen() {
 
 @Test("A wide selection widens the lane, up to the cap")
 func placementWidensTheLaneToTheSelection() {
-    let selection = CGRect(x: 300, y: 500, width: 760, height: 16)
+    let selection = CGRect(x: 300, y: 500, width: 860, height: 16)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2746,7 +2663,7 @@ func placementStandsInTheMarginOfATallSelection() {
 func placementPrefersTheRoomierFlank() {
     // The same block, moved to the right of the display: now the margin is on
     // the other side of it.
-    let selection = CGRect(x: 800, y: 150, width: 560, height: 670)
+    let selection = CGRect(x: 840, y: 150, width: 520, height: 670)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2757,10 +2674,10 @@ func placementPrefersTheRoomierFlank() {
     #expect(resolved.frame.maxX == selection.minX - RibbonPlacement.selectionClearance)
 }
 
-@Test("The compact ribbon fits a 560pt margin")
-func placementUsesAMarginWideEnoughForTheCompactRibbon() {
-    // The old 600pt ribbon could not stand here; the compact strip can.
-    let selection = CGRect(x: 420, y: 150, width: 452, height: 670)
+@Test("The ribbon fits a margin exactly its own width")
+func placementUsesAMarginWideEnoughForTheRibbon() {
+    // 820pt of margin once the clearance is taken: just enough for the lane.
+    let selection = CGRect(x: 200, y: 150, width: 412, height: 670)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2808,16 +2725,16 @@ func placementMarginLaneGrowsWithoutReachingTheText() {
 
 @Test("A lane in the margin is only as wide as the margin can hold")
 func placementMarginLaneFitsTheMarginItStandsIn() {
-    // 700pt of margin to the right: wider than the lane's minimum, narrower
+    // 860pt of margin to the right: wider than the lane's minimum, narrower
     // than its cap, so the lane takes the margin exactly.
-    let selection = CGRect(x: 20, y: 150, width: 712, height: 670)
+    let selection = CGRect(x: 20, y: 150, width: 552, height: 670)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
             screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
 
     #expect(resolved.anchor == .rightOfSelection)
-    #expect(resolved.frame.width == 700, "a lane wider than its margin would reach back over the text")
+    #expect(resolved.frame.width == 860, "a lane wider than its margin would reach back over the text")
     #expect(resolved.frame.maxX == ribbonVisible.maxX)
 }
 
@@ -2929,7 +2846,7 @@ func placementFollowsTheSelectionSideways() {
         height: 56,
         in: .init(screenFrame: ribbonScreen, visibleFrame: ribbonVisible))
     // The same display, with a span selected well to the right of center.
-    let selection = CGRect(x: 900, y: 600, width: 300, height: 16)
+    let selection = CGRect(x: 800, y: 600, width: 300, height: 16)
     let beside = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -3145,7 +3062,7 @@ private enum SessionTestError: Error { case unexpectedDecision }
 private func applySessionResult(_ output: String, to session: inout EditSession) throws {
     let request = try sessionRequest(&session)
     guard case .apply(let plan) = session.consider(
-        .init(output: output, for: request), replacementConfirmationRequired: false),
+        .init(output: output, for: request)),
         case .selection(let target, .some(let range)) = request.baseline.target
     else { throw SessionTestError.unexpectedDecision }
     let finished = session.finishApply(plan, outcome: .applied(.init(
@@ -3264,10 +3181,8 @@ func sessionRejectsOverlappingGeneration() throws {
     _ = session.cancel(at: .generation)
     let second = try sessionRequest(&session)
     #expect(first != second)
-    #expect(session.consider(.init(output: "late", for: first),
-        replacementConfirmationRequired: false) == .failure(.staleResult))
+    #expect(session.consider(.init(output: "late", for: first)) == .failure(.staleResult))
     #expect(session.stage == .generating)
-    guard case .apply = session.consider(.init(output: "current", for: second),
-        replacementConfirmationRequired: false)
+    guard case .apply = session.consider(.init(output: "current", for: second))
     else { throw SessionTestError.unexpectedDecision }
 }

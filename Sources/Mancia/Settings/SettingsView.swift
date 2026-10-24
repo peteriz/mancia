@@ -60,7 +60,6 @@ struct SettingsView: View {
                             $0, openHotkey: KeyboardShortcuts.getShortcut(for: .editSelection))
                     }
                 }
-                Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
                 Picker("After applying:", selection: $settings.postApplyBehavior) {
                     ForEach(PostApplyBehavior.allCases) { behavior in
                         Text(behavior.label).tag(behavior)

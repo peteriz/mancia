@@ -37,11 +37,6 @@ final class EditCoordinator {
         let note: String?
     }
 
-    private struct PendingApply {
-        let target: SelectionTargetEvidence
-        let actionName: String
-    }
-
     private let provider: LLMProvider
     private let settings: AppSettings
     private let model = PanelModel()
@@ -61,7 +56,6 @@ final class EditCoordinator {
     private var autoCloseTask: Task<Void, Never>?
     private var queuedAction: PendingAction?
     private var pendingDocumentAction: PendingAction?
-    private var pendingApply: PendingApply?
     private var capturing = false
     private var navigating = false
     private var sessionActive = false
@@ -93,7 +87,6 @@ final class EditCoordinator {
         model.onApproveDocumentGeneration = { [weak self] in
             self?.approveDocumentGeneration()
         }
-        model.onConfirmApply = { [weak self] in self?.confirmApply() }
         model.onDeclinePending = { [weak self] in self?.declinePending() }
         model.onCopyRetainedResult = { [weak self] in self?.copyRetainedResult() }
         model.onCancelRun = { [weak self] in self?.cancelRun() }
@@ -189,10 +182,7 @@ final class EditCoordinator {
 
         autoCloseTask?.cancel()
         autoCloseTask = nil
-        pendingApply = nil
         clearRetainedPresentation()
-        model.pendingResultPreview = ""
-        model.pendingOriginalPreview = ""
         model.appliedStatusText = nil
         if session.stage != .idle {
             _ = session.cancel(at: cancellationBoundary(for: session.stage))
@@ -388,27 +378,16 @@ final class EditCoordinator {
                 output: rawOutput,
                 preserveSourceBoundaryWhitespace: request.baseline.scope == .selection)
             let result = EditSession.GeneratedResult(output: output, for: request)
-            switch session.consider(
-                result,
-                replacementConfirmationRequired:
-                    ApplyConfirmation.requiresReplacementApproval(
-                        isWholeDocument: request.baseline.scope == .document,
-                        userOptedIn: settings.confirmWholeDocumentReplace)
-            ) {
+            switch session.consider(result) {
             case .retained:
                 runLog.info("generate: retained (no changes)")
                 syncIterationState()
                 model.appliedStatusText = "No changes needed"
+                model.appliedActionName = pending.action.title
                 model.restoreButtonsAfterApply()
                 model.phase = .applied
                 ribbon.focus()
                 scheduleAutoCloseIfHybrid()
-            case .requestReplacementApproval(let result):
-                runLog.info("generate: awaiting replacement approval")
-                pendingApply = PendingApply(
-                    target: target,
-                    actionName: pending.action.title)
-                presentReplacementConfirmation(result)
             case .apply(let plan):
                 runLog.info("generate: applying")
                 await executeApply(
@@ -431,40 +410,6 @@ final class EditCoordinator {
     }
 
     // MARK: - Apply and retention
-
-    private func presentReplacementConfirmation(
-        _ result: EditSession.GeneratedResult
-    ) {
-        model.pendingOriginalCharCount = result.baseline.text.count
-        model.pendingResultCharCount = result.output.count
-        model.pendingResultPreview = result.output
-        model.pendingOriginalPreview = result.baseline.text
-        model.phase = .confirm
-        ribbon.focus()
-    }
-
-    private func confirmApply() {
-        guard model.phase == .confirm,
-              let pendingApply
-        else { return }
-        guard case .apply(let plan) = session.approveReplacement() else {
-            fail("The pending replacement is no longer current.")
-            return
-        }
-
-        self.pendingApply = nil
-        model.pendingResultPreview = ""
-        model.pendingOriginalPreview = ""
-        model.runningTitle = "Replacing document"
-        model.phase = .running
-        startOperation { [self] operation in
-            await executeApply(
-                plan,
-                target: pendingApply.target,
-                actionName: pendingApply.actionName,
-                operation: operation)
-        }
-    }
 
     private func executeApply(
         _ plan: EditSession.ApplyPlan,
@@ -533,8 +478,6 @@ final class EditCoordinator {
             model.retainedResult = output
         }
         model.retainedReason = reason
-        model.pendingResultPreview = ""
-        model.pendingOriginalPreview = ""
         model.phase = .retained
         ribbon.focus()
     }
@@ -546,13 +489,6 @@ final class EditCoordinator {
             model.pendingScopeApprovalActionTitle = ""
             _ = session.cancel(at: .beforeGeneration)
             restoreRestingPhase()
-        case .confirm:
-            let output = model.pendingResultPreview
-            _ = session.retainPendingResult()
-            pendingApply = nil
-            retain(
-                output: output,
-                reason: "The document replacement was not applied.")
         default:
             break
         }
@@ -611,6 +547,8 @@ final class EditCoordinator {
                 dodgeAppliedText()
                 syncIterationState()
                 model.appliedStatusText = "Previous version restored"
+                // The restored text is no action's result, so none stays lit.
+                model.appliedActionName = ""
                 model.phase = .applied
                 ribbon.focus()
             case .retained(let reason):
@@ -674,12 +612,7 @@ final class EditCoordinator {
         autoCloseTask?.cancel()
         autoCloseTask = nil
         pendingDocumentAction = nil
-        pendingApply = nil
         model.pendingScopeApprovalActionTitle = ""
-        model.pendingOriginalCharCount = 0
-        model.pendingResultCharCount = 0
-        model.pendingResultPreview = ""
-        model.pendingOriginalPreview = ""
         model.appliedStatusText = nil
         clearRetainedPresentation()
         session.setScope(scope == .document ? .document : .selection)
@@ -691,10 +624,6 @@ final class EditCoordinator {
     }
 
     private func cancelRun() {
-        if model.phase == .confirm {
-            declinePending()
-            return
-        }
         if capturing {
             queuedAction = nil
             model.phase = .idle
@@ -733,12 +662,7 @@ final class EditCoordinator {
     private func clearPending() {
         queuedAction = nil
         pendingDocumentAction = nil
-        pendingApply = nil
         model.pendingScopeApprovalActionTitle = ""
-        model.pendingOriginalCharCount = 0
-        model.pendingResultCharCount = 0
-        model.pendingResultPreview = ""
-        model.pendingOriginalPreview = ""
     }
 
     private func clearRetainedPresentation() {
@@ -781,8 +705,7 @@ final class EditCoordinator {
             .apply
         case .navigating:
             .navigation
-        case .idle, .awaitingDocumentApproval, .capturingDocument,
-             .awaitingReplacementApproval:
+        case .idle, .awaitingDocumentApproval, .capturingDocument:
             .beforeGeneration
         }
     }

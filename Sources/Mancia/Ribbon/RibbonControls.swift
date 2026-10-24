@@ -1,21 +1,22 @@
 import SwiftUI
 
-/// Small controls shared by the ribbon's command row, status strip and review
-/// gate.
+/// Small controls shared by the ribbon's command row, status strip and
+/// scope-approval gate.
 ///
 /// These began as private helpers inside the floating panel's view. When the
 /// ribbon replaced it they moved here as internal types with their colors
 /// injected, so a control used in more than one register has one definition
 /// rather than a copy to keep in sync.
 
-/// A small hairline-bordered secondary button used in a status row.
+/// A quiet text button for a status row: no outline at rest, a soft fill on
+/// hover, so a row of three recoveries reads as words rather than as boxes.
 struct GhostButton: View {
     let title: String
     var tint: Color
     let action: () -> Void
     @State private var hovered = false
 
-    init(_ title: String, tint: Color = Palette.textSecondary, action: @escaping () -> Void) {
+    init(_ title: String, tint: Color = RibbonPalette.caption, action: @escaping () -> Void) {
         self.title = title
         self.tint = tint
         self.action = action
@@ -24,16 +25,16 @@ struct GhostButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tint)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 2)
-                .background(Capsule(style: .continuous).fill(tint.opacity(hovered ? 0.10 : 0)))
-                .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.4), lineWidth: 1))
+                .padding(.horizontal, 8)
                 // The label is 15pt tall; the spec's 28pt minimum hit target is
                 // reached by the shape, not by the ink.
                 .frame(minHeight: 28)
-                .contentShape(Capsule(style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(RibbonPalette.controlHover.opacity(hovered ? 1 : 0)))
+                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
         .fixedSize(horizontal: true, vertical: false)
@@ -42,8 +43,8 @@ struct GhostButton: View {
     }
 }
 
-/// A small filled button for the one decisive action in a status row — today,
-/// confirming a whole-document replacement.
+/// A small filled button for the one decisive action in a gate — today,
+/// approving a whole-document request.
 struct AccentButton: View {
     let title: String
     var fill: Color
@@ -53,8 +54,8 @@ struct AccentButton: View {
 
     init(
         _ title: String,
-        fill: Color = Palette.accent,
-        foreground: Color = Palette.onAccent,
+        fill: Color = RibbonPalette.accent,
+        foreground: Color = RibbonPalette.onAccent,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -66,17 +67,18 @@ struct AccentButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(foreground)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(fill)
-                        .overlay(Capsule(style: .continuous).fill(Palette.text.opacity(hovered ? 0.08 : 0)))
-                }
+                .padding(.horizontal, 12)
                 .frame(minHeight: 28)
-                .contentShape(Capsule(style: .continuous))
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(fill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.white.opacity(hovered ? 0.12 : 0)))
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -200,8 +202,8 @@ struct SwooshBorder<S: InsettableShape>: View {
 extension View {
     /// The lane's focus ring.
     ///
-    /// A firmer neutral edge, never the accent: vermilion appears exactly once
-    /// per surface and spending it on focus would empty it of meaning. Drawn
+    /// A soft neutral edge, never the accent: vermilion marks the action in
+    /// play, and spending it on focus would empty it of meaning. Drawn
     /// outside the control so it never reflows the cell it belongs to.
     ///
     /// The system effect is switched off with it — left on, AppKit draws its
@@ -209,7 +211,7 @@ extension View {
     /// reads as a second highlight colour on a surface that allows one.
     func ribbonFocusRing(
         _ focused: Bool, radius: CGFloat = 6, inset: CGFloat = -4,
-        tint: Color = RibbonPalette.caption
+        tint: Color = RibbonPalette.focusRing
     ) -> some View {
         focusEffectDisabled()
             .overlay(

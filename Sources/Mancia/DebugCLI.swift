@@ -224,9 +224,10 @@ enum DebugCLI {
     /// Controls are located by the accessibility identifier `RibbonView`
     /// already publishes for VoiceOver rather than a position baked in ahead
     /// of time, so the check survives the lane's layout moving underneath it.
-    /// It walks the phases a real session passes through — idle, Custom, the
-    /// whole-document approval gate, the replace-confirmation review, a
-    /// retained result, a failure, and a completed apply — asking the model
+    /// It walks the phases a real session passes through — idle in both
+    /// action sets, the target and set chips, a run, Custom, the
+    /// whole-document approval gate, a retained result, a failure, and a
+    /// completed apply — asking the model
     /// what ran rather than a real provider, and it never touches the user's
     /// actual pasteboard: the one control that would write to it is
     /// confirmed present rather than clicked.
@@ -252,7 +253,6 @@ enum DebugCLI {
         var ran: [(action: EditAction, note: String?)] = []
         var cancelRunCount = 0
         var retryCount = 0
-        var confirmApplyCount = 0
         var declineCount = 0
         var approveCount = 0
         var copyRetainedCount = 0
@@ -260,7 +260,6 @@ enum DebugCLI {
         model.onPerform = { action, note in ran.append((action, note)) }
         model.onCancelRun = { cancelRunCount += 1 }
         model.onRetry = { retryCount += 1 }
-        model.onConfirmApply = { confirmApplyCount += 1 }
         model.onDeclinePending = { declineCount += 1 }
         model.onApproveDocumentGeneration = { approveCount += 1 }
         model.onCopyRetainedResult = { copyRetainedCount += 1 }
@@ -323,35 +322,88 @@ enum DebugCLI {
                 failures.append("unexpected default accent control in the trailing lane")
             }
         }
-        for (identifier, expectedTitle) in [("Action-1", "Improve"), ("Action-2", "Sharpen")] {
-            guard let element = axElement(id: identifier, in: axWindow),
-                  let frame = await windowFrame(of: element, panel: panel)
-            else {
-                failures.append("idle: could not locate \(identifier) via accessibility")
-                continue
-            }
-            ran.removeAll()
-            click(panel, at: frame.center)
-            await settle()
-            let titles = ran.map(\.action.title)
-            log.append("click (\(identifier)): ran \(titles.isEmpty ? "NOTHING" : titles.joined(separator: ", "))")
-            if titles != [expectedTitle] {
-                failures.append("click (\(identifier)): expected \(expectedTitle), got \(titles)")
+        for expected in ["Target", "PresetGroup"] where !idleIDs.contains(expected) {
+            failures.append("idle: missing control \(expected)")
+        }
+
+        /// Click each preset slot and require it to run that slot's preset
+        /// from `group` — the set the chip claims is live.
+        func clickPresets(of group: PresetGroup) async {
+            for (index, preset) in group.presets.enumerated() {
+                let identifier = "Action-\(index + 1)"
+                guard let element = axElement(id: identifier, in: axWindow),
+                      let frame = await windowFrame(of: element, panel: panel)
+                else {
+                    failures.append("\(group.id): could not locate \(identifier) via accessibility")
+                    continue
+                }
+                ran.removeAll()
+                click(panel, at: frame.center)
+                await settle()
+                let titles = ran.map(\.action.title)
+                log.append("click (\(group.id) \(identifier)): ran \(titles.isEmpty ? "NOTHING" : titles.joined(separator: ", "))")
+                if ran.map(\.action) != [preset.action] || ran.first?.note != nil {
+                    failures.append("click (\(group.id) \(identifier)): expected \(preset.action.title), got \(titles)")
+                }
             }
         }
+        await clickPresets(of: .prompt)
+
+        // MARK: target chip
+
+        // With a selection the chip swaps the target both ways; without one it
+        // has nothing to swap to and must stay inert.
+        var scopeChanges: [PanelModel.Scope] = []
+        model.onScopeChange = { scopeChanges.append($0) }
+        for expected in [PanelModel.Scope.document, .selection] {
+            guard let target = axElement(id: "Target", in: axWindow),
+                  let frame = await windowFrame(of: target, panel: panel)
+            else {
+                failures.append("idle: could not locate Target via accessibility")
+                break
+            }
+            click(panel, at: frame.center)
+            await settle()
+            log.append("click (Target): scope now \(model.scope)")
+            if model.scope != expected || scopeChanges.last != expected {
+                failures.append("click (Target): expected scope \(expected), got \(model.scope) (reported \(scopeChanges))")
+            }
+        }
+        model.reset(hasSelection: false, charCount: 0)
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        scopeChanges.removeAll()
+        if let target = axElement(id: "Target", in: axWindow),
+           let frame = await windowFrame(of: target, panel: panel) {
+            click(panel, at: frame.center)
+            await settle()
+            if model.scope != .document || !scopeChanges.isEmpty {
+                failures.append("click (Target): without a selection the chip should be inert, got \(model.scope) \(scopeChanges)")
+            }
+        }
+        model.reset(hasSelection: true, charCount: 42)
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
 
         // MARK: preset groups
 
-        func clickPresetGroup(_ group: PresetGroup) async {
-            let identifier = "PresetGroup-\(group.id)"
-            guard let segment = axElement(id: identifier, in: axWindow),
-                  let frame = await windowFrame(of: segment, panel: panel)
+        /// Click the one action-set chip, which cycles to the next set.
+        func clickPresetGroup() async {
+            guard let chip = axElement(id: "PresetGroup", in: axWindow),
+                  let frame = await windowFrame(of: chip, panel: panel)
             else {
-                failures.append("idle: could not locate \(identifier) via accessibility")
+                failures.append("idle: could not locate PresetGroup via accessibility")
                 return
             }
             click(panel, at: frame.center)
             await settle()
+            resize(panel: panel, hosting: hosting, model: model)
+            await settle()
+        }
+        /// The chip names the live set to VoiceOver as its value.
+        func presetGroupChipValue() -> String? {
+            axElement(id: "PresetGroup", in: axWindow)
+                .flatMap { axAttribute($0, kAXValueAttribute) as? String }
         }
         // Switching sets must not move or resize a single action button.
         func actionFrames() async -> [NSRect] {
@@ -365,35 +417,26 @@ enum DebugCLI {
             return frames
         }
         let promptFrames = await actionFrames()
-        await clickPresetGroup(.writing)
-        log.append("click (PresetGroup-writing): now \(model.presetGroup.title)")
-        if model.presetGroup != .writing {
-            failures.append("click (PresetGroup-writing): expected Writing, got \(model.presetGroup.title)")
+        if presetGroupChipValue() != PresetGroup.prompt.title {
+            failures.append("PresetGroup: chip should read Prompt, got \(presetGroupChipValue() ?? "nil")")
         }
-        resize(panel: panel, hosting: hosting, model: model)
-        await settle()
+        await clickPresetGroup()
+        log.append("click (PresetGroup): now \(model.presetGroup.title)")
+        if model.presetGroup != .writing {
+            failures.append("click (PresetGroup): expected Writing, got \(model.presetGroup.title)")
+        }
+        if presetGroupChipValue() != PresetGroup.writing.title {
+            failures.append("PresetGroup: chip should read Writing, got \(presetGroupChipValue() ?? "nil")")
+        }
         let writingFrames = await actionFrames()
         if promptFrames.count != PanelModel.actionIndices.count || promptFrames != writingFrames {
             failures.append("preset groups: action frames moved between sets: \(promptFrames) vs \(writingFrames)")
         }
         await checkBounds("writing")
+        await clickPresets(of: .writing)
         for (index, preset) in PresetGroup.writing.presets.enumerated() {
-            let identifier = "Action-\(index + 1)"
-            guard let element = axElement(id: identifier, in: axWindow),
-                  let frame = await windowFrame(of: element, panel: panel)
-            else {
-                failures.append("writing: could not locate \(identifier) via accessibility")
-                continue
-            }
-            ran.removeAll()
-            click(panel, at: frame.center)
-            await settle()
-            let titles = ran.map(\.action.title)
-            log.append("click (writing \(identifier)): ran \(titles.isEmpty ? "NOTHING" : titles.joined(separator: ", "))")
-            if titles != [preset.action.title] {
-                failures.append("click (writing \(identifier)): expected \(preset.action.title), got \(titles)")
-            }
             // The running label is the widest thing a button shows.
+            model.selectPreset(at: index)
             model.phase = .running
             resize(panel: panel, hosting: hosting, model: model)
             await settle()
@@ -409,25 +452,26 @@ enum DebugCLI {
             }
             model.phase = .idle
         }
-        await clickPresetGroup(.prompt)
-        if model.presetGroup != .prompt {
-            failures.append("click (PresetGroup-prompt): expected Prompt, got \(model.presetGroup.title)")
+        // A running set is locked: the chip must not swap the buttons under it.
+        model.phase = .running
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        await clickPresetGroup()
+        if model.presetGroup != .writing {
+            failures.append("PresetGroup: the chip switched sets while a run was in flight")
         }
-        // The track between the names flips whichever side is live.
-        for expected in [PresetGroup.writing, .prompt] {
-            guard let track = axElement(id: "PresetGroup-switch", in: axWindow),
-                  let frame = await windowFrame(of: track, panel: panel)
-            else {
-                failures.append("idle: could not locate PresetGroup-switch via accessibility")
-                break
-            }
-            click(panel, at: frame.center)
-            await settle()
-            log.append("click (PresetGroup-switch): now \(model.presetGroup.title)")
+        model.phase = .idle
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        // The chip cycles: Writing -> Prompt -> Writing -> Prompt.
+        for expected in [PresetGroup.prompt, .writing, .prompt] {
+            await clickPresetGroup()
+            log.append("click (PresetGroup): now \(model.presetGroup.title)")
             if model.presetGroup != expected {
-                failures.append("click (PresetGroup-switch): expected \(expected.title), got \(model.presetGroup.title)")
+                failures.append("click (PresetGroup): expected \(expected.title), got \(model.presetGroup.title)")
             }
         }
+        await clickPresets(of: .prompt)
         model.selectPreset(at: 1)
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
@@ -439,24 +483,66 @@ enum DebugCLI {
             await settle()
             await checkBounds(stage)
         }
+        cancelRunCount = 0
+        ran.removeAll()
         if case .action(let index) = model.primaryFocusCell,
            let active = axElement(id: "Action-\(index + 1)", in: axWindow),
            let frame = await windowFrame(of: active, panel: panel) {
             click(panel, at: frame.center)
-            if cancelRunCount != 1 { failures.append("running: active action did not cancel") }
+            await settle()
+            log.append("click (running Action-\(index + 1)): cancelled \(cancelRunCount) time(s)")
+            if cancelRunCount != 1 || !ran.isEmpty {
+                failures.append("running: active action should cancel (cancels \(cancelRunCount), ran \(ran.map(\.action.title)))")
+            }
+        } else {
+            failures.append("running: could not locate the active action via accessibility")
+        }
+        // The other presets are inert while one runs.
+        if let other = axElement(id: "Action-1", in: axWindow),
+           let frame = await windowFrame(of: other, panel: panel) {
+            cancelRunCount = 0
+            click(panel, at: frame.center)
+            await settle()
+            if cancelRunCount != 0 || !ran.isEmpty {
+                failures.append("running: an inactive action should be inert (cancels \(cancelRunCount), ran \(ran.map(\.action.title)))")
+            }
         }
         model.phase = .idle
 
         // MARK: custom
 
-        model.selectCustomInstruction()
+        if let action5 = axElement(id: "Action-5", in: axWindow),
+           let frame = await windowFrame(of: action5, panel: panel) {
+            ran.removeAll()
+            click(panel, at: frame.center)
+            await settle()
+            log.append("click (Action-5): custom selected \(model.isCustomInstructionSelected)")
+            if !model.isCustomInstructionSelected || !ran.isEmpty {
+                failures.append("custom: Action-5 should open the drawer without running anything (ran \(ran.map(\.action.title)))")
+            }
+        } else {
+            failures.append("custom: could not locate Action-5 via accessibility")
+        }
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
         let customIDs = axIdentifiers(in: axWindow)
         await checkBounds("custom")
         log.append("custom: \(customIDs.sorted().joined(separator: ", "))")
-        for expected in ["CustomInstruction", "Run"] where !customIDs.contains(expected) {
+        for expected in ["CustomInstruction", "Run", "Action-5"] where !customIDs.contains(expected) {
             failures.append("custom: missing control \(expected)")
+        }
+        // Custom opens downward: its field sits wholly under the action row
+        // (AppKit window coordinates count up from the foot).
+        if let action5 = axElement(id: "Action-5", in: axWindow),
+           let field = axElement(id: "CustomInstruction", in: axWindow),
+           let rowFrame = await windowFrame(of: action5, panel: panel),
+           let fieldFrame = await windowFrame(of: field, panel: panel) {
+            log.append("custom: field \(fieldFrame) under row \(rowFrame)")
+            if fieldFrame.maxY > rowFrame.minY {
+                failures.append("custom: the field should open below the action row, got \(fieldFrame) vs \(rowFrame)")
+            }
+        } else {
+            failures.append("custom: could not measure the field against the action row")
         }
         if let run = axElement(id: "Run", in: axWindow), let runFrame = await windowFrame(of: run, panel: panel) {
             // Blank Custom is inert: Run is disabled and clicking it dispatches
@@ -487,9 +573,6 @@ enum DebugCLI {
         } else {
             failures.append("custom: could not locate Run via accessibility")
         }
-        resize(panel: panel, hosting: hosting, model: model, width: RibbonPlacement.customMinimumWidth)
-        await settle()
-        await checkBounds("narrow custom")
 
         // MARK: approval (whole-document scope gate)
 
@@ -539,54 +622,6 @@ enum DebugCLI {
         model.escape()
         if declineCount != 1 {
             failures.append("scopeApproval: Esc should decline the pending approval")
-        }
-
-        // MARK: confirm (replace-whole-document review)
-
-        model.reset(hasSelection: false, charCount: 0)
-        model.phase = .confirm
-        model.pendingOriginalCharCount = 240
-        model.pendingResultCharCount = 180
-        model.pendingResultPreview = "The replacement text the review region discloses."
-        model.pendingOriginalPreview = "The original text before replacement."
-        resize(panel: panel, hosting: hosting, model: model)
-        await settle()
-        let confirmIDs = axIdentifiers(in: axWindow)
-        log.append("confirm: \(confirmIDs.sorted().joined(separator: ", "))")
-        for expected in ["ShowResult", "KeepEditing", "ReplaceDocument"] where !confirmIDs.contains(expected) {
-            failures.append("confirm: missing control \(expected)")
-        }
-        if let showResult = axElement(id: "ShowResult", in: axWindow),
-           let frame = await windowFrame(of: showResult, panel: panel)
-        {
-            let before = model.previewExpanded
-            click(panel, at: frame.center)
-            await settle()
-            if model.previewExpanded == before {
-                failures.append("confirm: ShowResult did not toggle the preview disclosure")
-            }
-            resize(panel: panel, hosting: hosting, model: model)
-            await settle()
-        }
-        if let keepEditing = axElement(id: "KeepEditing", in: axWindow),
-           let frame = await windowFrame(of: keepEditing, panel: panel)
-        {
-            declineCount = 0
-            click(panel, at: frame.center)
-            await settle()
-            if declineCount != 1 {
-                failures.append("confirm: KeepEditing should call onDeclinePending")
-            }
-        }
-        if let replaceDocument = axElement(id: "ReplaceDocument", in: axWindow),
-           let frame = await windowFrame(of: replaceDocument, panel: panel)
-        {
-            confirmApplyCount = 0
-            click(panel, at: frame.center)
-            await settle()
-            if confirmApplyCount != 1 {
-                failures.append("confirm: ReplaceDocument should call onConfirmApply")
-            }
         }
 
         // MARK: retained (a result Mancia refused to paste)
@@ -706,12 +741,28 @@ enum DebugCLI {
             characters: "e", charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14) {
             let before = model.presetGroup
             let claimed = panel.performKeyEquivalent(with: commandE)
-            if !claimed || model.presetGroup == before {
+            if !claimed || model.presetGroup != before.next {
                 failures.append("shortcuts: Command-E did not switch the action set")
             }
             _ = panel.performKeyEquivalent(with: commandE)
             if model.presetGroup != before {
                 failures.append("shortcuts: a second Command-E did not switch back")
+            }
+        } else {
+            failures.append("shortcuts: could not synthesize Command-E")
+        }
+        // ⌘T swaps the target the same way the chip does.
+        model.reset(hasSelection: true, charCount: 42)
+        panel.onToggleTarget = { model.toggleScope() }
+        if let commandT = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            characters: "t", charactersIgnoringModifiers: "t", isARepeat: false, keyCode: 17) {
+            _ = panel.performKeyEquivalent(with: commandT)
+            let first = model.scope
+            _ = panel.performKeyEquivalent(with: commandT)
+            if first != .document || model.scope != .selection {
+                failures.append("shortcuts: Command-T did not toggle the target (\(first), then \(model.scope))")
             }
         }
 
@@ -728,10 +779,19 @@ enum DebugCLI {
         panel.makeFirstResponder(nil)
         ran.removeAll()
         for event in digitEvents { panel.sendEvent(event) }
-        if ran.map(\.action.title) != ["Improve", "Sharpen", "Plan first", "Tighten"]
+        if ran.map(\.action) != PresetGroup.prompt.presets.map(\.action)
             || !model.isCustomInstructionSelected {
-            failures.append("shortcuts: digits did not run presets and open Custom")
+            failures.append("shortcuts: digits did not run presets and open Custom, got \(ran.map(\.action.title))")
         }
+        // The same digits address the Writing set once it is live.
+        model.reset(hasSelection: true, charCount: 42)
+        model.cyclePresetGroup()
+        ran.removeAll()
+        for event in digitEvents.prefix(PresetGroup.slotCount) { panel.sendEvent(event) }
+        if ran.map(\.action) != PresetGroup.writing.presets.map(\.action) {
+            failures.append("shortcuts: digits in the Writing set ran \(ran.map(\.action.title))")
+        }
+        model.cyclePresetGroup()
 
         let editor = NSTextView(frame: hosting.bounds)
         panel.contentView = editor
@@ -754,7 +814,7 @@ enum DebugCLI {
                 failures.append("shortcuts: an unfocused panel claimed a digit")
             }
         }
-        log.append("shortcuts: Command-E, focused digits, ordinary text entry, and unfocused panel")
+        log.append("shortcuts: Command-E, Command-T, focused digits in both sets, ordinary text entry, and unfocused panel")
 
         finish(failures: failures, log: log)
     }
@@ -775,25 +835,15 @@ enum DebugCLI {
 
     /// Lay the lane out for its current phase and grow the panel and hosting
     /// view to fit — the same two-pass measurement `RibbonWindow` uses, so a
-    /// phase that discloses more (Custom's field, the confirm review, an
-    /// expanded failure detail) has real geometry to click into rather than
-    /// being clipped by the check's own fixed frame.
-    ///
-    /// Width is resolved from the model, not a fixed constant: Custom's
-    /// disclosed field needs `RibbonPlacement.expandedWidth`, the same swap
-    /// `RibbonWindow.currentContext()` makes, or its Run control (and
-    /// anything else in that wider row) reports an accessibility frame past
-    /// the edge of a lane still sized for the standard width. The live
-    /// hosting view's `rootView` is reassigned to match — a `RibbonView`'s
-    /// `width` is a plain `let`, so nothing about the width it renders at
-    /// changes just because the panel's own frame does.
+    /// phase that discloses more (Custom's drawer, an expanded failure
+    /// detail) has real geometry to click into rather than being clipped by
+    /// the check's own fixed frame. The width never changes: the lane is
+    /// `RibbonPlacement.standardWidth` in every state.
     @MainActor
     private static func resize(
-        panel: NSPanel, hosting: NSHostingView<RibbonView>, model: PanelModel,
-        width requestedWidth: CGFloat? = nil
+        panel: NSPanel, hosting: NSHostingView<RibbonView>, model: PanelModel
     ) {
-        let width = requestedWidth ?? (model.prefersExpandedRibbon
-            ? RibbonPlacement.expandedWidth : RibbonPlacement.standardWidth)
+        let width = RibbonPlacement.standardWidth
         let measurement = NSHostingView(
             rootView: RibbonView(model: model, width: width, anchor: .screen, isLive: false))
         measurement.safeAreaRegions = []

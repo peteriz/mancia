@@ -10,7 +10,6 @@ struct EditSession: Equatable {
         case awaitingDocumentApproval
         case capturingDocument
         case generating
-        case awaitingReplacementApproval
         case applying
         case navigating
     }
@@ -133,7 +132,6 @@ struct EditSession: Equatable {
 
     enum ResultDecision: Equatable {
         case retained
-        case requestReplacementApproval(GeneratedResult)
         case apply(ApplyPlan)
         case failure(Failure)
     }
@@ -283,10 +281,7 @@ struct EditSession: Equatable {
     }
 
     /// Unchanged output is retained without producing an apply plan.
-    mutating func consider(
-        _ result: GeneratedResult,
-        replacementConfirmationRequired: Bool
-    ) -> ResultDecision {
+    mutating func consider(_ result: GeneratedResult) -> ResultDecision {
         guard stage == .generating,
               pendingGeneration == result.request,
               result.baseline.revision == revision,
@@ -304,28 +299,8 @@ struct EditSession: Equatable {
         }
 
         pendingResult = result
-        if result.baseline.scope == .document && replacementConfirmationRequired {
-            stage = .awaitingReplacementApproval
-            return .requestReplacementApproval(result)
-        }
         stage = .applying
         return .apply(ApplyPlan(result: result))
-    }
-
-    mutating func approveReplacement() -> ResultDecision {
-        guard stage == .awaitingReplacementApproval,
-              let result = pendingResult,
-              result.baseline.scope == .document
-        else { return .failure(.invalidTransition) }
-        stage = .applying
-        return .apply(ApplyPlan(result: result))
-    }
-
-    @discardableResult
-    mutating func retainPendingResult() -> Outcome? {
-        guard stage == .awaitingReplacementApproval, pendingResult != nil else { return nil }
-        invalidatePending()
-        return .retained
     }
 
     /// Only a matching verified apply can advance history.

@@ -28,9 +28,13 @@ func paletteContrast(dark: Bool) throws {
     ]
     let pairs = [Palette.surface, Palette.raised, Palette.controlHover].flatMap { background in
         textColors.map { ($0, background) }
+    } + [RibbonPalette.lane, RibbonPalette.controlHover, RibbonPalette.field].flatMap { background in
+        [
+            RibbonPalette.text, RibbonPalette.caption,
+            RibbonPalette.appliedText, RibbonPalette.errorText,
+        ].map { ($0, background) }
     } + [
-        (RibbonPalette.onAction, RibbonPalette.action),
-        (RibbonPalette.onCustomRun, RibbonPalette.customRun),
+        (RibbonPalette.onAccent, RibbonPalette.accent),
     ]
     for (index, pair) in pairs.enumerated() {
         let (foreground, background) = pair

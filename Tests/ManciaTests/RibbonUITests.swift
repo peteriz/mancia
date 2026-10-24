@@ -11,11 +11,11 @@ struct RibbonUITests {
 
     // MARK: - Lock semantics
 
-    @Test("Only scope-approval, running, and confirm lock the ribbon")
+    @Test("Only scope-approval and running lock the ribbon")
     func lockedPhasesMatchIsLocked() {
         let model = PanelModel()
-        let locked: Set<PanelModel.Phase> = [.scopeApproval, .running, .confirm]
-        for phase: PanelModel.Phase in [.idle, .scopeApproval, .running, .confirm, .applied, .retained, .error] {
+        let locked: Set<PanelModel.Phase> = [.scopeApproval, .running]
+        for phase: PanelModel.Phase in [.idle, .scopeApproval, .running, .applied, .retained, .error] {
             model.phase = phase
             #expect(model.isLocked == locked.contains(phase))
         }
@@ -45,7 +45,7 @@ struct RibbonUITests {
 
     // MARK: - Esc routing
 
-    @Test("Esc declines the scope-approval and confirm gates instead of closing")
+    @Test("Esc declines the scope-approval gate instead of closing")
     func escDeclinesGates() {
         let model = PanelModel()
         var declines = 0
@@ -55,10 +55,8 @@ struct RibbonUITests {
 
         model.phase = .scopeApproval
         model.escape()
-        model.phase = .confirm
-        model.escape()
 
-        #expect(declines == 2)
+        #expect(declines == 1)
         #expect(cancels == 0)
     }
 
@@ -83,28 +81,6 @@ struct RibbonUITests {
         let model = PanelModel()
         model.phase = .scopeApproval
         #expect(model.focusableCells == [.scopeDecline, .scopeApprove])
-    }
-
-    @Test("Confirm offers disclosure, decline, and approve as Tab stops")
-    func confirmFocusableCells() {
-        let model = PanelModel()
-        model.phase = .confirm
-        #expect(model.focusableCells == [.reviewDisclosure, .reviewDecline, .reviewApprove])
-    }
-
-    @Test("The review decline path uses the pending-decision callback")
-    func reviewDeclineUsesPendingCallback() {
-        let model = PanelModel()
-        var declines = 0
-        var runCancels = 0
-        model.onDeclinePending = { declines += 1 }
-        model.onCancelRun = { runCancels += 1 }
-        model.phase = .confirm
-
-        model.escape()
-
-        #expect(declines == 1)
-        #expect(runCancels == 0)
     }
 
     @Test("Applied adds Undo only while a version is available to undo")
@@ -135,16 +111,14 @@ struct RibbonUITests {
         #expect(!model.focusableCells.contains(.appliedUndo))
     }
 
-    @Test("A fresh session clears comparison text and completion status")
+    @Test("A fresh session clears result text and completion status")
     func resetClearsResultPresentation() {
         let model = PanelModel()
-        model.pendingOriginalPreview = "private original"
-        model.pendingResultPreview = "private result"
+        model.retainedResult = "private result"
         model.appliedStatusText = "No changes needed"
         model.targetAppName = "Previous app"
         model.reset(hasSelection: false, charCount: 0)
-        #expect(model.pendingOriginalPreview.isEmpty)
-        #expect(model.pendingResultPreview.isEmpty)
+        #expect(model.retainedResult.isEmpty)
         #expect(model.appliedStatusText == nil)
         #expect(model.targetAppName.isEmpty)
     }
@@ -180,7 +154,7 @@ struct RibbonUITests {
         model.reset(hasSelection: true, charCount: 12)
         model.undoAvailable = true
         model.retainedResult = "text"
-        for phase: PanelModel.Phase in [.idle, .scopeApproval, .running, .confirm, .applied, .retained, .error] {
+        for phase: PanelModel.Phase in [.idle, .scopeApproval, .running, .applied, .retained, .error] {
             model.phase = phase
             #expect(model.focusableCells.contains(.target) == model.targetChipEnabled)
         }
@@ -193,9 +167,9 @@ struct RibbonUITests {
         let model = PanelModel()
         model.reset(hasSelection: true, charCount: 12)
 
-        model.phase = .confirm
-        #expect(model.focusedCell == .reviewDisclosure)
-        model.focusedCell = .reviewApprove
+        model.phase = .scopeApproval
+        #expect(model.focusedCell == .scopeDecline)
+        model.focusedCell = .scopeApprove
 
         model.phase = .idle
         #expect(model.focusedCell == .action(0))
@@ -226,19 +200,97 @@ struct RibbonUITests {
         #expect(model.retainedResultExpanded == false)
     }
 
-    @Test("Custom uses a bounded flexible width below the old screen-wide layout")
-    func customWidthIsBoundedAndFlexible() {
-        #expect(RibbonPlacement.customMinimumWidth < RibbonPlacement.expandedWidth)
-        #expect(RibbonPlacement.expandedWidth < 897)
+    // MARK: - Custom drawer
 
+    @Test("Custom keeps its button in the row and opens its field after it")
+    func customKeepsItsButtonAndAddsTheDrawer() {
+        let model = PanelModel()
+        model.reset(hasSelection: true, charCount: 12)
+        model.selectCustomInstruction()
+
+        #expect(model.focusableCells == [
+            .action(0), .action(1), .action(2), .action(3), .action(4),
+            .direction, .run, .target, .presetGroup,
+        ])
+        #expect(model.focusedCell == .direction)
+    }
+
+    @Test("Opening Custom never asks the lane for more width")
+    func customDoesNotWidenTheLane() {
+        let model = PanelModel()
+        model.reset(hasSelection: true, charCount: 12)
         let context = RibbonPlacement.Context(
-            screenFrame: CGRect(x: 0, y: 0, width: 740, height: 900),
-            visibleFrame: CGRect(x: 0, y: 0, width: 740, height: 860),
-            preferredWidth: RibbonPlacement.expandedWidth,
-            minimumContentWidth: RibbonPlacement.customMinimumWidth)
-        let resolution = RibbonPlacement.resolve(height: 80, in: context)
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            preferredWidth: RibbonPlacement.standardWidth,
+            minimumContentWidth: RibbonPlacement.standardWidth)
+        let closed = RibbonPlacement.resolve(height: 44, in: context)
+        model.selectCustomInstruction()
+        let open = RibbonPlacement.resolve(height: 150, in: context)
 
-        #expect(resolution.frame.width == 740)
+        #expect(open.frame.width == closed.frame.width)
+        #expect(open.frame.maxY == closed.frame.maxY, "the drawer grows the lane downward")
+    }
+
+    @Test("Above a selection, the drawer lifts the lane instead of covering the text")
+    func drawerAboveSelectionGrowsUpward() {
+        let selection = CGRect(x: 300, y: 120, width: 600, height: 40)
+        let context = RibbonPlacement.Context(
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            selectionRect: selection,
+            establishedAnchor: .aboveSelection,
+            preferredWidth: RibbonPlacement.standardWidth,
+            minimumContentWidth: RibbonPlacement.standardWidth)
+        let closed = RibbonPlacement.resolve(height: 44, in: context)
+        let open = RibbonPlacement.resolve(height: 150, in: context)
+
+        #expect(open.anchor == .aboveSelection)
+        #expect(open.frame.minY == closed.frame.minY)
+        #expect(open.frame.minY >= selection.maxY)
+        #expect(!open.frame.intersects(selection))
+    }
+
+    @Test("A neutral ribbon stays neutral when a result lands")
+    func appliedKeepsNeutralFocus() {
+        let model = PanelModel()
+        model.reset(hasSelection: true, charCount: 12)
+        model.actionChoice = .preset(.sharpen)
+        model.phase = .running
+        #expect(model.focusedCell == .action(1))
+
+        model.restoreButtonsAfterApply()
+        model.phase = .applied
+        #expect(model.focusedCell == .none, "no ring beside the lit action")
+
+        model.moveFocus(.next)
+        #expect(model.focusedCell == .action(0), "Tab still enters at the first cell")
+    }
+
+    // MARK: - Accent
+
+    @Test("A fresh ribbon lights no action; a result lights the action that made it")
+    func accentFollowsTheResult() {
+        let model = PanelModel()
+        model.reset(hasSelection: true, charCount: 12)
+        #expect(model.actionDisplayOrder.allSatisfy { !model.isActionHighlighted(at: $0) })
+
+        model.actionChoice = .preset(.sharpen)
+        model.phase = .running
+        #expect(model.actionDisplayOrder.allSatisfy { !model.isActionHighlighted(at: $0) })
+
+        model.appliedActionName = "Sharpen"
+        model.phase = .applied
+        #expect(model.actionDisplayOrder.filter { model.isActionHighlighted(at: $0) } == [1])
+
+        model.actionChoice = .preset(.tighten)
+        model.phase = .error
+        #expect(model.actionDisplayOrder.filter { model.isActionHighlighted(at: $0) } == [3])
+
+        model.phase = .idle
+        model.selectCustomInstruction()
+        #expect(model.actionDisplayOrder.filter { model.isActionHighlighted(at: $0) }
+            == [PanelModel.customActionIndex])
     }
 
     // MARK: - Rendering smoke test
@@ -254,7 +306,7 @@ struct RibbonUITests {
     @Test(
         "Every phase measures to a positive, finite height off-screen",
         arguments: [
-            PanelModel.Phase.idle, .scopeApproval, .running, .confirm, .applied, .retained, .error,
+            PanelModel.Phase.idle, .scopeApproval, .running, .applied, .retained, .error,
         ])
     func everyPhaseMeasuresANonZeroHeight(_ phase: PanelModel.Phase) {
         let model = PanelModel()
@@ -263,7 +315,6 @@ struct RibbonUITests {
         model.onScopeChange = { _ in }
         model.onUndoVersion = { false }
         model.onRetry = {}
-        model.onConfirmApply = {}
         model.onApproveDocumentGeneration = {}
         model.onDeclinePending = {}
         model.onCopyRetainedResult = {}

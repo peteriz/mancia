@@ -27,8 +27,6 @@ enum Palette {
     static let accent = dynamic(light: 0xB74732, dark: 0xEF896D)
     /// Text/glyph color that sits on top of the accent fill.
     static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x25120C)
-    static let secondaryAction = dynamic(light: 0x46566F, dark: 0xA8B8CF)
-    static let onSecondaryAction = dynamic(light: 0xF6F8FF, dark: 0x1F2935)
 
     // MARK: - Status
 

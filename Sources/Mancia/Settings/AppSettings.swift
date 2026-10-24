@@ -38,7 +38,6 @@ final class AppSettings {
         static let copilotModelIsDerived = "copilotModelIsDerived"
         static let reasoningEffort = "reasoningEffort"
         static let postApplyBehavior = "postApplyBehavior"
-        static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
         static let swooshColor = "swooshColor"
         static let presetGroup = "presetGroup"
         static let presetGroupShortcut = "presetGroupShortcut"
@@ -82,12 +81,6 @@ final class AppSettings {
     /// What the panel does after an edit is applied.
     var postApplyBehavior: PostApplyBehavior {
         didSet { defaults.set(postApplyBehavior.rawValue, forKey: Key.postApplyBehavior) }
-    }
-    /// When true (default), a whole-document replacement pauses for explicit
-    /// confirmation before it overwrites the document. Selection edits are never
-    /// gated — they are low blast-radius and trivially undone.
-    var confirmWholeDocumentReplace: Bool {
-        didSet { defaults.set(confirmWholeDocumentReplace, forKey: Key.confirmWholeDocumentReplace) }
     }
     /// The swoosh — the comet that runs the border of a control while its
     /// action is in flight. Stored as `RRGGBB` rather than as archived color
@@ -178,9 +171,6 @@ final class AppSettings {
 
         self.postApplyBehavior = defaults.string(forKey: Key.postApplyBehavior)
             .flatMap(PostApplyBehavior.init(rawValue:)) ?? .hybrid
-        // Default on: absent key means the safety gate is enabled.
-        self.confirmWholeDocumentReplace =
-            defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
         self.swooshColorHex = Self.normalizedColorHex(defaults.string(forKey: Key.swooshColor))
         self.presetGroup = PresetGroup.group(id: defaults.string(forKey: Key.presetGroup))
         self.presetGroupShortcut = Self.presetGroupShortcut(stored: defaults.string(forKey: Key.presetGroupShortcut))

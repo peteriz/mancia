@@ -1,6 +1,11 @@
 # 03 — Visual specification
 
-> **Superseded in part.** The lane shipped, then a design review of the
+> **Superseded.** The lane is now a fixed graphite register
+> (`RibbonPalette`) with the target and five actions on one row, a downward
+> Custom drawer, and no whole-document review region. The notes below are the
+> earlier cream-register spec, kept for history.
+>
+> **Earlier note.** The lane shipped, then a design review of the
 > running app removed the per-cell captions ("Target", "Action",
 > "Direction") and folded status and iteration in beside Run. The row is one
 > line, not two; each control names itself with an icon and its own value.

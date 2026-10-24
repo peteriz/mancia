@@ -29,7 +29,7 @@ struct RibbonScopeApprovalView: View {
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                GhostButton("Decline", tint: RibbonPalette.caption) {
+                GhostButton("Decline", tint: RibbonPalette.text) {
                     model.onDeclinePending?()
                 }
                 .focusable()
@@ -37,7 +37,7 @@ struct RibbonScopeApprovalView: View {
                 .ribbonFocusRing(model.focusedCell == .scopeDecline, radius: 8, inset: -2)
                 .accessibilityIdentifier("DeclineScope")
                 AccentButton(
-                    "Send document", fill: RibbonPalette.action, foreground: RibbonPalette.onAction
+                    "Send document", fill: RibbonPalette.accent, foreground: RibbonPalette.onAccent
                 ) {
                     model.onApproveDocumentGeneration?()
                 }

@@ -133,7 +133,8 @@ final class RibbonWindow: NSObject {
     var isKey: Bool { panel?.isKeyWindow ?? false }
 
     /// Re-resolve and re-apply the frame. Called when the lane's height changes
-    /// — the review region opening or closing — and when the screen
+    /// — Custom's drawer opening, a status row or its details appearing — and
+    /// when the screen
     /// configuration changes underneath it.
     ///
     /// Each anchor pins the edge it hangs from, so the lane grows away from
@@ -308,7 +309,6 @@ final class RibbonWindow: NSObject {
         guard let screen = targetScreen() else {
             return .init(screenFrame: .zero, visibleFrame: .zero)
         }
-        let expanded = model.prefersExpandedRibbon
         return .init(
             screenFrame: screen.frame,
             visibleFrame: screen.visibleFrame,
@@ -317,12 +317,8 @@ final class RibbonWindow: NSObject {
             menuBarHidden: menuBarHidden,
             selectionRect: selectionRect,
             establishedAnchor: currentAnchor,
-            preferredWidth: expanded
-                ? RibbonPlacement.expandedWidth
-                : RibbonPlacement.standardWidth,
-            minimumContentWidth: expanded
-                ? RibbonPlacement.customMinimumWidth
-                : RibbonPlacement.minimumWidth
+            preferredWidth: RibbonPlacement.standardWidth,
+            minimumContentWidth: RibbonPlacement.standardWidth
         )
     }
 
@@ -461,8 +457,8 @@ final class RibbonWindow: NSObject {
             }
             // Return activates the focused control. Direction answers its own
             // through `onSubmit`, so it is excluded or Custom would run twice.
-            // Every other cell — including the scope-approval and
-            // whole-document review gates' own buttons — is handled generically
+            // Every other cell — including the scope-approval gate's own
+            // buttons — is handled generically
             // by focus rather than by phase, so Return always does exactly what
             // clicking the focused control would, never a global fallback.
             if PanelKeyCommand.isPrimaryReturn(
@@ -480,8 +476,8 @@ final class RibbonWindow: NSObject {
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }
         panel.onSubmit = { [weak self] in
             guard let model = self?.model else { return }
-            // Mirror the Return key: inert while a request runs or a
-            // whole-document replacement awaits confirmation.
+            // Mirror the Return key: inert while a request runs or the
+            // whole-document request awaits approval.
             guard !model.isLocked, model.canRunPrimary else { return }
             model.runPrimary()
         }
@@ -529,15 +525,6 @@ final class RibbonWindow: NSObject {
             return true
         case .scopeApprove:
             model.onApproveDocumentGeneration?()
-            return true
-        case .reviewDisclosure:
-            model.previewExpanded.toggle()
-            return true
-        case .reviewDecline:
-            model.onDeclinePending?()
-            return true
-        case .reviewApprove:
-            model.onConfirmApply?()
             return true
         case .appliedUndo:
             _ = model.undoLastVersion()
