@@ -1,4 +1,7 @@
 import AppKit
+import os
+
+private let runLog = Logger(subsystem: "io.github.peteriz.mancia", category: "run")
 
 struct CoordinatorOperationEpoch: Equatable {
     private(set) var value: UInt64 = 0
@@ -118,7 +121,15 @@ final class EditCoordinator {
 
         startOperation { [self] operation in
             do {
+                runLog.info("initial capture: start")
                 let result = try await SelectionCapture.captureSelection()
+                let outcome: String = switch result.outcome {
+                case .selected(let text): "selected \(text.count) chars"
+                case .noSelection: "no selection"
+                case .uncertain(let failure): "uncertain \(failure)"
+                case .failed(let failure): "failed \(failure)"
+                }
+                runLog.info("initial capture: done \(outcome, privacy: .public)")
                 try Task.checkCancellation()
                 guard self.isCurrent(operation) else { return }
                 finishInitialCapture(result)
@@ -167,6 +178,7 @@ final class EditCoordinator {
     // MARK: - Generation
 
     private func perform(_ action: EditAction, note: String?) {
+        runLog.info("perform \(action.title, privacy: .public) capturing=\(self.capturing, privacy: .public)")
         if capturing {
             queuedAction = PendingAction(action: action, note: note)
             model.runningTitle = action.progressLabel
@@ -193,7 +205,9 @@ final class EditCoordinator {
         startOperation { [self] operation in
             do {
                 if sessionScope == .selection {
+                    runLog.info("refresh selection: start")
                     try await refreshSelectionTarget(operation: operation)
+                    runLog.info("refresh selection: done")
                 }
                 try Task.checkCancellation()
                 guard self.isCurrent(operation) else { return }
@@ -362,7 +376,9 @@ final class EditCoordinator {
                 action: pending.action,
                 text: request.text,
                 note: pending.note)
+            runLog.info("generate: provider start (\(request.text.count, privacy: .public) chars)")
             let rawOutput = try await provider.complete(prompt)
+            runLog.info("generate: provider done (\(rawOutput.count, privacy: .public) chars)")
             try Task.checkCancellation()
             guard isCurrent(operation) else { return }
             let output = try PromptBuilder.normalizeOutput(
@@ -379,6 +395,7 @@ final class EditCoordinator {
                         userOptedIn: settings.confirmWholeDocumentReplace)
             ) {
             case .retained:
+                runLog.info("generate: retained (no changes)")
                 syncIterationState()
                 model.appliedStatusText = "No changes needed"
                 model.restoreButtonsAfterApply()
@@ -386,11 +403,13 @@ final class EditCoordinator {
                 ribbon.focus()
                 scheduleAutoCloseIfHybrid()
             case .requestReplacementApproval(let result):
+                runLog.info("generate: awaiting replacement approval")
                 pendingApply = PendingApply(
                     target: target,
                     actionName: pending.action.title)
                 presentReplacementConfirmation(result)
             case .apply(let plan):
+                runLog.info("generate: applying")
                 await executeApply(
                     plan,
                     target: target,
@@ -868,6 +887,7 @@ final class EditCoordinator {
     }
 
     private func fail(_ message: String) {
+        runLog.error("fail: \(message, privacy: .private)")
         autoCloseTask?.cancel()
         autoCloseTask = nil
         model.errorText = message

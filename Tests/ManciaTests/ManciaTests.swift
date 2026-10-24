@@ -794,6 +794,31 @@ func acpFailureReplyDetection() {
     #expect(!CopilotACPClient.isCLIFailureReply("Fix the Error: handling in parse()."))
 }
 
+@Test("MCP server names parse from copilot mcp list output")
+func mcpServerListParsing() {
+    let output = """
+    {"mcpServers": {"rea": {"source": "user", "enabled": true},
+      "github-mcp-server": {"source": "builtin"}, "computer-use": {"source": "builtin"}}}
+    """
+    #expect(CopilotMCPServers.names(fromListJSON: output) == ["computer-use", "github-mcp-server", "rea"])
+    #expect(CopilotMCPServers.names(fromListJSON: "Loading…\n{\"mcpServers\": {}}") == [])
+    #expect(CopilotMCPServers.names(fromListJSON: "not json") == [])
+    #expect(CopilotMCPServers.names(fromListJSON: "{\"other\": 1}") == [])
+}
+
+@Test("Both argv builders disable each listed MCP server")
+func disabledMCPServersInArguments() {
+    let servers = ["github-mcp-server", "rea"]
+    for args in [
+        CopilotCLIProvider.arguments(executable: "copilot", prompt: "p", model: "", disabledMCPServers: servers),
+        CopilotCLIProvider.acpArguments(executable: "copilot", model: "", disabledMCPServers: servers),
+    ] {
+        let pairs = args.indices.dropLast().filter { args[$0] == "--disable-mcp-server" }.map { args[$0 + 1] }
+        #expect(pairs == servers)
+    }
+    #expect(!CopilotCLIProvider.acpArguments(executable: "copilot", model: "").contains("--disable-mcp-server"))
+}
+
 @Test("ACP update parsing extracts only text message chunks")
 func acpUpdateParsing() {
     let params: [String: Any] = [

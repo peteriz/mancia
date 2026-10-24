@@ -180,7 +180,17 @@ the places that need completion or availability checks.
 
 Both paths run in private empty temp directories and use the same ambient-context
 disable flags: `--available-tools=`, `--disable-builtin-mcps`,
-and `--no-custom-instructions`.
+`--no-custom-instructions`, and one `--disable-mcp-server <name>` per server
+that `copilot mcp list --json` reports (`CopilotMCPServers`, cached for five
+minutes). ACP sessions load configured MCP servers' tool definitions even with
+`--available-tools=`; a large user server overflows the model's context and
+every ACP turn fails. Such failures arrive as `Error:` reply text, which
+`CopilotACPClient.isCLIFailureReply` treats as a failure so the fallback runs.
+
+Provider and run timing are traced with `os.Logger` (subsystem
+`io.github.peteriz.mancia`, categories `provider` and `run`); user text and
+error payloads, which can echo it, are logged only as private. Watch with
+`log stream --predicate 'subsystem == "io.github.peteriz.mancia"' --level info`.
 
 Availability probing runs `copilot --version`. Success means **Installed**,
 not authenticated or able to complete a network request. Completion errors
@@ -257,7 +267,8 @@ instruction:
 - **Sandboxed provider (the real boundary).** Every completion runs through
   either `copilot --acp --stdio` or the one-shot `copilot -p` fallback in a
   private empty temp `cwd`. Both paths pass
-  `--available-tools= --disable-builtin-mcps --no-custom-instructions`;
+  `--available-tools= --disable-builtin-mcps --no-custom-instructions` and
+  `--disable-mcp-server` for every configured MCP server;
   the prompt is sent as ACP JSON-RPC text or as one single `-p` argv element
   (never through a shell). The model therefore has no tools, no repo context, no
   remote-session context, and no shell — the blast radius is "text in, text out".

@@ -30,7 +30,8 @@ actor CopilotACPClient: CopilotACPClientProtocol {
         process.arguments = CopilotCLIProvider.acpArguments(
             executable: config.executable,
             model: config.model,
-            reasoningEffort: config.reasoningEffort
+            reasoningEffort: config.reasoningEffort,
+            disabledMCPServers: config.disabledMCPServers
         )
         process.environment = environment
         process.currentDirectoryURL = workingDir

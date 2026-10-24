@@ -205,7 +205,10 @@ the coordinator, status menu, settings view, and debug CLI.
   cancellation does not.
 - **Important:** pass `--available-tools=` as a *single argv element* (empty
   value) in both paths — it disables all agent tools. Both paths also pass
-  `--disable-builtin-mcps`, and `--no-custom-instructions`.
+  `--disable-builtin-mcps`, `--no-custom-instructions`, and
+  `--disable-mcp-server <name>` for each server `copilot mcp list --json`
+  reports (ACP otherwise loads their tool definitions and can overflow the
+  model's context).
 - Working directory: a private empty temp dir in both paths (avoid the CLI
   scanning a repo).
 - 90 s prompt timeout via structured concurrency; kill the one-shot process on

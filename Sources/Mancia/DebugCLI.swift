@@ -815,10 +815,14 @@ enum DebugCLI {
     /// client, which Mancia's own pasteboard/keystroke work already requires
     /// — this reuses that trust rather than asking for anything new.
     @MainActor
-    private static func collectAX(_ root: AXUIElement, visit: (AXUIElement) -> Void) {
+    private static func collectAX(
+        _ root: AXUIElement, depth: Int = 0, visit: (AXUIElement) -> Void
+    ) {
         visit(root)
+        // The system tree can loop back on itself; the ribbon is far shallower.
+        guard depth < 40 else { return }
         for child in axAttribute(root, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
-            collectAX(child, visit: visit)
+            collectAX(child, depth: depth + 1, visit: visit)
         }
     }
 
