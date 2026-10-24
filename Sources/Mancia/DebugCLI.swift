@@ -387,12 +387,13 @@ enum DebugCLI {
 
         // MARK: preset groups
 
-        /// Click the one action-set chip, which cycles to the next set.
-        func clickPresetGroup() async {
-            guard let chip = axElement(id: "PresetGroup", in: axWindow),
-                  let frame = await windowFrame(of: chip, panel: panel)
+        /// Click one segment of the action-set toggle.
+        func clickPresetGroup(_ group: PresetGroup) async {
+            let identifier = "PresetGroup-\(group.id)"
+            guard let segment = axElement(id: identifier, in: axWindow),
+                  let frame = await windowFrame(of: segment, panel: panel)
             else {
-                failures.append("idle: could not locate PresetGroup via accessibility")
+                failures.append("idle: could not locate \(identifier) via accessibility")
                 return
             }
             click(panel, at: frame.center)
@@ -400,10 +401,12 @@ enum DebugCLI {
             resize(panel: panel, hosting: hosting, model: model)
             await settle()
         }
-        /// The chip names the live set to VoiceOver as its value.
+        /// The toggle names the live set to VoiceOver as its value. SwiftUI
+        /// publishes a container's value as `AXValueDescription`, not `AXValue`.
         func presetGroupChipValue() -> String? {
-            axElement(id: "PresetGroup", in: axWindow)
-                .flatMap { axAttribute($0, kAXValueAttribute) as? String }
+            axElement(id: "PresetGroup", in: axWindow).flatMap {
+                (axAttribute($0, kAXValueAttribute) ?? axAttribute($0, "AXValueDescription")) as? String
+            }
         }
         // Switching sets must not move or resize a single action button.
         func actionFrames() async -> [NSRect] {
@@ -418,15 +421,26 @@ enum DebugCLI {
         }
         let promptFrames = await actionFrames()
         if presetGroupChipValue() != PresetGroup.prompt.title {
-            failures.append("PresetGroup: chip should read Prompt, got \(presetGroupChipValue() ?? "nil")")
+            failures.append("PresetGroup: toggle should read Prompt, got \(presetGroupChipValue() ?? "nil")")
         }
-        await clickPresetGroup()
-        log.append("click (PresetGroup): now \(model.presetGroup.title)")
-        if model.presetGroup != .writing {
-            failures.append("click (PresetGroup): expected Writing, got \(model.presetGroup.title)")
+        for expected in ["PresetGroup-prompt", "PresetGroup-writing"] where axElement(id: expected, in: axWindow) == nil {
+            failures.append("idle: missing control \(expected)")
+        }
+        // The live segment is a no-op.
+        var groupChanges: [PresetGroup] = []
+        model.onPresetGroupChange = { groupChanges.append($0) }
+        await clickPresetGroup(.prompt)
+        log.append("click (PresetGroup-prompt while Prompt): now \(model.presetGroup.title)")
+        if model.presetGroup != .prompt || !groupChanges.isEmpty {
+            failures.append("click (PresetGroup-prompt): the active segment should be a no-op, got \(model.presetGroup.title) \(groupChanges.map(\.id))")
+        }
+        await clickPresetGroup(.writing)
+        log.append("click (PresetGroup-writing): now \(model.presetGroup.title)")
+        if model.presetGroup != .writing || groupChanges.map(\.id) != ["writing"] {
+            failures.append("click (PresetGroup-writing): expected Writing, got \(model.presetGroup.title) \(groupChanges.map(\.id))")
         }
         if presetGroupChipValue() != PresetGroup.writing.title {
-            failures.append("PresetGroup: chip should read Writing, got \(presetGroupChipValue() ?? "nil")")
+            failures.append("PresetGroup: toggle should read Writing, got \(presetGroupChipValue() ?? "nil")")
         }
         let writingFrames = await actionFrames()
         if promptFrames.count != PanelModel.actionIndices.count || promptFrames != writingFrames {
@@ -452,25 +466,32 @@ enum DebugCLI {
             }
             model.phase = .idle
         }
-        // A running set is locked: the chip must not swap the buttons under it.
+        // A running set is locked: the toggle must not swap the buttons under it.
         model.phase = .running
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
-        await clickPresetGroup()
+        await clickPresetGroup(.prompt)
         if model.presetGroup != .writing {
-            failures.append("PresetGroup: the chip switched sets while a run was in flight")
+            failures.append("PresetGroup: the toggle switched sets while a run was in flight")
         }
         model.phase = .idle
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
-        // The chip cycles: Writing -> Prompt -> Writing -> Prompt.
-        for expected in [PresetGroup.prompt, .writing, .prompt] {
-            await clickPresetGroup()
-            log.append("click (PresetGroup): now \(model.presetGroup.title)")
-            if model.presetGroup != expected {
-                failures.append("click (PresetGroup): expected \(expected.title), got \(model.presetGroup.title)")
-            }
+        groupChanges.removeAll()
+        await clickPresetGroup(.writing)
+        log.append("click (PresetGroup-writing while Writing): now \(model.presetGroup.title)")
+        if model.presetGroup != .writing || !groupChanges.isEmpty {
+            failures.append("click (PresetGroup-writing): the active segment should be a no-op, got \(model.presetGroup.title) \(groupChanges.map(\.id))")
         }
+        await clickPresetGroup(.prompt)
+        log.append("click (PresetGroup-prompt): now \(model.presetGroup.title)")
+        if model.presetGroup != .prompt || groupChanges.map(\.id) != ["prompt"] {
+            failures.append("click (PresetGroup-prompt): expected Prompt, got \(model.presetGroup.title) \(groupChanges.map(\.id))")
+        }
+        if presetGroupChipValue() != PresetGroup.prompt.title {
+            failures.append("PresetGroup: toggle should read Prompt, got \(presetGroupChipValue() ?? "nil")")
+        }
+        model.onPresetGroupChange = nil
         await clickPresets(of: .prompt)
         model.selectPreset(at: 1)
         resize(panel: panel, hosting: hosting, model: model)
@@ -766,6 +787,40 @@ enum DebugCLI {
             }
         }
 
+        // Return on the focused set toggle cycles sets. That routing lives in
+        // `RibbonWindow`'s own panel, so drive a real one rather than this
+        // check's stand-in.
+        let laneModel = PanelModel()
+        laneModel.reset(hasSelection: true, charCount: 42)
+        laneModel.onPerform = { _, _ in failures.append("shortcuts: Return on the set toggle ran an action") }
+        laneModel.onCancel = {}
+        let lane = RibbonWindow(model: laneModel, settings: AppSettings())
+        let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
+        lane.show()
+        await settle()
+        if let lanePanel = NSApp.windows.first(where: {
+            $0 is KeyablePanel && !existing.contains(ObjectIdentifier($0))
+        }), let returnKey = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: lanePanel.windowNumber, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
+            var seen: [String] = []
+            for _ in 0..<2 {
+                laneModel.focusedCell = .presetGroup
+                lanePanel.sendEvent(returnKey)
+                seen.append(laneModel.presetGroup.title)
+            }
+            log.append("shortcuts: Return on focused PresetGroup -> \(seen.joined(separator: " -> "))")
+            if seen != [PresetGroup.writing.title, PresetGroup.prompt.title] {
+                failures.append("shortcuts: Return on the focused set toggle should cycle Writing then Prompt, got \(seen)")
+            }
+        } else {
+            failures.append("shortcuts: could not reach RibbonWindow's panel for the Return check")
+        }
+        lane.close()
+        panel.makeKeyAndOrderFront(nil)
+        await settle()
+
         // Exercise unmodified digits through the native event routes.
         model.reset(hasSelection: true, charCount: 42)
         panel.onActivateAction = { model.activateAction(at: $0) }
@@ -814,7 +869,7 @@ enum DebugCLI {
                 failures.append("shortcuts: an unfocused panel claimed a digit")
             }
         }
-        log.append("shortcuts: Command-E, Command-T, focused digits in both sets, ordinary text entry, and unfocused panel")
+        log.append("shortcuts: Command-E, Command-T, Return on the set toggle, focused digits in both sets, ordinary text entry, and unfocused panel")
 
         finish(failures: failures, log: log)
     }

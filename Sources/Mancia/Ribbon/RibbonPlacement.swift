@@ -192,7 +192,7 @@ enum RibbonPlacement {
     /// actions share a single row, every label reserves room for its running form, and Custom opens
     /// downward rather than sideways — so no state needs more room across,
     /// and starting, finishing or customizing a request never resizes it.
-    static let standardWidth: CGFloat = 820
+    static let standardWidth: CGFloat = 880
 
     /// Never let the lane get narrower than this; below it the row's controls
     /// cannot hold their labels.

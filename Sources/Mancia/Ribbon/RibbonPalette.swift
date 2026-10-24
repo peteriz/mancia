@@ -29,12 +29,16 @@ enum RibbonPalette {
     /// Keyboard focus: 4.8:1 against the lane, visible without competing
     /// with the accent.
     static let focusRing = Color(hex: 0x8A857C)
+    /// The live segment of the action-set toggle: paper on graphite, so the
+    /// mode reads at a glance without spending the accent on it.
+    static let selectedSegment = Color(hex: 0xEDE8DE)
+    static let onSelectedSegment = Color(hex: 0x1A1917)
     /// Vermilion: the action that is open or just ran, and the Run button.
     static let accent = Color(hex: 0xFF5A36)
     static let onAccent = Color(hex: 0x1A0D08)
-    /// Cool light is reserved for work in progress. It separates state from
-    /// action: vermilion means "this one", blue means "it is running".
-    static let processing = Color(hex: 0x49B8FF)
+    /// The working light: a paler, warmer vermilion than `accent`, so a beam
+    /// on a dark control reads as the same family as the action it belongs to.
+    static let processing = Color(hex: 0xFF8A6B)
     static let applied = Color(hex: 0x7BD389)
     static let appliedText = Color(hex: 0xA7E3B0)
     static let error = Color(hex: 0xFF7A6B)

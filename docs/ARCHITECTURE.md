@@ -388,8 +388,8 @@ delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
 The action strip shows one `PresetGroup` at a time — four presets in slots
-1…4, then Custom. A chip beside the target names the live group and flips
-to the next one when clicked. The switch-set shortcut (⌘E by default) lives in
+1…4, then Custom. A segmented toggle beside the target names every group and
+lights the live one. The switch-set shortcut (⌘E by default) lives in
 `AppSettings.presetGroupShortcut` as JSON rather than a
 `KeyboardShortcuts.Name`, because the library registers every saved name as a
 system-wide hotkey; `KeyablePanel` matches it by key code while the ribbon is
@@ -399,8 +399,9 @@ hotkey. `PanelModel.presetGroup` survives `reset`, and
 title or running label any group can show there
 (`PanelModel.actionLabelCandidates`), so switching groups or starting a run
 never moves a button. Adding a preset group means defining it in `PresetGroup.swift`
-with exactly `slotCount` presets; the chip cycles through `PresetGroup.all`, so
-a third group needs no view change.
+with exactly `slotCount` presets; the toggle draws a segment per entry in
+`PresetGroup.all`, so a third group needs no view change beyond the lane's
+width.
 
 The **Prompt** group's presets past Improve target text written for coding agents, and all
 three restructure rather than generate — they are forbidden from inventing

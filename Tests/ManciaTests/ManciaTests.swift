@@ -336,7 +336,7 @@ func swooshColorNormalizesAndPersists() {
     // The stock hex resolves to the color the ribbon palette already uses.
     #expect(
         AppSettings.color(from: AppSettings.defaultSwooshColorHex)
-            == Palette.nsColor(0x49B8FF))
+            == Palette.nsColor(0xFF8A6B))
 }
 
 @MainActor
@@ -2167,7 +2167,8 @@ private let ribbonVisible = CGRect(x: 0, y: 60, width: 1440, height: 815)
 
 @Test("Placement honors standard and expanded preferred widths")
 func placementHonorsPreferredWidth() {
-    #expect(RibbonPlacement.standardWidth == 820)
+    #expect(RibbonPlacement.minimumWidth == RibbonPlacement.standardWidth)
+    #expect(RibbonPlacement.standardWidth < RibbonPlacement.maximumWidth)
     let standard = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2540,7 +2541,11 @@ func placementClampsASelectionAnchoredLaneToTheScreen() {
 
 @Test("A wide selection widens the lane, up to the cap")
 func placementWidensTheLaneToTheSelection() {
-    let selection = CGRect(x: 300, y: 500, width: 860, height: 16)
+    // Once padded by the clearance, the span sits between the lane's minimum
+    // and its cap, so the lane takes the span's width exactly.
+    let spanWidth = (RibbonPlacement.minimumWidth + RibbonPlacement.maximumWidth) / 2
+    let selection = CGRect(
+        x: 300, y: 500, width: spanWidth - 2 * RibbonPlacement.selectionClearance, height: 16)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2637,10 +2642,20 @@ func placementJudgesRoomAtTheHeightItWillGrowTo() {
 
 // MARK: - Ribbon placement: standing in the margin
 
+/// A 670pt-tall block starting at `minX` whose right flank leaves exactly
+/// `margin` points of `ribbonScreen` once the selection clearance is taken.
+private func tallBlock(from minX: CGFloat, rightMargin margin: CGFloat) -> CGRect {
+    CGRect(
+        x: minX, y: 150,
+        width: ribbonScreen.maxX - RibbonPlacement.selectionClearance - margin - minX,
+        height: 670)
+}
+
 /// A paragraph selected in a column of text: 670pt tall, so neither end of it
-/// can hold a grown lane, and 520pt wide, so the display has margin to spare
-/// either side. The case the rule used to answer by trekking to the menu bar.
-private let tallSelection = CGRect(x: 80, y: 150, width: 520, height: 670)
+/// can hold a grown lane, and narrow enough that the display has room for the
+/// lane beside it, with a little to spare. The case the rule used to answer by
+/// trekking to the menu bar.
+private let tallSelection = tallBlock(from: 80, rightMargin: RibbonPlacement.standardWidth + 24)
 
 @Test("A selection too tall for either end puts the lane in the margin beside it")
 func placementStandsInTheMarginOfATallSelection() {
@@ -2663,7 +2678,9 @@ func placementStandsInTheMarginOfATallSelection() {
 func placementPrefersTheRoomierFlank() {
     // The same block, moved to the right of the display: now the margin is on
     // the other side of it.
-    let selection = CGRect(x: 840, y: 150, width: 520, height: 670)
+    let leftMargin = RibbonPlacement.standardWidth + 12
+    let minX = leftMargin + RibbonPlacement.selectionClearance
+    let selection = CGRect(x: minX, y: 150, width: 1360 - minX, height: 670)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2676,8 +2693,8 @@ func placementPrefersTheRoomierFlank() {
 
 @Test("The ribbon fits a margin exactly its own width")
 func placementUsesAMarginWideEnoughForTheRibbon() {
-    // 820pt of margin once the clearance is taken: just enough for the lane.
-    let selection = CGRect(x: 200, y: 150, width: 412, height: 670)
+    // Exactly the lane's width of margin once the clearance is taken: just enough.
+    let selection = tallBlock(from: 200, rightMargin: RibbonPlacement.standardWidth)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2694,7 +2711,13 @@ func placementMeasuresMarginsOnTheDisplay() {
     // selected in it. The margin that matters is the one on screen beside the
     // words, not the part of the window nobody can see.
     let host = CGRect(x: -400, y: 0, width: 1440, height: 900)
-    let selection = CGRect(x: 500, y: 150, width: 100, height: 670)
+    let displayMargin = RibbonPlacement.standardWidth + 24
+    let selection = tallBlock(
+        from: ribbonScreen.maxX - RibbonPlacement.selectionClearance - displayMargin - 100,
+        rightMargin: displayMargin)
+    #expect(
+        host.maxX - selection.maxX - RibbonPlacement.selectionClearance < RibbonPlacement.minimumWidth,
+        "the premise: measured to the window's own right edge, the margin could not hold the lane")
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
@@ -2703,7 +2726,7 @@ func placementMeasuresMarginsOnTheDisplay() {
 
     #expect(
         resolved.anchor == .rightOfSelection,
-        "832pt of display beside the block, whatever the window's own edge says")
+        "the display has room beside the block, whatever the window's own edge says")
     #expect(!resolved.frame.intersects(selection), "screen clamping must not move the lane across the words")
     #expect(resolved.frame.minX == selection.maxX + RibbonPlacement.selectionClearance)
     #expect(resolved.frame.maxX <= ribbonScreen.maxX, "and it stays on the display")
@@ -2725,16 +2748,17 @@ func placementMarginLaneGrowsWithoutReachingTheText() {
 
 @Test("A lane in the margin is only as wide as the margin can hold")
 func placementMarginLaneFitsTheMarginItStandsIn() {
-    // 860pt of margin to the right: wider than the lane's minimum, narrower
-    // than its cap, so the lane takes the margin exactly.
-    let selection = CGRect(x: 20, y: 150, width: 552, height: 670)
+    // A margin to the right wider than the lane's minimum and narrower than
+    // its cap, so the lane takes the margin exactly.
+    let margin = (RibbonPlacement.minimumWidth + RibbonPlacement.maximumWidth) / 2
+    let selection = tallBlock(from: 20, rightMargin: margin)
     let resolved = RibbonPlacement.resolve(
         height: 56,
         in: .init(
             screenFrame: ribbonScreen, visibleFrame: ribbonVisible, selectionRect: selection))
 
     #expect(resolved.anchor == .rightOfSelection)
-    #expect(resolved.frame.width == 860, "a lane wider than its margin would reach back over the text")
+    #expect(resolved.frame.width == margin, "a lane wider than its margin would reach back over the text")
     #expect(resolved.frame.maxX == ribbonVisible.maxX)
 }
 

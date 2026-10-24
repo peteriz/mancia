@@ -8,7 +8,7 @@ import SwiftUI
 /// — under the menu bar, or under the frontmost window's title bar. See
 /// `RibbonPlacement`.
 ///
-/// Everything lives on one row: the target, the action-set switch, then the
+/// Everything lives on one row: the target, the action-set toggle, then the
 /// five actions. Custom
 /// stays in that row and opens a field *downward*, in a drawer under it, so
 /// the panel keeps one width in every state and only ever grows in height —
@@ -46,7 +46,7 @@ struct RibbonView: View {
     @FocusState private var focus: PanelModel.Cell?
     @State private var hoveredAction: Int?
     @State private var targetHovered = false
-    @State private var presetGroupHovered = false
+    @Namespace private var presetGroupNamespace
     @State private var customRunHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -163,7 +163,7 @@ struct RibbonView: View {
     private var commandRow: some View {
         HStack(spacing: 2) {
             targetChip
-            presetGroupChip
+            presetGroupToggle
             Rectangle()
                 .fill(RibbonPalette.divider)
                 .frame(width: 1, height: 20)
@@ -241,69 +241,85 @@ struct RibbonView: View {
         .accessibilityIdentifier("Target")
     }
 
-    /// The action-set switch: one chip naming the live set. A click — or the
-    /// set shortcut, shown on hover like the actions' digits — moves to the
-    /// next set, and the four preset buttons swap in place. Its width is
-    /// reserved for the longest set name, so switching moves nothing.
-    private var presetGroupChip: some View {
-        let group = model.presetGroup
-        let shortcut = model.presetGroupShortcutLabel
-        return Button {
-            model.cyclePresetGroup()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: group.symbol)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(RibbonPalette.symbol)
-                    .frame(width: 14)
-                ZStack(alignment: .leading) {
-                    ForEach(PresetGroup.all) { Text($0.title).hidden() }
-                    Text(group.title).foregroundStyle(RibbonPalette.text)
-                }
+    /// The action-set switch: a two-segment toggle naming every set, with the
+    /// live one on a bright segment that slides across when the set changes.
+    /// Each name selects its own set; the set shortcut (in the tooltip) and
+    /// Return, with the toggle focused, move to the next one. The four preset
+    /// buttons swap in place.
+    ///
+    /// The bright segment is deliberately not vermilion: the accent marks the
+    /// action in play, and the set is a mode, not an action.
+    private var presetGroupToggle: some View {
+        HStack(spacing: 0) {
+            ForEach(PresetGroup.all) { group in
+                presetGroupSegment(group)
             }
-            .font(.system(size: 12, weight: .semibold))
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 9)
-            .frame(height: controlHeight)
-            .background(
-                controlShape.fill(
-                    presetGroupHovered && !locked ? RibbonPalette.controlHover : .clear))
-            .overlay(alignment: .topTrailing) {
-                if let shortcut {
-                    Text(shortcut)
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(RibbonPalette.caption)
-                        .padding(.top, 3)
-                        .padding(.trailing, 5)
-                        .opacity(presetGroupHovered && !locked ? 1 : 0)
-                        .accessibilityHidden(true)
-                }
-            }
-            .contentShape(controlShape)
         }
-        .buttonStyle(.plain)
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: controlRadius, style: .continuous)
+                .fill(RibbonPalette.field))
+        .overlay(
+            RoundedRectangle(cornerRadius: controlRadius, style: .continuous)
+                .strokeBorder(RibbonPalette.fieldEdge, lineWidth: 1))
+        .frame(height: controlHeight)
         .disabled(locked)
         .opacity(locked ? 0.4 : 1)
         .focusable()
         .focused($focus, equals: .presetGroup)
-        .ribbonFocusRing(model.focusedCell == .presetGroup, radius: controlRadius, inset: 0)
-        .onHover { hovering in
-            guard isLive else { return }
-            presetGroupHovered = hovering
-        }
+        .ribbonFocusRing(
+            model.focusedCell == .presetGroup, radius: controlRadius + 3, inset: -3)
         .help(presetGroupHelp)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Action set")
-        .accessibilityValue(group.title)
-        .accessibilityHint(presetGroupHelp)
+        .accessibilityValue(model.presetGroup.title)
         .accessibilityIdentifier("PresetGroup")
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.86),
+            value: model.presetGroup)
+    }
+
+    /// One name. Every segment is as wide as the longest name, so switching
+    /// moves nothing but the bright segment.
+    private func presetGroupSegment(_ group: PresetGroup) -> some View {
+        let selected = model.presetGroup == group
+        let segment = RoundedRectangle(cornerRadius: controlRadius - 2, style: .continuous)
+        return Button {
+            model.selectPresetGroup(group)
+        } label: {
+            ZStack {
+                ForEach(PresetGroup.all) { Text($0.title).hidden() }
+                Text(group.title)
+            }
+            .font(.system(size: 12, weight: selected ? .bold : .medium))
+            .foregroundStyle(selected ? RibbonPalette.onSelectedSegment : RibbonPalette.caption)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 10)
+            .frame(maxHeight: .infinity)
+            .background {
+                if selected {
+                    segment
+                        .fill(RibbonPalette.selectedSegment)
+                        .matchedGeometryEffect(id: "presetGroupSegment", in: presetGroupNamespace)
+                }
+            }
+            .contentShape(segment)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .accessibilityLabel(group.title)
+        .accessibilityValue(selected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint(group.summary)
+        .accessibilityIdentifier("PresetGroup-\(group.id)")
     }
 
     private var presetGroupHelp: String {
-        let next = model.presetGroup.next
-        let action = "\(model.presetGroup.summary). Click for \(next.title)"
-        guard let shortcut = model.presetGroupShortcutLabel else { return action + "." }
-        return "\(action) (\(shortcut))."
+        let action = "\(model.presetGroup.title): \(model.presetGroup.summary.lowercased()). "
+            + "Switch action set"
+        guard let shortcut = model.presetGroupShortcutLabel else { return action }
+        return "\(action) (\(shortcut))"
     }
 
     private var targetChipTitle: String {

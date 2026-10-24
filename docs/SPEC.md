@@ -7,7 +7,7 @@
 >
 > Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
 > first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
-> a stable order, switched by a chip beside the target (⌘E, configurable in
+> a stable order, switched by a Prompt / Writing toggle beside the target (⌘E, configurable in
 > Settings), all on one row of a fixed-width graphite panel.
 > Whole-document access requires approval before capture and generation.
 > Whole-document results apply directly; Custom opens its editor in a drawer

@@ -88,9 +88,9 @@ signed, so macOS asks again after each rebuild.
 
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
-3. Click one of the four action buttons to run it immediately. The action-set
-   chip beside the target (or <kbd>⌘E</kbd>, configurable in Settings) flips
-   between two action sets:
+3. Click one of the four action buttons to run it immediately. The Prompt /
+   Writing toggle beside the target (or <kbd>⌘E</kbd>, configurable in
+   Settings) switches between two action sets:
    - **Prompt**, for text written to coding agents: **Improve**, **Sharpen**,
      **Plan first**, **Tighten**.
    - **Writing**, for prose written to people: **Proofread** (spelling and

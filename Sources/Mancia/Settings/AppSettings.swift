@@ -30,7 +30,7 @@ final class AppSettings {
     static let shared = AppSettings()
     /// The stock swoosh color — `RibbonPalette.processing`, spelled as hex so
     /// it can round-trip through defaults and be compared for "still stock".
-    static let defaultSwooshColorHex = "49B8FF"
+    static let defaultSwooshColorHex = "FF8A6B"
 
     private enum Key {
         static let copilotPath = "copilotPath"
@@ -203,7 +203,7 @@ final class AppSettings {
     }
 
     static func color(from hex: String) -> NSColor {
-        Palette.nsColor(Int(normalizedColorHex(hex), radix: 16) ?? 0x49B8FF)
+        Palette.nsColor(Int(normalizedColorHex(hex), radix: 16) ?? 0xFF8A6B)
     }
 
     /// The picker hands back colors in whatever space the user picked in, so

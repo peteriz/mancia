@@ -86,117 +86,55 @@ struct AccentButton: View {
     }
 }
 
-/// The working signal: a comet running the pressed control's border.
+/// The working signal: a beam of light sweeping round the control's border.
 ///
-/// The steady track and every moving layer use `edge`, the exact path produced
-/// by the shape inset by half this effect's line width. Keeping that geometry
-/// inside one component matters: previously the static border was a separate
-/// 1pt `strokeBorder` while the comet followed a 2pt inset path, so their
-/// centerlines differed by half a point and the light visibly wandered off the
-/// button edge.
-///
-/// The lap is driven by `TimelineView(.animation)` off the wall clock rather
-/// than a repeating `withAnimation`, which keeps the rate constant however the
-/// rest of the lane is animating and lets the effect start mid-lap without a
-/// jump. Reduce Motion replaces the comet with the same steady lit track.
+/// A conic gradient — clear for most of the turn, rising to `tint` and fading
+/// out again — rotated about the control's center and drawn only in its
+/// border. Because the sweep is angular, the light races along the short ends
+/// of a wide button and slows along its long sides, which is what gives it
+/// its pull. Driven by `TimelineView(.animation)` off the wall clock, so the
+/// rate holds steady whatever else the lane is animating. Reduce Motion
+/// replaces it with a steady lit border.
 struct SwooshBorder<S: InsettableShape>: View {
     var shape: S
     var tint: Color
     var animated: Bool
-    var head: Color?
-    var lineWidth: CGFloat = 2
+    var lineWidth: CGFloat = 1.5
 
-    private let period: Double = 0.925
-    private let tail: Double = 0.3
-    private let tailSteps = 20
-    private let headLength: Double = 0.045
-
-    private var headColor: Color { head ?? tint }
-    private var edge: S.InsetShape { shape.inset(by: lineWidth / 2) }
+    /// One lap, in seconds.
+    private let period: Double = 1.3
 
     var body: some View {
-        ZStack {
+        Group {
             if animated {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
-                    spark(
-                        at: context.date.timeIntervalSinceReferenceDate
-                            .truncatingRemainder(dividingBy: period) / period)
+                    let lap = context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: period) / period
+                    shape.strokeBorder(beam(at: lap * 360), lineWidth: lineWidth)
                 }
             } else {
-                edge.stroke(tint.opacity(0.8), lineWidth: lineWidth)
+                shape.strokeBorder(tint, lineWidth: lineWidth)
             }
         }
-        // The light belongs to the button, not the lane around it.
-        .clipShape(shape)
         .allowsHitTesting(false)
     }
 
-    private func spark(at lap: Double) -> some View {
-        ZStack {
-            // The original soft bloom, but clipped to the button and centered
-            // on the same edge as the crisp trail.
-            trail(on: edge, at: lap, width: lineWidth * 1.8, head: headColor)
-                .blur(radius: 2)
-                .opacity(0.7)
-            trail(on: edge, at: lap, width: lineWidth, head: headColor)
-            arc(
-                edge,
-                from: lap - headLength * 0.55,
-                to: lap,
-                color: .white.opacity(0.9),
-                width: lineWidth * 0.7)
-        }
-    }
-
-    private func trail<T: Shape>(
-        on path: T,
-        at lap: Double,
-        width: CGFloat,
-        head: Color
-    ) -> some View {
-        ZStack {
-            ForEach(0..<tailSteps, id: \.self) { step in
-                let near = Double(step) / Double(tailSteps)
-                let far = Double(step + 1) / Double(tailSteps)
-                arc(
-                    path,
-                    from: lap - tail * far,
-                    to: lap - tail * near,
-                    color: tint.opacity(pow(1 - near, 1.8)),
-                    width: width,
-                    cap: .butt)
-            }
-            arc(
-                path,
-                from: lap - headLength,
-                to: lap,
-                color: head,
-                width: width)
-        }
-    }
-
-    @ViewBuilder
-    private func arc<T: Shape>(
-        _ path: T,
-        from: Double,
-        to: Double,
-        color: Color,
-        width: CGFloat,
-        cap: CGLineCap = .round
-    ) -> some View {
-        let style = StrokeStyle(lineWidth: width, lineCap: cap)
-        let start = from - from.rounded(.down)
-        let end = to - to.rounded(.down)
-        if start <= end {
-            path.trim(from: start, to: end).stroke(color, style: style)
-        } else {
-            ZStack {
-                path.trim(from: start, to: 1).stroke(color, style: style)
-                path.trim(from: 0, to: end).stroke(color, style: style)
-            }
-        }
+    /// Clear for the first 62% of the turn, brightest at 82%, clear again by
+    /// the end — so the beam has a long tail behind a sharp leading edge.
+    private func beam(at degrees: Double) -> AngularGradient {
+        AngularGradient(
+            stops: [
+                .init(color: tint.opacity(0), location: 0),
+                .init(color: tint.opacity(0), location: 0.62),
+                .init(color: tint, location: 0.82),
+                .init(color: tint.opacity(0), location: 1),
+            ],
+            center: .center,
+            startAngle: .degrees(degrees - 90),
+            endAngle: .degrees(degrees + 270))
     }
 }
+
 // MARK: - Focus ring
 
 extension View {
