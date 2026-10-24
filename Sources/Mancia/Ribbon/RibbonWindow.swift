@@ -474,6 +474,7 @@ final class RibbonWindow: NSObject {
         }
         panel.onToggleTarget = { [weak self] in self?.model.toggleScope() }
         panel.onCyclePresetGroup = { [weak self] in self?.model.cyclePresetGroup() }
+        panel.presetGroupShortcut = { [weak self] in self?.settings.presetGroupShortcut }
         panel.onActivateAction = { [weak self] index in self?.model.activateAction(at: index) }
         panel.onUndoVersion = { [weak self] in self?.model.undoLastVersion() ?? false }
         panel.onOpenSettings = { [weak self] in self?.onOpenSettings?() }

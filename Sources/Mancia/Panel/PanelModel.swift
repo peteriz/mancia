@@ -95,6 +95,9 @@ final class PanelModel {
     /// The preset set on the action strip. Survives `reset` so a session opens
     /// on the set the user last chose; the coordinator persists it.
     var presetGroup: PresetGroup = .prompt
+    /// The switch-set shortcut as shown on the switch ("⌘E"); nil hides the
+    /// hint. Set by the coordinator from Settings.
+    var presetGroupShortcutLabel: String?
     var runningTitle = ""
     var errorText = ""
     /// Describes a whole-document generation request without exposing or
@@ -256,7 +259,7 @@ final class PanelModel {
     /// The first preset of the current group — what a fresh strip highlights.
     private var defaultActionChoice: ActionChoice { .preset(presets[0]) }
 
-    /// The group switcher and ⌘G. A selected preset hands its slot over to the
+    /// The set switch and its shortcut. A selected preset hands its slot over to the
     /// new group's preset in the same position, so focus does not jump.
     func selectPresetGroup(_ group: PresetGroup) {
         guard !isLocked, group != presetGroup else { return }

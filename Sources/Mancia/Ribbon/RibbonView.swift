@@ -47,6 +47,7 @@ struct RibbonView: View {
     @FocusState private var focus: PanelModel.Cell?
     @State private var hoveredAction: Int?
     @State private var customRunHovered = false
+    @State private var targetHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
@@ -156,7 +157,10 @@ struct RibbonView: View {
     private var targetRow: some View {
         HStack(spacing: 6) {
             targetChip
-            presetGroupChip
+            Rectangle()
+                .fill(RibbonPalette.controlEdge)
+                .frame(width: 1, height: 12)
+            presetGroupSwitch
             Spacer(minLength: 0)
             if model.phase == .running {
                 Text(runningLabel)
@@ -173,26 +177,35 @@ struct RibbonView: View {
     /// what an action would actually act on. It reads "Reading…" — and
     /// refuses both the click and ⌘T — for the same brief window the capture
     /// makes `hasSelection` an optimistic guess, per `PanelModel.setScope`.
+    ///
+    /// Deliberately plain — caption text, no capsule until hovered — so it
+    /// reads as a status line and the set switch beside it is plainly the
+    /// control on this row.
     private var targetChip: some View {
         Button {
             model.toggleScope()
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: model.scope == .document ? "doc.text" : "text.cursor")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .medium))
                 Text(targetChipLabel)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                     .fixedSize()
             }
-            .foregroundStyle(RibbonPalette.caption)
-            .padding(.horizontal, 9)
+            .foregroundStyle(targetHovered ? RibbonPalette.text : RibbonPalette.caption)
+            .padding(.horizontal, 6)
             .frame(height: 22)
+            .background {
+                if targetHovered && model.targetChipEnabled {
+                    Capsule(style: .continuous).fill(RibbonPalette.controlTint)
+                }
+            }
             .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .background(Capsule(style: .continuous).fill(RibbonPalette.controlTint))
-        .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+        .padding(.leading, -6)
+        .onHover { targetHovered = $0 }
         .disabled(!model.targetChipEnabled)
         .opacity(model.targetChipEnabled ? 1 : 0.5)
         .focusable()
@@ -205,22 +218,53 @@ struct RibbonView: View {
         .accessibilityIdentifier("Target")
     }
 
-    /// A segmented toggle between preset groups, one segment per group, so
-    /// every set is visible and the active one is plainly marked. Sits beside
-    /// the target chip because both answer "what will the buttons below do",
-    /// and shares its capsule styling so the two read as one strip of session
-    /// settings. Keyboard focus lands on the whole toggle; Return and ⌘G
-    /// advance it.
-    private var presetGroupChip: some View {
-        HStack(spacing: 2) {
-            ForEach(PresetGroup.all) { group in
-                presetGroupSegment(group)
+    /// A sliding switch between the two preset groups — "Prompt ◯━ Writing" —
+    /// with the shortcut on a keycap beside it. Both names stay put and the
+    /// knob slides toward the live one, so switching moves nothing but the
+    /// knob. Each name is clickable, and so is the track, which flips. Keyboard
+    /// focus lands on the whole switch; Return and the shortcut flip it.
+    ///
+    /// A switch has two sides: this assumes `PresetGroup.all` holds exactly
+    /// two groups, with the first on the left.
+    private var presetGroupSwitch: some View {
+        let groups = PresetGroup.all
+        let onRight = model.presetGroup == groups.last
+        return HStack(spacing: 6) {
+            if let first = groups.first { presetGroupName(first) }
+            Button {
+                model.cyclePresetGroup()
+            } label: {
+                Capsule(style: .continuous)
+                    .fill(RibbonPalette.controlHoverTint)
+                    .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+                    .overlay(alignment: onRight ? .trailing : .leading) {
+                        Circle()
+                            .fill(RibbonPalette.action)
+                            .frame(width: 12, height: 12)
+                            .padding(2)
+                    }
+                    .frame(width: 28, height: 16)
+                    .contentShape(Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .help(presetGroupHelp)
+            .accessibilityLabel("Switch action set")
+            .accessibilityIdentifier("PresetGroup-switch")
+            if let last = groups.last, groups.count > 1 { presetGroupName(last) }
+            if let shortcut = model.presetGroupShortcutLabel {
+                Text(shortcut)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(RibbonPalette.caption)
+                    .padding(.horizontal, 4)
+                    .frame(height: 16)
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
+                    .accessibilityHidden(true)
             }
         }
-        .padding(2)
+        .padding(.horizontal, 4)
         .frame(height: 22)
-        .background(Capsule(style: .continuous).fill(RibbonPalette.controlTint))
-        .overlay(Capsule(style: .continuous).strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
         .disabled(locked)
         .opacity(locked ? 0.5 : 1)
         .focusable()
@@ -230,10 +274,12 @@ struct RibbonView: View {
         .accessibilityLabel("Action set")
         .accessibilityValue(model.presetGroup.title)
         .accessibilityIdentifier("PresetGroup")
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: model.presetGroup)
+        .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.8), value: model.presetGroup)
     }
 
-    private func presetGroupSegment(_ group: PresetGroup) -> some View {
+    /// One side's name. Same weight either way, so the row's width never
+    /// changes; only the colour says which side is live.
+    private func presetGroupName(_ group: PresetGroup) -> some View {
         let selected = model.presetGroup == group
         return Button {
             model.selectPresetGroup(group)
@@ -246,26 +292,22 @@ struct RibbonView: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            .foregroundStyle(selected ? RibbonPalette.text : RibbonPalette.caption)
-            .padding(.horizontal, 8)
-            .frame(maxHeight: .infinity)
-            .background {
-                if selected {
-                    Capsule(style: .continuous)
-                        .fill(RibbonPalette.controlHoverTint)
-                        .overlay(Capsule(style: .continuous)
-                            .strokeBorder(RibbonPalette.controlEdge, lineWidth: 1))
-                }
-            }
-            .contentShape(Capsule(style: .continuous))
+            .foregroundStyle(selected ? RibbonPalette.text : RibbonPalette.caption.opacity(0.75))
+            .frame(height: 22)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focusable(false)
-        .help("\(group.summary). Command G switches sets.")
+        .help("\(group.summary). \(presetGroupHelp)")
         .accessibilityLabel(group.title)
         .accessibilityValue(selected ? "Selected" : "Not selected")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("PresetGroup-\(group.id)")
+    }
+
+    private var presetGroupHelp: String {
+        guard let shortcut = model.presetGroupShortcutLabel else { return "Switch action set" }
+        return "Switch action set (\(shortcut))"
     }
 
     private var targetChipLabel: String {

@@ -1439,7 +1439,6 @@ func panelKeyCommandsResolve() {
         (",", .command, .openSettings),
         ("\r", .command, .submit),
         ("t", .command, .toggleTarget),
-        ("g", .command, .cyclePresetGroup),
         ("1", [], .activateAction(0)),
         ("2", [], .activateAction(1)),
         ("3", [], .activateAction(2)),
@@ -1917,6 +1916,60 @@ func presetGroupPersists() throws {
     #expect(AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup == .writing)
     defaults.set("bogus", forKey: "presetGroup")
     #expect(AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup == .prompt)
+}
+
+@MainActor
+@Test("The switch-set shortcut defaults to ⌘E, persists, and can be cleared")
+func presetGroupShortcutPersists() throws {
+    let suite = "mancia.tests.presetGroupShortcut.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let load = { AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut }
+    #expect(load() == KeyboardShortcuts.Shortcut(.e, modifiers: [.command]))
+
+    let custom = KeyboardShortcuts.Shortcut(.k, modifiers: [.command, .option])
+    AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut = custom
+    #expect(load() == custom)
+
+    AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut = nil
+    #expect(load() == nil)
+
+    defaults.set("not json", forKey: "presetGroupShortcut")
+    #expect(load() == AppSettings.defaultPresetGroupShortcut)
+}
+
+@Test("The switch-set shortcut matches by key code and exact modifiers")
+func presetGroupShortcutMatches() {
+    let commandE = AppSettings.defaultPresetGroupShortcut
+    let resolve = { (keyCode: UInt16, mods: NSEvent.ModifierFlags) in
+        PanelKeyCommand.resolve(
+            keyCode: keyCode, characters: "e", modifiers: mods, presetGroupShortcut: commandE)
+    }
+    #expect(resolve(14, .command) == .cyclePresetGroup)
+    // Caps Lock and other non-chord flags don't stop a match.
+    #expect(resolve(14, [.command, .capsLock, .numericPad]) == .cyclePresetGroup)
+    #expect(resolve(14, [.command, .shift]) == nil)
+    #expect(resolve(14, []) == nil)
+    #expect(resolve(15, .command) == nil)
+    // Without a shortcut ⌘E means nothing, and the fixed commands still resolve.
+    #expect(PanelKeyCommand.resolve(
+        keyCode: 14, characters: "e", modifiers: .command, presetGroupShortcut: nil) == nil)
+    #expect(PanelKeyCommand.resolve(
+        keyCode: 17, characters: "t", modifiers: .command, presetGroupShortcut: commandE) == .toggleTarget)
+}
+
+@MainActor
+@Test("The switch-set shortcut can't shadow a panel command or the open hotkey")
+func presetGroupShortcutAvailability() {
+    let openHotkey = KeyboardShortcuts.Shortcut(.e, modifiers: [.command, .shift])
+    let available = { PanelKeyCommand.isAvailableForPresetGroup($0, openHotkey: openHotkey) }
+    #expect(available(KeyboardShortcuts.Shortcut(.e, modifiers: [.command])))
+    #expect(available(KeyboardShortcuts.Shortcut(.g, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.t, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.c, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.z, modifiers: [.command, .shift])))
+    #expect(!available(openHotkey))
+    #expect(!available(KeyboardShortcuts.Shortcut(.e, modifiers: [.shift])))
 }
 
 @MainActor

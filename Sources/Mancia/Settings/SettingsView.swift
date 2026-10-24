@@ -36,7 +36,7 @@ struct SettingsView: View {
         Form {
             Section("Ready to edit") {
                 ReadinessRow(title: "Shortcut", state: shortcutState) {
-                    ShortcutRecorderView(name: .editSelection)
+                    ShortcutRecorderView(name: .editSelection) { $0 != settings.presetGroupShortcut }
                 }
                 ReadinessRow(title: "Accessibility", state: accessibilityState) {
                     if !accessibilityTrusted {
@@ -54,6 +54,12 @@ struct SettingsView: View {
             }
 
             Section("Editing") {
+                LabeledContent("Switch action set") {
+                    ShortcutRecorderView(shortcut: $settings.presetGroupShortcut) {
+                        PanelKeyCommand.isAvailableForPresetGroup(
+                            $0, openHotkey: KeyboardShortcuts.getShortcut(for: .editSelection))
+                    }
+                }
                 Toggle("Confirm before replacing the whole document", isOn: $settings.confirmWholeDocumentReplace)
                 Picker("After applying:", selection: $settings.postApplyBehavior) {
                     ForEach(PostApplyBehavior.allCases) { behavior in

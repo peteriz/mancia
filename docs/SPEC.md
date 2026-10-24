@@ -7,7 +7,7 @@
 >
 > Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
 > first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
-> a stable order, switched by a segmented toggle beside the target (⌘G), with a visible target and a multiline Custom editor.
+> a stable order, switched by a sliding switch beside a plain target label (⌘E, configurable in Settings), with a visible target and a multiline Custom editor.
 > Whole-document access requires approval before capture and generation.
 > Replacement has a separate, configurable confirmation with an original/result
 > comparison. Applying and navigating versions require matching Accessibility

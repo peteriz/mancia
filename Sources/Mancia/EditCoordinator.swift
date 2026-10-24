@@ -106,6 +106,7 @@ final class EditCoordinator {
             return
         }
         guard ensureAccessibility() else { return }
+        model.presetGroupShortcutLabel = ShortcutRecorderView.display(settings.presetGroupShortcut)
 
         sessionActive = true
         autoCloseTask?.cancel()

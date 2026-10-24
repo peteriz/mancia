@@ -89,7 +89,8 @@ signed, so macOS asks again after each rebuild.
 1. Select text in any app.
 2. Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>E</kbd>.
 3. Click one of the four action buttons to run it immediately. The Prompt / Writing
-   toggle beside the target (or <kbd>⌘G</kbd>) switches between two action sets:
+   switch beside the target (or <kbd>⌘E</kbd>, configurable in Settings) flips
+   between two action sets:
    - **Prompt**, for text written to coding agents: **Improve**, **Sharpen**,
      **Plan first**, **Tighten**.
    - **Writing**, for prose written to people: **Proofread** (spelling and
@@ -125,7 +126,7 @@ and links are not guaranteed to survive.
 | <kbd>⌘Return</kbd> | Run the current action unless a request or approval is in progress |
 | <kbd>Tab</kbd> / <kbd>⇧Tab</kbd> | Move forward / backward through the ribbon controls |
 | <kbd>⌘T</kbd> | Switch between the current selection and the whole document when a selection exists |
-| <kbd>⌘G</kbd> | Switch to the next action set (Prompt / Writing) |
+| <kbd>⌘E</kbd> | Flip the action set (Prompt / Writing); change it in Settings → Editing |
 | <kbd>⌘Z</kbd> | Undo typing in Custom first; otherwise restore the previous Mancia-applied version |
 | <kbd>⌘⇧Z</kbd> | Redo typing in the Custom field |
 | <kbd>⌘A</kbd> / <kbd>⌘X</kbd> / <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | Edit text in the Custom field |

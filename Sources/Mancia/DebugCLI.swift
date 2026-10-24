@@ -413,6 +413,21 @@ enum DebugCLI {
         if model.presetGroup != .prompt {
             failures.append("click (PresetGroup-prompt): expected Prompt, got \(model.presetGroup.title)")
         }
+        // The track between the names flips whichever side is live.
+        for expected in [PresetGroup.writing, .prompt] {
+            guard let track = axElement(id: "PresetGroup-switch", in: axWindow),
+                  let frame = await windowFrame(of: track, panel: panel)
+            else {
+                failures.append("idle: could not locate PresetGroup-switch via accessibility")
+                break
+            }
+            click(panel, at: frame.center)
+            await settle()
+            log.append("click (PresetGroup-switch): now \(model.presetGroup.title)")
+            if model.presetGroup != expected {
+                failures.append("click (PresetGroup-switch): expected \(expected.title), got \(model.presetGroup.title)")
+            }
+        }
         model.selectPreset(at: 1)
         resize(panel: panel, hosting: hosting, model: model)
         await settle()
@@ -682,6 +697,24 @@ enum DebugCLI {
             failures.append("applied: could not locate UndoApplied via accessibility")
         }
 
+        // The switch-set chord (⌘E by default) flips sets as a key equivalent.
+        panel.onCyclePresetGroup = { model.cyclePresetGroup() }
+        panel.presetGroupShortcut = { AppSettings.defaultPresetGroupShortcut }
+        if let commandE = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            characters: "e", charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14) {
+            let before = model.presetGroup
+            let claimed = panel.performKeyEquivalent(with: commandE)
+            if !claimed || model.presetGroup == before {
+                failures.append("shortcuts: Command-E did not switch the action set")
+            }
+            _ = panel.performKeyEquivalent(with: commandE)
+            if model.presetGroup != before {
+                failures.append("shortcuts: a second Command-E did not switch back")
+            }
+        }
+
         // Exercise unmodified digits through the native event routes.
         model.reset(hasSelection: true, charCount: 42)
         panel.onActivateAction = { model.activateAction(at: $0) }
@@ -721,7 +754,7 @@ enum DebugCLI {
                 failures.append("shortcuts: an unfocused panel claimed a digit")
             }
         }
-        log.append("shortcuts: focused digits, ordinary text entry, and unfocused panel")
+        log.append("shortcuts: Command-E, focused digits, ordinary text entry, and unfocused panel")
 
         finish(failures: failures, log: log)
     }

@@ -151,7 +151,7 @@ results share the same ribbon rather than separate windows.
 is the authority for Tab order and focus rings, including recovery and
 approval controls. Return activates the focused control, not an unconditional
 document replacement. Command-number shortcuts retain their action order;
-Command-T changes scope only when permitted; Command-G cycles the preset group. Escape backs out of the current
+Command-T changes scope only when permitted; the switch-set shortcut (Command-E by default) flips the preset group. Escape backs out of the current
 run or pending approval; Command-W closes the session.
 
 ## The `LLMProvider` protocol
@@ -389,13 +389,20 @@ delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
 The action strip shows one `PresetGroup` at a time — four presets in slots
-1…4, then Custom. A segmented toggle beside the target chip selects the
-group (⌘G cycles it); `PanelModel.presetGroup` survives `reset`, and
+1…4, then Custom. A sliding switch beside the target label flips the
+group; the target label is plain text so the switch reads as the row's
+control. The switch-set shortcut (⌘E by default) lives in
+`AppSettings.presetGroupShortcut` as JSON rather than a
+`KeyboardShortcuts.Name`, because the library registers every saved name as a
+system-wide hotkey; `KeyablePanel` matches it by key code while the ribbon is
+key, and Settings refuses chords that shadow a fixed panel command or the open
+hotkey. `PanelModel.presetGroup` survives `reset`, and
 `AppSettings.presetGroup` persists it. Each action slot is sized to the widest
 title or running label any group can show there
 (`PanelModel.actionLabelCandidates`), so switching groups or starting a run
-never moves a button. Adding a group means defining it in `PresetGroup.swift` with
-exactly `slotCount` presets and appending it to `PresetGroup.all`.
+never moves a button. Adding a preset group means defining it in `PresetGroup.swift`
+with exactly `slotCount` presets; a third group would also need the two-sided
+switch in `RibbonView` to become a picker.
 
 The **Prompt** group's presets past Improve target text written for coding agents, and all
 three restructure rather than generate — they are forbidden from inventing
