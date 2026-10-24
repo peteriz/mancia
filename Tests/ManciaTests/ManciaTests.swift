@@ -12,6 +12,7 @@ func promptContainsTextAndClause() {
     let nonce = "TESTNONCE"
     let actions: [EditAction] = [
         .improve, .sharpen, .planFirst, .tighten, .rewrite, .summarize, .fixGrammar,
+        .unslop, .ste, .markdown,
         .custom("make it formal"),
     ]
     for action in actions {
@@ -109,6 +110,7 @@ func inputFencedWithNonce() {
 func promptCarriesInjectionFraming() {
     let actions: [EditAction] = [
         .improve, .sharpen, .planFirst, .tighten, .rewrite, .summarize, .fixGrammar,
+        .unslop, .ste, .markdown,
         .custom("shorten"),
     ]
     for action in actions {
@@ -190,7 +192,7 @@ func argvAlwaysSandboxed() {
                     #expect(args.contains("--no-custom-instructions"))
                     // Ambient MCP and remote-session context stay off.
                     #expect(args.contains("--disable-builtin-mcps"))
-                    #expect(args.contains("--no-remote"))
+                    #expect(!args.contains("--no-remote"))
                 }
             }
         }
@@ -613,6 +615,10 @@ func actionParsing() {
     #expect(EditAction.parse("rewrite") == .rewrite)
     #expect(EditAction.parse("summarize") == .summarize)
     #expect(EditAction.parse("fix-grammar") == .fixGrammar)
+    #expect(EditAction.parse("proofread") == .fixGrammar)
+    #expect(EditAction.parse("unslop") == .unslop)
+    #expect(EditAction.parse("ste") == .ste)
+    #expect(EditAction.parse("markdown") == .markdown)
     #expect(EditAction.parse("custom:be terse") == .custom("be terse"))
     #expect(EditAction.parse("translate") == nil)
     #expect(EditAction.parse("reply") == nil)
@@ -630,7 +636,7 @@ func argvHasEmptyAvailableTools() {
     #expect(args.contains("--no-color"))
     #expect(args.contains("--no-custom-instructions"))
     #expect(args.contains("--disable-builtin-mcps"))
-    #expect(args.contains("--no-remote"))
+    #expect(!args.contains("--no-remote"))
     // prompt is passed as its own element right after -p
     let promptIndex = args.firstIndex(of: "-p")
     #expect(promptIndex != nil)
@@ -647,7 +653,7 @@ func acpArgvDisablesAmbientContext() {
     #expect(args.contains("--available-tools="))
     #expect(args.contains("--no-custom-instructions"))
     #expect(args.contains("--disable-builtin-mcps"))
-    #expect(args.contains("--no-remote"))
+    #expect(!args.contains("--no-remote"))
     #expect(args.contains("--model"))
     #expect(args.contains("gpt-5.4-mini"))
     #expect(args.contains("--reasoning-effort"))
@@ -774,6 +780,43 @@ func acpResponseParsing() {
     let doneLine = #"{"jsonrpc":"2.0","id":2,"result":{"stopReason":"end_turn"}}"#
     #expect(CopilotACPClient.stopReason(fromPromptResponse: doneLine) == "end_turn")
     #expect(CopilotACPClient.stopReason(fromPromptResponse: #"{"result":{}}"#) == nil)
+}
+
+@Test("ACP replies that are CLI error text count as failures")
+func acpFailureReplyDetection() {
+    let streamed = "Warning: Static system messages and tool definitions exceed the model's"
+        + " usable context budget. Reduce static context or switch to a larger-context model."
+        + "Error: No response was returned. Send your message again to retry."
+    #expect(CopilotACPClient.isCLIFailureReply(streamed))
+    #expect(CopilotACPClient.isCLIFailureReply("Error: No response was returned."))
+    #expect(!CopilotACPClient.isCLIFailureReply("They're going to the store."))
+    #expect(!CopilotACPClient.isCLIFailureReply("Warning: wet floor."))
+    #expect(!CopilotACPClient.isCLIFailureReply("Fix the Error: handling in parse()."))
+}
+
+@Test("MCP server names parse from copilot mcp list output")
+func mcpServerListParsing() {
+    let output = """
+    {"mcpServers": {"rea": {"source": "user", "enabled": true},
+      "github-mcp-server": {"source": "builtin"}, "computer-use": {"source": "builtin"}}}
+    """
+    #expect(CopilotMCPServers.names(fromListJSON: output) == ["computer-use", "github-mcp-server", "rea"])
+    #expect(CopilotMCPServers.names(fromListJSON: "Loading…\n{\"mcpServers\": {}}") == [])
+    #expect(CopilotMCPServers.names(fromListJSON: "not json") == [])
+    #expect(CopilotMCPServers.names(fromListJSON: "{\"other\": 1}") == [])
+}
+
+@Test("Both argv builders disable each listed MCP server")
+func disabledMCPServersInArguments() {
+    let servers = ["github-mcp-server", "rea"]
+    for args in [
+        CopilotCLIProvider.arguments(executable: "copilot", prompt: "p", model: "", disabledMCPServers: servers),
+        CopilotCLIProvider.acpArguments(executable: "copilot", model: "", disabledMCPServers: servers),
+    ] {
+        let pairs = args.indices.dropLast().filter { args[$0] == "--disable-mcp-server" }.map { args[$0 + 1] }
+        #expect(pairs == servers)
+    }
+    #expect(!CopilotCLIProvider.acpArguments(executable: "copilot", model: "").contains("--disable-mcp-server"))
 }
 
 @Test("ACP update parsing extracts only text message chunks")
@@ -1499,19 +1542,19 @@ func ribbonFocusCycles() {
     model.reset(hasSelection: true, charCount: 12)
     #expect(model.focusedCell == .none)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4), .target,
+        .action(0), .action(1), .action(2), .action(3), .action(4), .target, .presetGroup,
     ])
 
     model.moveFocus(.next)
     #expect(model.focusedCell == .action(0))
 
     model.moveFocus(.previous)
-    #expect(model.focusedCell == .target)
+    #expect(model.focusedCell == .presetGroup)
 
     model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .direction, .run, .target,
+        .action(0), .action(1), .action(2), .action(3), .direction, .run, .target, .presetGroup,
     ])
     model.moveFocus(.next)
     #expect(model.focusedCell == .run)
@@ -1523,7 +1566,7 @@ func ribbonFocusIgnoresSelectionCapture() {
     let model = PanelModel()
     model.reset(hasSelection: false, charCount: 0)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4),
+        .action(0), .action(1), .action(2), .action(3), .action(4), .presetGroup,
     ])
 
     model.moveFocus(.next)
@@ -1533,12 +1576,12 @@ func ribbonFocusIgnoresSelectionCapture() {
     model.reset(hasSelection: true, charCount: 8)
     model.capturing = true
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4),
+        .action(0), .action(1), .action(2), .action(3), .action(4), .presetGroup,
     ])
 
     model.selectCustomInstruction()
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .direction, .run,
+        .action(0), .action(1), .action(2), .action(3), .direction, .run, .presetGroup,
     ])
 }
 
@@ -1566,7 +1609,7 @@ func ribbonKeyboardActionsRunImmediately() {
     model.onPerform = { calls.append(($0, $1)) }
     model.reset(hasSelection: true, charCount: 40)
 
-    for (index, preset) in PanelPreset.keyboardActions.enumerated() {
+    for (index, preset) in model.presets.enumerated() {
         let before = calls.count
         model.activateAction(at: index)
         #expect(calls.count == before + 1, "one shortcut should dispatch exactly once")
@@ -1637,7 +1680,7 @@ func ribbonShortcutsRespectTheLock() {
 
     model.phase = .idle
     model.activateAction(at: 1)
-    #expect(calls == [PanelPreset.keyboardActions[1].action], "and works again once unlocked")
+    #expect(calls == [PresetGroup.prompt.presets[1].action], "and works again once unlocked")
     model.activateAction(at: PanelModel.customActionIndex)
     #expect(model.isCustomInstructionSelected)
 }
@@ -1797,16 +1840,136 @@ func nonceAvoidsGuidanceCollision() {
     #expect(!"body".contains(nonce))
 }
 
-@Test("The action strip exposes all four built-ins in shortcut order")
+@Test("Each preset group fills every slot with its built-ins in shortcut order")
 func presetListShape() {
-    #expect(PanelPreset.all == [.improve, .sharpen, .planFirst, .tighten])
-    #expect(PanelPreset.keyboardActions == [.improve, .sharpen, .planFirst, .tighten])
+    #expect(PresetGroup.all == [.prompt, .writing])
+    #expect(PresetGroup.prompt.presets == [.improve, .sharpen, .planFirst, .tighten])
+    #expect(PresetGroup.writing.presets == [.proofread, .unslop, .ste, .markdown])
     #expect(PanelPreset.improve.action == .improve)
     #expect(PanelPreset.sharpen.action == .sharpen)
     #expect(PanelPreset.planFirst.action == .planFirst)
     #expect(PanelPreset.tighten.action == .tighten)
-    #expect(PanelPreset.all.count == Set(PanelPreset.all.map(\.id)).count, "preset ids must be unique")
-    #expect(PanelPreset.all.allSatisfy { !$0.action.isCustom }, "presets are named templates, never free-form")
+    #expect(PanelPreset.proofread.action == .fixGrammar)
+    #expect(PanelPreset.unslop.action == .unslop)
+    #expect(PanelPreset.ste.action == .ste)
+    #expect(PanelPreset.markdown.action == .markdown)
+    let presets = PresetGroup.all.flatMap(\.presets)
+    #expect(PresetGroup.all.allSatisfy { $0.presets.count == PresetGroup.slotCount })
+    #expect(presets.count == Set(presets.map(\.id)).count, "preset ids must be unique across groups")
+    #expect(PresetGroup.all.count == Set(PresetGroup.all.map(\.id)).count, "group ids must be unique")
+    #expect(presets.allSatisfy { !$0.action.isCustom }, "presets are named templates, never free-form")
+    #expect(PresetGroup.group(id: "writing") == .writing)
+    #expect(PresetGroup.group(id: "missing") == .prompt, "unknown ids fall back to the first group")
+    #expect(PresetGroup.group(id: nil) == .prompt)
+}
+
+@MainActor
+@Test("Switching preset groups swaps the strip in place and keeps the selected slot")
+func presetGroupSwitching() {
+    let model = PanelModel()
+    var changes: [PresetGroup] = []
+    var calls: [EditAction] = []
+    model.onPresetGroupChange = { changes.append($0) }
+    model.onPerform = { action, _ in calls.append(action) }
+    model.reset(hasSelection: true, charCount: 10)
+    #expect(model.actionChoice == .preset(.improve))
+
+    model.selectPreset(at: 2)
+    model.cyclePresetGroup()
+    #expect(model.presetGroup == .writing)
+    #expect(changes == [.writing])
+    #expect(model.actionChoice == .preset(.ste), "the selected slot carries over")
+    #expect(model.actionTitle(at: 0) == "Proofread")
+    #expect(model.actionTitle(at: 3) == "Markdown")
+    #expect(model.actionTitle(at: PanelModel.customActionIndex) == "Custom")
+    #expect(model.actionDescription(at: 1) != nil)
+
+    model.activateAction(at: 3)
+    #expect(calls == [.markdown])
+
+    // A new session keeps the group, and opens on its first preset.
+    model.reset(hasSelection: true, charCount: 10)
+    #expect(model.presetGroup == .writing)
+    #expect(model.actionChoice == .preset(.proofread))
+
+    // Custom stays selected across a switch.
+    model.selectCustomInstruction()
+    model.cyclePresetGroup()
+    #expect(model.presetGroup == .prompt, "cycling wraps")
+    #expect(model.isCustomInstructionSelected)
+
+    // Locked phases refuse the switch like every other command cell.
+    model.phase = .running
+    model.cyclePresetGroup()
+    #expect(model.presetGroup == .prompt)
+    #expect(changes == [.writing, .prompt])
+}
+
+@MainActor
+@Test("The chosen preset group persists through settings")
+func presetGroupPersists() throws {
+    let suite = "mancia.tests.presetGroup.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    #expect(AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup == .prompt)
+    AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup = .writing
+    #expect(AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup == .writing)
+    defaults.set("bogus", forKey: "presetGroup")
+    #expect(AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroup == .prompt)
+}
+
+@MainActor
+@Test("The switch-set shortcut defaults to ⌘E, persists, and can be cleared")
+func presetGroupShortcutPersists() throws {
+    let suite = "mancia.tests.presetGroupShortcut.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let load = { AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut }
+    #expect(load() == KeyboardShortcuts.Shortcut(.e, modifiers: [.command]))
+
+    let custom = KeyboardShortcuts.Shortcut(.k, modifiers: [.command, .option])
+    AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut = custom
+    #expect(load() == custom)
+
+    AppSettings(defaults: defaults, modelCatalog: { [] }).presetGroupShortcut = nil
+    #expect(load() == nil)
+
+    defaults.set("not json", forKey: "presetGroupShortcut")
+    #expect(load() == AppSettings.defaultPresetGroupShortcut)
+}
+
+@Test("The switch-set shortcut matches by key code and exact modifiers")
+func presetGroupShortcutMatches() {
+    let commandE = AppSettings.defaultPresetGroupShortcut
+    let resolve = { (keyCode: UInt16, mods: NSEvent.ModifierFlags) in
+        PanelKeyCommand.resolve(
+            keyCode: keyCode, characters: "e", modifiers: mods, presetGroupShortcut: commandE)
+    }
+    #expect(resolve(14, .command) == .cyclePresetGroup)
+    // Caps Lock and other non-chord flags don't stop a match.
+    #expect(resolve(14, [.command, .capsLock, .numericPad]) == .cyclePresetGroup)
+    #expect(resolve(14, [.command, .shift]) == nil)
+    #expect(resolve(14, []) == nil)
+    #expect(resolve(15, .command) == nil)
+    // Without a shortcut ⌘E means nothing, and the fixed commands still resolve.
+    #expect(PanelKeyCommand.resolve(
+        keyCode: 14, characters: "e", modifiers: .command, presetGroupShortcut: nil) == nil)
+    #expect(PanelKeyCommand.resolve(
+        keyCode: 17, characters: "t", modifiers: .command, presetGroupShortcut: commandE) == .toggleTarget)
+}
+
+@MainActor
+@Test("The switch-set shortcut can't shadow a panel command or the open hotkey")
+func presetGroupShortcutAvailability() {
+    let openHotkey = KeyboardShortcuts.Shortcut(.e, modifiers: [.command, .shift])
+    let available = { PanelKeyCommand.isAvailableForPresetGroup($0, openHotkey: openHotkey) }
+    #expect(available(KeyboardShortcuts.Shortcut(.e, modifiers: [.command])))
+    #expect(available(KeyboardShortcuts.Shortcut(.g, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.t, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.c, modifiers: [.command])))
+    #expect(!available(KeyboardShortcuts.Shortcut(.z, modifiers: [.command, .shift])))
+    #expect(!available(openHotkey))
+    #expect(!available(KeyboardShortcuts.Shortcut(.e, modifiers: [.shift])))
 }
 
 @MainActor
@@ -1924,7 +2087,7 @@ func versionUndoAvailability() {
 
 @Test("Every preset renders a distinct title, symbol, and progress label")
 func presetLabelsAreDistinct() {
-    let actions = PanelPreset.all.map(\.action)
+    let actions = PresetGroup.all.flatMap(\.presets).map(\.action)
     #expect(Set(actions.map(\.title)).count == actions.count)
     #expect(Set(actions.map(\.symbol)).count == actions.count)
     #expect(Set(actions.map(\.progressLabel)).count == actions.count)
@@ -1932,7 +2095,7 @@ func presetLabelsAreDistinct() {
 
 @Test("Typed guidance rides along with any preset, not just Improve")
 func anyPresetAbsorbsTypedNote() {
-    for preset in PanelPreset.all {
+    for preset in PresetGroup.all.flatMap(\.presets) {
         let prompt = PromptBuilder.build(
             action: preset.action, text: "body", note: "keep it under 20 words", nonce: "N")
         #expect(prompt.contains("[[USER_INSTRUCTION:N]]\nkeep it under 20 words\n[[/USER_INSTRUCTION:N]]"))
@@ -2010,7 +2173,7 @@ func resolvedActionTitleTracksSelection() {
     #expect(model.resolvedActionTitle == "Custom")
 
     model.selectPreset(at: 2)
-    #expect(model.resolvedActionTitle == PanelPreset.all[2].title)
+    #expect(model.resolvedActionTitle == PresetGroup.prompt.presets[2].title)
 }
 
 /// The Action chip lost its caption, so its glyph is now what identifies the
@@ -2027,7 +2190,7 @@ func resolvedActionSymbolTracksSelection() {
     #expect(model.resolvedActionSymbol == EditAction.custom("").symbol)
 
     model.selectPreset(at: 1)
-    #expect(model.resolvedActionSymbol == PanelPreset.all[1].action.symbol)
+    #expect(model.resolvedActionSymbol == PresetGroup.prompt.presets[1].action.symbol)
 }
 
 @Test("A selected preset ignores a preserved hidden custom draft")
@@ -2042,7 +2205,7 @@ func selectedPresetIgnoresHiddenDraft() {
     model.selectPreset(at: 1)
     model.runPrimary()
 
-    #expect(calls.last?.0 == PanelPreset.all[1].action)
+    #expect(calls.last?.0 == PresetGroup.prompt.presets[1].action)
     #expect(calls.last?.1 == nil)
     #expect(model.instruction == "keep the bullet list", "the draft is preserved for switching back")
 

@@ -33,7 +33,8 @@ Sources/Mancia/
 │   ├── KeyablePanel.swift        NSPanel subclass that can take key status while the
 │   │                             target app stays active (.nonactivatingPanel)
 │   ├── Palette.swift             Shared color tokens
-│   ├── PanelPreset.swift         Improve / Sharpen / Plan first / Tighten
+│   ├── PanelPreset.swift         The named presets (one EditAction + button title each)
+│   ├── PresetGroup.swift         Preset sets the strip switches between: Prompt, Writing
 │   └── PanelKeyCommand.swift     ⌘-shortcut and focus-move mapping for the editing surface
 │                                 (no menu bar, so it resolves Edit-menu-style key
 │                                 equivalents itself)
@@ -150,7 +151,7 @@ results share the same ribbon rather than separate windows.
 is the authority for Tab order and focus rings, including recovery and
 approval controls. Return activates the focused control, not an unconditional
 document replacement. Command-number shortcuts retain their action order;
-Command-T changes scope only when permitted. Escape backs out of the current
+Command-T changes scope only when permitted; the switch-set shortcut (Command-E by default) flips the preset group. Escape backs out of the current
 run or pending approval; Command-W closes the session.
 
 ## The `LLMProvider` protocol
@@ -178,8 +179,18 @@ the places that need completion or availability checks.
   cancellation and timeout stop the request.
 
 Both paths run in private empty temp directories and use the same ambient-context
-disable flags: `--available-tools=`, `--disable-builtin-mcps`, `--no-remote`,
-and `--no-custom-instructions`.
+disable flags: `--available-tools=`, `--disable-builtin-mcps`,
+`--no-custom-instructions`, and one `--disable-mcp-server <name>` per server
+that `copilot mcp list --json` reports (`CopilotMCPServers`, cached for five
+minutes). ACP sessions load configured MCP servers' tool definitions even with
+`--available-tools=`; a large user server overflows the model's context and
+every ACP turn fails. Such failures arrive as `Error:` reply text, which
+`CopilotACPClient.isCLIFailureReply` treats as a failure so the fallback runs.
+
+Provider and run timing are traced with `os.Logger` (subsystem
+`io.github.peteriz.mancia`, categories `provider` and `run`); user text and
+error payloads, which can echo it, are logged only as private. Watch with
+`log stream --predicate 'subsystem == "io.github.peteriz.mancia"' --level info`.
 
 Availability probing runs `copilot --version`. Success means **Installed**,
 not authenticated or able to complete a network request. Completion errors
@@ -256,7 +267,8 @@ instruction:
 - **Sandboxed provider (the real boundary).** Every completion runs through
   either `copilot --acp --stdio` or the one-shot `copilot -p` fallback in a
   private empty temp `cwd`. Both paths pass
-  `--available-tools= --disable-builtin-mcps --no-remote --no-custom-instructions`;
+  `--available-tools= --disable-builtin-mcps --no-custom-instructions` and
+  `--disable-mcp-server` for every configured MCP server;
   the prompt is sent as ACP JSON-RPC text or as one single `-p` argv element
   (never through a shell). The model therefore has no tools, no repo context, no
   remote-session context, and no shell — the blast radius is "text in, text out".
@@ -369,13 +381,30 @@ prompt):
   the lane, and `plan-first` for **Plan first**.)
 
 `PromptBuilder` keeps every Copilot prompt template in `Actions.swift`. Improve,
-Sharpen, Plan first, Tighten, Proofread, Rewrite, and Summarize each use a named
+Sharpen, Plan first, Tighten, Proofread, Unslop, STE, Markdown, Rewrite, and
+Summarize each use a named
 `PromptTemplate`; Custom uses the same structure with the user's instruction in
 its own delimited section. Every rendered prompt has `Task`, `Requirements`, and
 delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
-The dropdown presets past Improve target text written for coding agents, and all
+The action strip shows one `PresetGroup` at a time — four presets in slots
+1…4, then Custom. A sliding switch beside the target label flips the
+group; the target label is plain text so the switch reads as the row's
+control. The switch-set shortcut (⌘E by default) lives in
+`AppSettings.presetGroupShortcut` as JSON rather than a
+`KeyboardShortcuts.Name`, because the library registers every saved name as a
+system-wide hotkey; `KeyablePanel` matches it by key code while the ribbon is
+key, and Settings refuses chords that shadow a fixed panel command or the open
+hotkey. `PanelModel.presetGroup` survives `reset`, and
+`AppSettings.presetGroup` persists it. Each action slot is sized to the widest
+title or running label any group can show there
+(`PanelModel.actionLabelCandidates`), so switching groups or starting a run
+never moves a button. Adding a preset group means defining it in `PresetGroup.swift`
+with exactly `slotCount` presets; a third group would also need the two-sided
+switch in `RibbonView` to become a picker.
+
+The **Prompt** group's presets past Improve target text written for coding agents, and all
 three restructure rather than generate — they are forbidden from inventing
 requirements, which both protects the prompt's meaning and keeps output roughly
 input-sized (and so keeps the edit fast):
@@ -386,6 +415,19 @@ input-sized (and so keeps the edit fast):
   investigate-then-plan request, without answering it.
 - **Tighten** — shortest faithful version; cuts filler only, and unlike
   Summarize may not drop any requirement.
+
+The **Writing** group targets prose written for people:
+
+- **Proofread** — spelling, grammar, and punctuation only.
+- **Unslop** — removes AI-writing tells (inflated vocabulary, filler and
+  hedging, "not just X, it's Y", chatbot phrasing, em dashes) without adding
+  content; returns human-sounding text unchanged.
+- **STE** — rewrites in ASD-STE100 Simplified Technical English: short
+  sentences, one instruction per sentence, imperative, active voice, one term
+  per concept. The template asks for the dictionary's intent (common words, one
+  meaning) since the model cannot check the official word list.
+- **Markdown** — structures loose notes as GitHub-flavored Markdown (headings,
+  lists, backticked identifiers, fenced logs) without rewording them.
 
 Both run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no

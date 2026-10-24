@@ -102,7 +102,7 @@ enum DebugCLI {
     private static func complete(actionArg: String) async {
         guard let action = EditAction.parse(actionArg) else {
             printErr(
-                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|rewrite|summarize|fix-grammar|custom:<instruction>."
+                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|proofread|unslop|ste|markdown|rewrite|summarize|custom:<instruction>."
             )
             exit(2)
         }
@@ -339,6 +339,98 @@ enum DebugCLI {
                 failures.append("click (\(identifier)): expected \(expectedTitle), got \(titles)")
             }
         }
+
+        // MARK: preset groups
+
+        func clickPresetGroup(_ group: PresetGroup) async {
+            let identifier = "PresetGroup-\(group.id)"
+            guard let segment = axElement(id: identifier, in: axWindow),
+                  let frame = await windowFrame(of: segment, panel: panel)
+            else {
+                failures.append("idle: could not locate \(identifier) via accessibility")
+                return
+            }
+            click(panel, at: frame.center)
+            await settle()
+        }
+        // Switching sets must not move or resize a single action button.
+        func actionFrames() async -> [NSRect] {
+            var frames: [NSRect] = []
+            for index in PanelModel.actionIndices {
+                if let element = axElement(id: "Action-\(index + 1)", in: axWindow),
+                   let frame = await windowFrame(of: element, panel: panel) {
+                    frames.append(frame)
+                }
+            }
+            return frames
+        }
+        let promptFrames = await actionFrames()
+        await clickPresetGroup(.writing)
+        log.append("click (PresetGroup-writing): now \(model.presetGroup.title)")
+        if model.presetGroup != .writing {
+            failures.append("click (PresetGroup-writing): expected Writing, got \(model.presetGroup.title)")
+        }
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        let writingFrames = await actionFrames()
+        if promptFrames.count != PanelModel.actionIndices.count || promptFrames != writingFrames {
+            failures.append("preset groups: action frames moved between sets: \(promptFrames) vs \(writingFrames)")
+        }
+        await checkBounds("writing")
+        for (index, preset) in PresetGroup.writing.presets.enumerated() {
+            let identifier = "Action-\(index + 1)"
+            guard let element = axElement(id: identifier, in: axWindow),
+                  let frame = await windowFrame(of: element, panel: panel)
+            else {
+                failures.append("writing: could not locate \(identifier) via accessibility")
+                continue
+            }
+            ran.removeAll()
+            click(panel, at: frame.center)
+            await settle()
+            let titles = ran.map(\.action.title)
+            log.append("click (writing \(identifier)): ran \(titles.isEmpty ? "NOTHING" : titles.joined(separator: ", "))")
+            if titles != [preset.action.title] {
+                failures.append("click (writing \(identifier)): expected \(preset.action.title), got \(titles)")
+            }
+            // The running label is the widest thing a button shows.
+            model.phase = .running
+            resize(panel: panel, hosting: hosting, model: model)
+            await settle()
+            await checkBounds("writing running \(preset.title)")
+            // The running border can widen the hit frame by a fraction of a point.
+            let runningFrames = await actionFrames()
+            let moved = runningFrames.count != writingFrames.count
+                || zip(runningFrames, writingFrames).contains {
+                    abs($0.midX - $1.midX) > 1 || abs($0.width - $1.width) > 2
+                }
+            if moved {
+                failures.append("writing running \(preset.title): action frames moved while running \(runningFrames) vs \(writingFrames)")
+            }
+            model.phase = .idle
+        }
+        await clickPresetGroup(.prompt)
+        if model.presetGroup != .prompt {
+            failures.append("click (PresetGroup-prompt): expected Prompt, got \(model.presetGroup.title)")
+        }
+        // The track between the names flips whichever side is live.
+        for expected in [PresetGroup.writing, .prompt] {
+            guard let track = axElement(id: "PresetGroup-switch", in: axWindow),
+                  let frame = await windowFrame(of: track, panel: panel)
+            else {
+                failures.append("idle: could not locate PresetGroup-switch via accessibility")
+                break
+            }
+            click(panel, at: frame.center)
+            await settle()
+            log.append("click (PresetGroup-switch): now \(model.presetGroup.title)")
+            if model.presetGroup != expected {
+                failures.append("click (PresetGroup-switch): expected \(expected.title), got \(model.presetGroup.title)")
+            }
+        }
+        model.selectPreset(at: 1)
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
 
         model.phase = .running
         for stage in ["Reading selection", "Reading document", "Improving", "Applying", "Restoring version"] {
@@ -605,6 +697,24 @@ enum DebugCLI {
             failures.append("applied: could not locate UndoApplied via accessibility")
         }
 
+        // The switch-set chord (⌘E by default) flips sets as a key equivalent.
+        panel.onCyclePresetGroup = { model.cyclePresetGroup() }
+        panel.presetGroupShortcut = { AppSettings.defaultPresetGroupShortcut }
+        if let commandE = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.command],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            characters: "e", charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14) {
+            let before = model.presetGroup
+            let claimed = panel.performKeyEquivalent(with: commandE)
+            if !claimed || model.presetGroup == before {
+                failures.append("shortcuts: Command-E did not switch the action set")
+            }
+            _ = panel.performKeyEquivalent(with: commandE)
+            if model.presetGroup != before {
+                failures.append("shortcuts: a second Command-E did not switch back")
+            }
+        }
+
         // Exercise unmodified digits through the native event routes.
         model.reset(hasSelection: true, charCount: 42)
         panel.onActivateAction = { model.activateAction(at: $0) }
@@ -644,7 +754,7 @@ enum DebugCLI {
                 failures.append("shortcuts: an unfocused panel claimed a digit")
             }
         }
-        log.append("shortcuts: focused digits, ordinary text entry, and unfocused panel")
+        log.append("shortcuts: Command-E, focused digits, ordinary text entry, and unfocused panel")
 
         finish(failures: failures, log: log)
     }
@@ -738,10 +848,14 @@ enum DebugCLI {
     /// client, which Mancia's own pasteboard/keystroke work already requires
     /// — this reuses that trust rather than asking for anything new.
     @MainActor
-    private static func collectAX(_ root: AXUIElement, visit: (AXUIElement) -> Void) {
+    private static func collectAX(
+        _ root: AXUIElement, depth: Int = 0, visit: (AXUIElement) -> Void
+    ) {
         visit(root)
+        // The system tree can loop back on itself; the ribbon is far shallower.
+        guard depth < 40 else { return }
         for child in axAttribute(root, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
-            collectAX(child, visit: visit)
+            collectAX(child, depth: depth + 1, visit: visit)
         }
     }
 

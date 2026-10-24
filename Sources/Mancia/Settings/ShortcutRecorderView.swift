@@ -13,8 +13,28 @@ import KeyboardShortcuts
 /// This view drives KeyboardShortcuts through its public API only and formats
 /// the shortcut with symbols we build ourselves, so `Bundle.module` is never
 /// touched. See docs/ARCHITECTURE.md.
+///
+/// Records either a global `KeyboardShortcuts.Name` or a plain binding — the
+/// ribbon's switch-set chord, which must not be registered system-wide.
 struct ShortcutRecorderView: View {
-    let name: KeyboardShortcuts.Name
+    private let load: () -> KeyboardShortcuts.Shortcut?
+    private let save: (KeyboardShortcuts.Shortcut?) -> Void
+    private let accepts: (KeyboardShortcuts.Shortcut) -> Bool
+
+    init(name: KeyboardShortcuts.Name, accepts: @escaping (KeyboardShortcuts.Shortcut) -> Bool = { _ in true }) {
+        load = { KeyboardShortcuts.getShortcut(for: name) }
+        save = { KeyboardShortcuts.setShortcut($0, for: name) }
+        self.accepts = accepts
+    }
+
+    init(
+        shortcut: Binding<KeyboardShortcuts.Shortcut?>,
+        accepts: @escaping (KeyboardShortcuts.Shortcut) -> Bool = { _ in true }
+    ) {
+        load = { shortcut.wrappedValue }
+        save = { shortcut.wrappedValue = $0 }
+        self.accepts = accepts
+    }
 
     @State private var shortcut: KeyboardShortcuts.Shortcut?
     @State private var isRecording = false
@@ -39,7 +59,7 @@ struct ShortcutRecorderView: View {
                 .help("Clear shortcut")
             }
         }
-        .onAppear { shortcut = KeyboardShortcuts.getShortcut(for: name) }
+        .onAppear { shortcut = load() }
         .onDisappear(perform: stop)
     }
 
@@ -71,7 +91,7 @@ struct ShortcutRecorderView: View {
     }
 
     private func clear() {
-        KeyboardShortcuts.setShortcut(nil, for: name)
+        save(nil)
         shortcut = nil
     }
 
@@ -82,8 +102,9 @@ struct ShortcutRecorderView: View {
             stop()
             return nil
         }
-        if let candidate = KeyboardShortcuts.Shortcut(event: event), Self.isAcceptable(candidate) {
-            KeyboardShortcuts.setShortcut(candidate, for: name)
+        if let candidate = KeyboardShortcuts.Shortcut(event: event),
+           Self.isAcceptable(candidate), accepts(candidate) {
+            save(candidate)
             shortcut = candidate
             stop()
         }

@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import ServiceManagement
+import KeyboardShortcuts
 
 /// What the panel does once an edit has been applied to the target document.
 enum PostApplyBehavior: String, CaseIterable, Identifiable, Sendable {
@@ -39,7 +40,13 @@ final class AppSettings {
         static let postApplyBehavior = "postApplyBehavior"
         static let confirmWholeDocumentReplace = "confirmWholeDocumentReplace"
         static let swooshColor = "swooshColor"
+        static let presetGroup = "presetGroup"
+        static let presetGroupShortcut = "presetGroupShortcut"
     }
+
+    /// ⌘E: the same letter as the stock open hotkey, so opening with ⌘⇧E and
+    /// switching sets with ⌘E keep the hand in one place.
+    nonisolated static let defaultPresetGroupShortcut = KeyboardShortcuts.Shortcut(.e, modifiers: [.command])
 
     private let defaults: UserDefaults
 
@@ -94,6 +101,24 @@ final class AppSettings {
     }
     /// True while the swoosh still runs in the stock color.
     var swooshColorIsDefault: Bool { swooshColorHex == Self.defaultSwooshColorHex }
+    /// The ribbon's last-chosen preset group, so the next session opens on it.
+    var presetGroup: PresetGroup {
+        didSet { defaults.set(presetGroup.id, forKey: Key.presetGroup) }
+    }
+    /// The ribbon's switch-set shortcut; nil once the user clears it.
+    ///
+    /// Kept here rather than as a `KeyboardShortcuts.Name`: the library
+    /// registers every saved name as a system-wide hotkey, which would take ⌘E
+    /// away from every other app. This one only means something while the
+    /// ribbon is key, so `KeyablePanel` matches it itself.
+    var presetGroupShortcut: KeyboardShortcuts.Shortcut? {
+        didSet {
+            let encoded = presetGroupShortcut
+                .flatMap { try? JSONEncoder().encode($0) }
+                .flatMap { String(data: $0, encoding: .utf8) }
+            defaults.set(encoded ?? "", forKey: Key.presetGroupShortcut)
+        }
+    }
 
     /// Designated initializer. `modelCatalog` is injected (rather than always
     /// reading `~/.copilot/data.db` directly) so the first-run recommendation
@@ -157,6 +182,17 @@ final class AppSettings {
         self.confirmWholeDocumentReplace =
             defaults.object(forKey: Key.confirmWholeDocumentReplace) as? Bool ?? true
         self.swooshColorHex = Self.normalizedColorHex(defaults.string(forKey: Key.swooshColor))
+        self.presetGroup = PresetGroup.group(id: defaults.string(forKey: Key.presetGroup))
+        self.presetGroupShortcut = Self.presetGroupShortcut(stored: defaults.string(forKey: Key.presetGroupShortcut))
+    }
+
+    /// Absent means never set, so the default; empty means cleared.
+    nonisolated static func presetGroupShortcut(stored: String?) -> KeyboardShortcuts.Shortcut? {
+        guard let stored else { return defaultPresetGroupShortcut }
+        guard !stored.isEmpty else { return nil }
+        return stored.data(using: .utf8)
+            .flatMap { try? JSONDecoder().decode(KeyboardShortcuts.Shortcut.self, from: $0) }
+            ?? defaultPresetGroupShortcut
     }
 
     // MARK: - Swoosh color

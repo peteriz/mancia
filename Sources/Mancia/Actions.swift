@@ -2,9 +2,9 @@ import Foundation
 
 /// A text-editing action the user can invoke from the panel.
 ///
-/// `improve` is the panel's default action — a proofread + rewrite blend.
-/// `sharpen`, `planFirst`, and `tighten` are the agent-prompt presets offered
-/// beside it in the dropdown. The remaining cases stay available through the
+/// `improve`, `sharpen`, `planFirst`, and `tighten` back the Prompt preset
+/// group; `fixGrammar`, `unslop`, `ste`, and `markdown` back the Writing group
+/// (see `PresetGroup`). `rewrite` and `summarize` stay available through the
 /// debug CLI and prompt tests.
 enum EditAction: Equatable, Sendable {
     case improve
@@ -14,6 +14,9 @@ enum EditAction: Equatable, Sendable {
     case rewrite
     case summarize
     case fixGrammar
+    case unslop
+    case ste
+    case markdown
     case custom(String)
 
     /// Short user-facing label for buttons/menus.
@@ -26,6 +29,9 @@ enum EditAction: Equatable, Sendable {
         case .rewrite: return "Rewrite"
         case .summarize: return "Summarize"
         case .fixGrammar: return "Proofread"
+        case .unslop: return "Unslop"
+        case .ste: return "STE"
+        case .markdown: return "Markdown"
         case .custom: return "Custom"
         }
     }
@@ -47,6 +53,9 @@ enum EditAction: Equatable, Sendable {
         case .rewrite: return "pencil.and.outline"
         case .summarize: return "text.line.first.and.arrowtriangle.forward"
         case .fixGrammar: return "text.badge.checkmark"
+        case .unslop: return "eraser"
+        case .ste: return "character.book.closed"
+        case .markdown: return "number"
         case .custom: return "sparkles"
         }
     }
@@ -60,7 +69,10 @@ enum EditAction: Equatable, Sendable {
         case .tighten: return "Tightening"
         case .rewrite: return "Rewriting"
         case .summarize: return "Summarizing"
-        case .fixGrammar: return "Proofreading"
+        case .fixGrammar: return "Proofing"
+        case .unslop: return "Unslopping"
+        case .ste: return "Simplifying"
+        case .markdown: return "Formatting"
         case .custom: return "Working"
         }
     }
@@ -77,7 +89,10 @@ enum EditAction: Equatable, Sendable {
         case "tighten": return .tighten
         case "rewrite": return .rewrite
         case "summarize": return .summarize
-        case "fix-grammar", "fixGrammar": return .fixGrammar
+        case "fix-grammar", "fixGrammar", "proofread": return .fixGrammar
+        case "unslop": return .unslop
+        case "ste": return .ste
+        case "markdown": return .markdown
         default: return nil
         }
     }
@@ -185,6 +200,61 @@ enum PromptBuilder {
         ]
     )
 
+    /// Removes the tells of machine-written prose. Distinct from `improve`,
+    /// which polishes wording: this targets the specific vocabulary,
+    /// constructions, and punctuation that make text read as generated, and
+    /// leaves already-human text alone.
+    static let unslopTemplate = PromptTemplate(
+        task: "Edit the text to remove the patterns of AI-generated writing so it reads as if a direct, specific human wrote it.",
+        requirements: [
+            "Replace inflated vocabulary with plain words: for example delve, leverage, utilize, facilitate, crucial, pivotal, robust, seamless, enhance, foster, showcase, underscore, testament, tapestry, realm, and abstract uses of landscape or journey.",
+            "Cut filler and hedging (\"it is important to note that\", \"in order to\", \"could potentially\"), significance inflation, promotional adjectives, vague attributions, and generic closing lines.",
+            "Rewrite stock constructions: \"not just X, it's Y\" contrasts, forced groups of three, \"serves as\" or \"stands as\" in place of \"is\", and trailing -ing clauses that only add commentary.",
+            "Remove chatbot phrasing: greetings, \"Certainly!\", praise of the question, \"I hope this helps\", and offers of further help.",
+            "Replace em dashes with periods or commas. Remove decorative emoji and bold labels that only restate their line. Use sentence case for headings.",
+            "Prefer active voice and the concrete statement, and let sentence length vary naturally.",
+            "Preserve the meaning, facts, intent, source language, and formatting structure. Keep code, file names, paths, commands, identifiers, numbers, links, and quotations exactly as written.",
+            "Do not add claims, opinions, examples, or details.",
+            "Return the text unchanged if it has none of these patterns.",
+        ]
+    )
+
+    /// ASD-STE100 Simplified Technical English: controlled-language rules
+    /// written so instructions cannot be misread, including by non-native
+    /// readers and translation tools. The full standard also restricts
+    /// vocabulary to its dictionary; a model cannot check that list, so the
+    /// template asks for its intent — common words, one meaning, one term.
+    static let steTemplate = PromptTemplate(
+        task: "Rewrite the text in ASD-STE100 Simplified Technical English.",
+        requirements: [
+            "Write in English.",
+            "Keep sentences short: at most 20 words in procedures and at most 25 words in descriptions.",
+            "Put one instruction in each sentence of a procedure, and one topic in each paragraph.",
+            "Write instructions in the imperative. Put a condition before its instruction (\"If the build fails, delete the cache.\").",
+            "Use the active voice. Use the passive only in descriptions where the actor is unknown or irrelevant.",
+            "Use simple tenses (present, past, future). Do not use -ing forms or past participles as verbs where a simple verb is possible.",
+            "Use common words with one meaning each, and use the same term for the same thing every time. Do not use idioms, slang, contractions, or phrasal verbs when a single verb has the same meaning.",
+            "Keep articles and connecting words; do not drop words to make a sentence shorter. Break up noun clusters of more than three words.",
+            "Keep technical names, code, file names, paths, commands, identifiers, UI labels, numbers, and units exactly as written.",
+            "Keep every fact, step, condition, and warning, in the same order. Keep list and Markdown structure; use a numbered list for sequential steps.",
+            "Do not add steps, warnings, or information.",
+        ]
+    )
+
+    /// Gives loose notes GitHub-flavored Markdown structure — the format of
+    /// issues, PRs, READMEs, and chat — without rewriting what they say.
+    static let markdownTemplate = PromptTemplate(
+        task: "Format the text as clean GitHub-flavored Markdown.",
+        requirements: [
+            "Organize the existing content: sentence-case headings only where the text has distinct sections, bulleted lists for parallel items, numbered lists for sequential steps, and tables only for data that is already tabular.",
+            "Wrap inline code, identifiers, file names, paths, commands, flags, environment variables, and config keys in backticks.",
+            "Put multi-line code, logs, and terminal output in fenced code blocks, with a language tag when the language is clear.",
+            "Keep the wording, meaning, and source language. Change words only where the new structure needs it, such as turning a run-on list into items.",
+            "Keep existing links and correct Markdown. Do not invent link targets, titles, or content.",
+            "Use emphasis sparingly. Do not add emoji.",
+        ]
+    )
+
     /// Build the prompt for an action.
     ///
     /// - Parameter note: optional guidance the user typed alongside a preset,
@@ -279,6 +349,9 @@ enum PromptBuilder {
         case .rewrite: base = rewriteTemplate
         case .summarize: base = summarizeTemplate
         case .fixGrammar: base = proofreadTemplate
+        case .unslop: base = unslopTemplate
+        case .ste: base = steTemplate
+        case .markdown: base = markdownTemplate
         case .custom(let request): return .custom(request: request)
         }
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

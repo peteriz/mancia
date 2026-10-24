@@ -5,8 +5,9 @@
 > [ARCHITECTURE.md](ARCHITECTURE.md) and the [README](../README.md) for current
 > behavior. The sections below are not the current implementation contract.
 >
-> Today the ribbon keeps Improve, Sharpen, Plan first, Tighten, and Custom in
-> a stable order, with a visible target and a multiline Custom editor.
+> Today the ribbon shows one of two preset sets (Prompt: Improve, Sharpen, Plan
+> first, Tighten; Writing: Proofread, Unslop, STE, Markdown) plus Custom in
+> a stable order, switched by a sliding switch beside a plain target label (⌘E, configurable in Settings), with a visible target and a multiline Custom editor.
 > Whole-document access requires approval before capture and generation.
 > Replacement has a separate, configurable confirmation with an original/result
 > comparison. Applying and navigating versions require matching Accessibility
@@ -47,6 +48,7 @@ Mancia/
 │   │   ├── KeyablePanel.swift     # non-activating NSPanel that can take key status
 │   │   ├── PanelKeyCommand.swift  # ⌘-shortcut and focus-move mapping
 │   │   ├── PanelPreset.swift      # the specialized presets
+│   │   ├── PresetGroup.swift      # the preset sets the strip switches between
 │   │   └── Palette.swift          # shared color tokens
 │   ├── Ribbon/
 │   │   ├── RibbonWindow.swift     # hosts and places the lane
@@ -203,7 +205,10 @@ the coordinator, status menu, settings view, and debug CLI.
   cancellation does not.
 - **Important:** pass `--available-tools=` as a *single argv element* (empty
   value) in both paths — it disables all agent tools. Both paths also pass
-  `--disable-builtin-mcps`, `--no-remote`, and `--no-custom-instructions`.
+  `--disable-builtin-mcps`, `--no-custom-instructions`, and
+  `--disable-mcp-server <name>` for each server `copilot mcp list --json`
+  reports (ACP otherwise loads their tool definitions and can overflow the
+  model's context).
 - Working directory: a private empty temp dir in both paths (avoid the CLI
   scanning a repo).
 - 90 s prompt timeout via structured concurrency; kill the one-shot process on

@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 
 /// Keyboard commands the floating panel supports beyond plain typing.
 ///
@@ -27,6 +28,46 @@ enum PanelKeyCommand: Equatable {
     /// the user had selected. A two-state control is served just as well by one
     /// key, and `T` survives keyboard layouts that a shifted digit would not.
     case toggleTarget
+    /// The configurable switch-set shortcut (⌘E by default) — flip the action
+    /// strip to the other preset group. Matched by key code in
+    /// `resolve(keyCode:characters:modifiers:presetGroupShortcut:)`, because it
+    /// is the user's chord rather than a fixed character.
+    case cyclePresetGroup
+
+    /// The panel's full resolution: the configured switch-set shortcut first,
+    /// then the fixed commands below.
+    static func resolve(
+        keyCode: UInt16,
+        characters: String?,
+        modifiers: NSEvent.ModifierFlags,
+        presetGroupShortcut: KeyboardShortcuts.Shortcut?
+    ) -> PanelKeyCommand? {
+        if let presetGroupShortcut,
+           matches(presetGroupShortcut, keyCode: keyCode, modifiers: modifiers) {
+            return .cyclePresetGroup
+        }
+        return resolve(characters: characters, modifiers: modifiers)
+    }
+
+    static func matches(
+        _ shortcut: KeyboardShortcuts.Shortcut, keyCode: UInt16, modifiers: NSEvent.ModifierFlags
+    ) -> Bool {
+        let pressed = KeyboardShortcuts.Shortcut(
+            KeyboardShortcuts.Key(rawValue: Int(keyCode)),
+            modifiers: modifiers.intersection([.command, .shift, .option, .control]))
+        return pressed == shortcut
+    }
+
+    /// Whether `shortcut` can switch sets without shadowing a fixed panel
+    /// command (⌘C, ⌘T…) or the global open hotkey, which the system would
+    /// claim before the ribbon ever saw it.
+    @MainActor
+    static func isAvailableForPresetGroup(
+        _ shortcut: KeyboardShortcuts.Shortcut, openHotkey: KeyboardShortcuts.Shortcut?
+    ) -> Bool {
+        guard ShortcutRecorderView.isAcceptable(shortcut), shortcut != openHotkey else { return false }
+        return resolve(characters: shortcut.nsMenuItemKeyEquivalent, modifiers: shortcut.modifiers) == nil
+    }
 
     /// Pure mapping from a key event's characters + modifiers, kept separate
     /// from NSEvent so it is unit-testable.

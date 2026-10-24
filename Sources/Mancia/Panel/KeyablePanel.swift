@@ -1,4 +1,5 @@
 import AppKit
+import KeyboardShortcuts
 
 /// An `NSPanel` that can become key (needed for the instruction field), routes
 /// Esc, and resolves the ⌘-shortcuts an Edit menu would normally own.
@@ -18,6 +19,10 @@ final class KeyablePanel: NSPanel {
     var onSubmit: (() -> Void)?
     /// ⌘T — swap the target between the selection and the whole document.
     var onToggleTarget: (() -> Void)?
+    var onCyclePresetGroup: (() -> Void)?
+    /// The user's switch-set chord, read per key press so a change in
+    /// Settings applies to an open ribbon.
+    var presetGroupShortcut: (() -> KeyboardShortcuts.Shortcut?)?
     /// 1…5 — activate an action while focused, except when editing text.
     var onActivateAction: ((Int) -> Void)?
     /// ⌘Z after the instruction field has exhausted its own undo stack.
@@ -57,8 +62,10 @@ final class KeyablePanel: NSPanel {
     private func command(for event: NSEvent) -> PanelKeyCommand? {
         guard event.type == .keyDown,
               let command = PanelKeyCommand.resolve(
+                  keyCode: event.keyCode,
                   characters: event.charactersIgnoringModifiers,
-                  modifiers: event.modifierFlags
+                  modifiers: event.modifierFlags,
+                  presetGroupShortcut: presetGroupShortcut?()
               )
         else { return nil }
         if case .activateAction = command {
@@ -88,6 +95,7 @@ final class KeyablePanel: NSPanel {
         case .openSettings: onOpenSettings?()
         case .submit: onSubmit?()
         case .toggleTarget: onToggleTarget?()
+        case .cyclePresetGroup: onCyclePresetGroup?()
         case .activateAction(let index): onActivateAction?(index)
         }
         // Always consume a recognized shortcut, like a menu item would —
