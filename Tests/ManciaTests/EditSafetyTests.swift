@@ -50,7 +50,7 @@ struct EditSafetyTests {
         session.setScope(.document)
 
         #expect(
-            session.consider(result, replacementConfirmationRequired: false)
+            session.consider(result)
                 == .failure(.staleResult))
         #expect(session.versionCount == 0)
     }
@@ -62,7 +62,7 @@ struct EditSafetyTests {
         let result = EditSession.GeneratedResult(output: request.text, for: request)
 
         #expect(
-            session.consider(result, replacementConfirmationRequired: false)
+            session.consider(result)
                 == .retained)
         #expect(session.versionCount == 0)
         #expect(session.stage == .idle)
@@ -80,8 +80,7 @@ struct EditSafetyTests {
         let request = try generationRequest(from: &session)
         let result = EditSession.GeneratedResult(output: "generated text", for: request)
         guard case .apply(let plan) = session.consider(
-            result,
-            replacementConfirmationRequired: false)
+            result)
         else {
             Issue.record("generation without AX should still produce a copyable result")
             return
@@ -326,18 +325,6 @@ struct EditSafetyTests {
         #expect(model.instruction.isEmpty)
     }
 
-    @Test("Document generation and replacement approvals are separate policies")
-    func approvalPoliciesAreSeparate() {
-        #expect(ApplyConfirmation.requiresGenerationApproval(isWholeDocument: true))
-        #expect(!ApplyConfirmation.requiresGenerationApproval(isWholeDocument: false))
-        #expect(ApplyConfirmation.requiresReplacementApproval(
-            isWholeDocument: true,
-            userOptedIn: true))
-        #expect(!ApplyConfirmation.requiresReplacementApproval(
-            isWholeDocument: true,
-            userOptedIn: false))
-    }
-
     private func selectionSession() -> EditSession {
         var session = EditSession(ownPid: 99)
         _ = session.begin(with: .selection(.init(
@@ -363,8 +350,7 @@ struct EditSafetyTests {
         let request = try generationRequest(from: &session)
         let result = EditSession.GeneratedResult(output: output, for: request)
         guard case .apply(let plan) = session.consider(
-            result,
-            replacementConfirmationRequired: false)
+            result)
         else {
             throw TestFailure("expected apply plan")
         }
@@ -395,8 +381,7 @@ struct EditSafetyTests {
               case .send(let request) = session.acceptDocumentCapture(
                 .captured(text: currentText, target: targetA)),
               case .apply(let plan) = session.consider(
-                .init(output: output, for: request),
-                replacementConfirmationRequired: false)
+                .init(output: output, for: request))
         else {
             throw TestFailure("expected document apply plan")
         }

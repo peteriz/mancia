@@ -5,8 +5,8 @@ import Observation
 /// Observable state shared between the panel view and the coordinator that
 /// drives it. The coordinator wires the closures; the view calls them.
 ///
-/// The ribbon is a cyclical edit session: its four preset controls stay visible
-/// while Custom replaces its button with a field. A status
+/// The ribbon is a cyclical edit session: its five action controls stay
+/// visible, and Custom opens a field in a drawer beneath them. A status
 /// strip cycles idle → running → applied → back, until the user closes
 /// the session. Applied versions remain available through ⌘Z.
 @MainActor
@@ -16,20 +16,19 @@ final class PanelModel {
         case idle
         case scopeApproval
         case running
-        case confirm
         case applied
         case retained
         case error
     }
     enum Scope: Equatable { case selection, document }
     /// The ribbon's focusable cells. Action carries its stable catalog index;
-    /// Run exists only inside the disclosed Custom field. None keeps a fresh
+    /// Direction and Run exist only inside the disclosed Custom drawer. None keeps a fresh
     /// ribbon visually neutral until the user chooses a control.
     ///
     /// The gates and status rows each own their own cells so Tab can reach
     /// every visible, enabled control a phase discloses — the scope-approval
-    /// and whole-document review gates, the applied/retained/error status
-    /// rows — not just the command row. The target follows the actions in
+    /// gate, the applied/retained/error status rows — not just the command
+    /// row. The target follows the actions in
     /// keyboard order, keeping the first Tab on the primary action.
     enum Cell: Hashable {
         case none
@@ -40,9 +39,6 @@ final class PanelModel {
         case presetGroup
         case scopeDecline
         case scopeApprove
-        case reviewDisclosure
-        case reviewDecline
-        case reviewApprove
         case appliedUndo
         case retainedDisclosure
         case retainedCopy
@@ -60,13 +56,11 @@ final class PanelModel {
 
     var phase: Phase = .idle {
         didSet {
-            // A new run invalidates whatever the last one disclosed: the old
-            // result preview and the old failure's detail both belong to a
-            // decision that has been superseded. Collapsing them here also
-            // keeps the flags in step with the height the lane is resized to,
+            // A new run invalidates the last failure's detail, which belongs
+            // to a decision that has been superseded. Collapsing it here also
+            // keeps the flag in step with the height the lane is resized to,
             // which is measured from a phase change.
             if phase == .running, oldValue != .running {
-                previewExpanded = false
                 errorDetailsExpanded = false
             }
             guard oldValue != phase else { return }
@@ -75,10 +69,16 @@ final class PanelModel {
             }
             // Every gate and status row lands with a safe default focus: the
             // first cell in its own list, which is never the destructive one
-            // (decline precedes approve; disclosure precedes both). A cell
+            // (decline precedes approve). A cell
             // that survives the transition — the control actively running,
-            // most often — keeps it instead of being bumped.
-            if !focusableCells.contains(focusedCell) {
+            // most often — keeps it instead of being bumped. A deliberately
+            // neutral ribbon (`.none`, as `restoreButtonsAfterApply` leaves
+            // it) stays neutral on a resting phase, so no ring lands on an
+            // action beside the one the accent just lit; Tab still enters at
+            // the first cell.
+            let staysNeutral = focusedCell == .none
+                && (phase == .idle || phase == .applied || phase == .retained || phase == .error)
+            if !staysNeutral, !focusableCells.contains(focusedCell) {
                 focusedCell = focusableCells.first ?? .none
             }
         }
@@ -103,16 +103,6 @@ final class PanelModel {
     /// Describes a whole-document generation request without exposing or
     /// capturing the document text before the user approves it.
     var pendingScopeApprovalActionTitle = ""
-    /// Size of the document and the pending result while awaiting confirmation
-    /// of a whole-document replacement (`.confirm` phase).
-    var pendingOriginalCharCount = 0
-    var pendingResultCharCount = 0
-    /// The pending result itself, so the review region can show what is about
-    /// to overwrite the document. Cleared as soon as the decision is made —
-    /// this is the user's text and there is no reason to hold it longer.
-    var pendingResultPreview = ""
-    /// The replacement baseline, cleared alongside the pending result.
-    var pendingOriginalPreview = ""
     /// A generated result held for explicit copying rather than automatic paste.
     var retainedResult = ""
     var retainedReason = ""
@@ -121,19 +111,15 @@ final class PanelModel {
     /// Optional outcome copy for an applied-state result that did not create a
     /// new document version, such as "No changes needed".
     var appliedStatusText: String?
-    /// Whether the review region's result preview and the error strip's detail
-    /// are disclosed.
+    /// Whether the error strip's detail is disclosed.
     ///
     /// View state that lives on the model on purpose: the ribbon is rendered by
     /// two hosting views — one on screen, one off screen that measures the
     /// height the window is sized to — and a `@State` flag would leave the two
     /// disagreeing about how tall the lane is.
-    var previewExpanded = false
     var errorDetailsExpanded = false
-    /// Bounded disclosure for the retained result, mirroring `previewExpanded`.
-    /// Kept separate because a retained result and a pending review preview
-    /// are never on screen at the same time, but each has to reset on its own
-    /// phase's exit rather than the other's.
+    /// Bounded disclosure for the retained result, mirroring
+    /// `errorDetailsExpanded`.
     var retainedResultExpanded = false
     /// Iteration history: number of versions (original + one per applied
     /// result) and which version the document currently shows.
@@ -170,11 +156,9 @@ final class PanelModel {
     /// refusal on ⌘Z; this is the fallback once its own undo stack is empty.
     var onUndoVersion: (() -> Bool)?
     var onRetry: (() -> Void)?
-    /// Apply the pending whole-document replacement awaiting confirmation.
-    var onConfirmApply: (() -> Void)?
     /// Approve capturing and sending the whole document to the provider.
     var onApproveDocumentGeneration: (() -> Void)?
-    /// Decline either approval gate without closing the session.
+    /// Decline the whole-document approval gate without closing the session.
     var onDeclinePending: (() -> Void)?
     /// Explicit user copy of a blocked generated result.
     var onCopyRetainedResult: (() -> Void)?
@@ -186,9 +170,9 @@ final class PanelModel {
     /// Esc means "back out of the smallest thing in progress".
     ///
     /// While an action is running that is the run itself, so the ribbon stays
-    /// up and the user can try something else. `.scopeApproval` and `.confirm`
-    /// each have a coordinator-owned decline, which is the smallest thing to
-    /// back out of in those phases. `.retained` has no such gate — the action
+    /// up and the user can try something else. `.scopeApproval` has a
+    /// coordinator-owned decline, which is the smallest thing to back out of
+    /// in that phase. `.retained` has no such gate — the action
     /// already ran and was already blocked — so its own smallest pending thing
     /// is an open result disclosure, which Esc closes before it closes the
     /// session. With nothing smaller in progress there is nothing smaller to
@@ -196,7 +180,7 @@ final class PanelModel {
     func escape() {
         if phase == .running {
             onCancelRun?()
-        } else if phase == .scopeApproval || phase == .confirm {
+        } else if phase == .scopeApproval {
             onDeclinePending?()
         } else if phase == .retained, retainedResultExpanded {
             retainedResultExpanded = false
@@ -217,15 +201,10 @@ final class PanelModel {
         runningTitle = ""
         errorText = ""
         pendingScopeApprovalActionTitle = ""
-        pendingOriginalCharCount = 0
-        pendingResultCharCount = 0
-        pendingResultPreview = ""
-        pendingOriginalPreview = ""
         retainedResult = ""
         retainedReason = ""
         appliedActionName = ""
         appliedStatusText = nil
-        previewExpanded = false
         errorDetailsExpanded = false
         retainedResultExpanded = false
         versionCount = 0
@@ -293,7 +272,7 @@ final class PanelModel {
     }
 
     /// A visible action button or 1…5. Built-ins run immediately; Custom
-    /// replaces its button with the field and hands focus to it.
+    /// opens its drawer and hands focus to the field.
     func activateAction(at index: Int) {
         guard !isLocked else { return }
         if presets.indices.contains(index) {
@@ -310,7 +289,7 @@ final class PanelModel {
     /// this itself: the shortcuts are resolved by the window, above the SwiftUI
     /// tree, so they never see the `disabled` that greys the cells out.
     var isLocked: Bool {
-        phase == .scopeApproval || phase == .running || phase == .confirm
+        phase == .scopeApproval || phase == .running
     }
 
     /// Whether the target chip accepts a click, ⌘T, or Return-while-focused
@@ -361,15 +340,13 @@ final class PanelModel {
 
     /// Every visible, *enabled* control is its own Tab stop, in visual order —
     /// the command row's own cells, followed by whatever the current phase
-    /// discloses below it. A locked phase (scope approval, a running action,
-    /// the whole-document review gate) replaces the command row entirely,
-    /// because every one of its cells is greyed out and inert while it holds.
+    /// discloses below it. A locked phase (scope approval, a running action)
+    /// replaces the command row entirely, because every one of its cells is
+    /// greyed out and inert while it holds.
     var focusableCells: [Cell] {
         switch phase {
         case .scopeApproval:
             return [.scopeDecline, .scopeApprove]
-        case .confirm:
-            return [.reviewDisclosure, .reviewDecline, .reviewApprove]
         case .running:
             return [runningFocusCell]
         case .idle, .applied, .retained, .error:
@@ -393,18 +370,14 @@ final class PanelModel {
         }
     }
 
-    /// The command row's own cells, regardless of phase: the four built-ins
-    /// and Custom, or Direction and its inline Run once Custom is disclosed.
+    /// The command row's own cells, regardless of phase: the five actions,
+    /// then Direction and Run while Custom's drawer is open.
     private var commandRowCells: [Cell] {
-        var cells: [Cell] = []
-        for index in actionDisplayOrder {
-            if index == Self.customActionIndex, isCustomInstructionSelected {
-                cells.append(.direction)
-            } else {
-                cells.append(.action(index))
-            }
+        var cells: [Cell] = actionDisplayOrder.map { .action($0) }
+        if isCustomInstructionSelected {
+            cells.append(.direction)
+            cells.append(.run)
         }
-        if isCustomInstructionSelected { cells.append(.run) }
         if targetChipEnabled { cells.append(.target) }
         cells.append(.presetGroup)
         return cells
@@ -479,6 +452,24 @@ final class PanelModel {
         }
     }
 
+    /// Whether an action wears the accent: Custom while its drawer is open,
+    /// otherwise the action that produced the result or failure on show.
+    /// A fresh ribbon lights nothing — it does not choose for the user — and a
+    /// running preset is marked by its swoosh instead.
+    func isActionHighlighted(at index: Int) -> Bool {
+        if isCustomInstructionSelected {
+            return index == Self.customActionIndex && phase != .scopeApproval
+        }
+        switch phase {
+        case .applied:
+            return !appliedActionName.isEmpty && actionTitle(at: index) == appliedActionName
+        case .error, .retained:
+            return isActionSelected(at: index)
+        case .idle, .scopeApproval, .running:
+            return false
+        }
+    }
+
     /// True when the user has typed something to act on, as opposed to leaving
     /// the field empty and meaning "improve this".
     var hasCustomInstruction: Bool {
@@ -491,12 +482,6 @@ final class PanelModel {
     }
 
     var canRunPrimary: Bool { !isCustomInstructionSelected || hasCustomInstruction }
-
-    /// Custom is the only state that expands the ribbon. Every other phase uses
-    /// one stable width so starting or finishing a request never moves the UI.
-    var prefersExpandedRibbon: Bool {
-        isCustomInstructionSelected
-    }
 
     /// The visible keyboard hint for an action. Keeping this beside the action
     /// catalog guarantees hover labels and actual key routing stay in lockstep.

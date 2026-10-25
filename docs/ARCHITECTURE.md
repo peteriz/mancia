@@ -47,10 +47,9 @@ Sources/Mancia/
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
-│   ├── RibbonView.swift          Target, five actions, Custom editor, progress and recovery
-│   ├── RibbonReviewView.swift    The whole-document review gate
+│   ├── RibbonView.swift          Target, five actions, Custom drawer, progress and recovery
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
-│   └── RibbonPalette.swift       Appearance-adaptive lane and state colors
+│   └── RibbonPalette.swift       Fixed graphite lane and state colors
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider/WarmableLLMProvider protocols and ProviderStatus
 │   ├── CopilotCLIProvider.swift  GitHub Copilot CLI backend (binary discovery, argv, fallback Process)
@@ -92,18 +91,17 @@ wired to call `coordinator.start()`.
    selection is distinct from an uncertain or failed copy.
 2. **Scope consent.** The target control states Selection or Whole document.
    Whole-document requests pause in `.scopeApproval` before capturing and
-   sending document text. This approval is separate from the configurable
-   replacement confirmation. Uncertain capture does not imply document scope.
+   sending document text. Uncertain capture does not imply document scope.
 3. **Generation.** `EditSession` binds each request to its scope, baseline,
    target evidence, and revision. Scope or target changes invalidate pending
    approvals and results. `PromptGuard` validates the input before
    `PromptBuilder` builds the prompt. Providers receive only the prompt and
    return text; the coordinator remains responsible for editorial normalization.
-4. **Output and review.** `PromptBuilder.normalizeOutput` preserves preset
+4. **Output.** `PromptBuilder.normalizeOutput` preserves preset
    selection-edge whitespace and leaves intentional Custom formatting intact.
    Unchanged results do not create paste operations or history entries.
-   Whole-document results enter `.confirm` when replacement confirmation is
-   enabled. The original and proposed result remain available for comparison.
+   Whole-document results apply directly, under the same verification as a
+   selection; Undo restores the previous version.
 5. **Verified application.** Before posting Paste, `SelectionCapture` verifies
    that the same editable field still contains the captured baseline. AX range
    reselection replaces the exact span; Mancia never sends Undo to discover
@@ -143,9 +141,12 @@ fallback. The established anchor is retained while content grows, except when
 the target moves or the ribbon would obscure newly applied text. The window
 measures content at the resolved width before setting its height.
 
-The five action names stay visible on hover. Custom discloses a bounded
-multiline editor. The target control, progress, approvals, review, and retained
-results share the same ribbon rather than separate windows.
+The ribbon is one fixed-width graphite panel (`RibbonPalette`), independent of
+system appearance. The target and the five actions share one row. Custom stays
+in that row and opens a bounded multiline editor in a drawer beneath it, so the
+panel only ever grows in height, along the axis placement pins away from the
+selection. Progress, the scope approval, and applied, retained and error
+states share the same panel rather than separate windows.
 
 `PanelKeyCommand` and `KeyablePanel` route shortcuts. `PanelModel.focusedCell`
 is the authority for Tab order and focus rings, including recovery and
@@ -287,12 +288,10 @@ instruction:
   `PromptGuardError`s. Both `EditCoordinator.perform` and `DebugCLI.complete`
   validate before building the prompt; failures surface through the lane's error
   state / stderr rather than sending a runaway request to the provider.
-- **Whole-document consent and replacement review (`ApplyConfirmation`).**
-  Document requests always pause before reading and sending the document.
-  Separately, replacement review is enabled by default and controlled by
-  `AppSettings.confirmWholeDocumentReplace`. Both confirmed and immediate
-  replacements still require fresh target/baseline verification; approval is
-  not permission to overwrite a field that changed while the model ran.
+- **Whole-document consent.** Document requests always pause before reading
+  and sending the document. The replacement itself is not gated again, but
+  still requires fresh target/baseline verification: approval to send is not
+  permission to overwrite a field that changed while the model ran.
 
 Deliberately **not** done: a "jailbreak/abuse classifier" on the instruction
 field. Mancia is a single-user local utility — the operator already owns the
@@ -389,9 +388,8 @@ delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
 The action strip shows one `PresetGroup` at a time — four presets in slots
-1…4, then Custom. A sliding switch beside the target label flips the
-group; the target label is plain text so the switch reads as the row's
-control. The switch-set shortcut (⌘E by default) lives in
+1…4, then Custom. A segmented toggle beside the target names every group and
+lights the live one. The switch-set shortcut (⌘E by default) lives in
 `AppSettings.presetGroupShortcut` as JSON rather than a
 `KeyboardShortcuts.Name`, because the library registers every saved name as a
 system-wide hotkey; `KeyablePanel` matches it by key code while the ribbon is
@@ -401,8 +399,9 @@ hotkey. `PanelModel.presetGroup` survives `reset`, and
 title or running label any group can show there
 (`PanelModel.actionLabelCandidates`), so switching groups or starting a run
 never moves a button. Adding a preset group means defining it in `PresetGroup.swift`
-with exactly `slotCount` presets; a third group would also need the two-sided
-switch in `RibbonView` to become a picker.
+with exactly `slotCount` presets; the toggle draws a segment per entry in
+`PresetGroup.all`, so a third group needs no view change beyond the lane's
+width.
 
 The **Prompt** group's presets past Improve target text written for coding agents, and all
 three restructure rather than generate — they are forbidden from inventing

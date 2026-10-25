@@ -38,9 +38,9 @@ import CoreGraphics
 ///
 /// Whichever edge faces the selection is the edge the lane *pins*, so it grows
 /// away from the text. An end with room for `projectedHeight`, or a margin the
-/// lane owns outright, stays clear as the review gate opens. The cramped-end
+/// lane owns outright, stays clear as Custom's drawer opens. The cramped-end
 /// fallback is the deliberate exception: its opening row clears the words,
-/// but screen clamping can move a grown gate back over the far end.
+/// but screen clamping can move a grown lane back over the far end.
 ///
 /// The selected span drives *both* axes, and the host window drives neither.
 /// A lane at an end of the selection is centered on the span and as wide as
@@ -99,7 +99,7 @@ enum RibbonPlacement {
         /// The anchor the lane settled on when it opened, once it has opened.
         ///
         /// Placement is decided once and then held. The lane can grow vertically
-        /// for a review gate or expanded error, and each re-resolves the frame. Re-deciding the
+        /// for Custom's drawer or an expanded error, and each re-resolves the frame. Re-deciding the
         /// anchor every time would let a lane leap across the screen mid-run
         /// and leap back when the region closed. Feeding the established
         /// anchor back in pins the decision to the geometry that was true at
@@ -110,12 +110,10 @@ enum RibbonPlacement {
         /// landed paste leaves the lane covering the text it just wrote.
         var establishedAnchor: Anchor?
         /// Content's requested width before anchor geometry and screen safety
-        /// clamping. The button strip asks for the stable standard width;
-        /// Custom asks for the expanded maximum.
+        /// clamping. The lane asks for `standardWidth` in every state.
         var preferredWidth: CGFloat
         /// The width the content must retain even when its host or selected span
-        /// is narrower. Custom uses its full requested width so its field and
-        /// inline Run control never collapse.
+        /// is narrower, so the row's six controls never collapse.
         var minimumContentWidth: CGFloat
 
         init(
@@ -190,24 +188,15 @@ enum RibbonPlacement {
     /// level — is what keeps the lane reachable.
     static let revealClearance: CGFloat = 28
 
+    /// The lane's one width. The target, the action-set switch and all five
+    /// actions share a single row, every label reserves room for its running form, and Custom opens
+    /// downward rather than sideways — so no state needs more room across,
+    /// and starting, finishing or customizing a request never resizes it.
+    static let standardWidth: CGFloat = 880
+
     /// Never let the lane get narrower than this; below it the row's controls
     /// cannot hold their labels.
-    static let minimumWidth: CGFloat = 558
-
-    /// The fixed width for every buttons-only state. Each action reserves room
-    /// for its running label, so no phase needs spare horizontal room or resizes
-    /// the panel.
-    static let standardWidth: CGFloat = 558
-
-    /// Custom's preferred width. It is wide enough for four stable presets,
-    /// a useful instruction field, and Run without turning into a screen-wide
-    /// bar. Placement may shrink it to `customMinimumWidth` when the selected
-    /// span or host is narrower.
-    static let expandedWidth: CGFloat = 780
-
-    /// The narrowest Custom layout that still leaves a four-line instruction
-    /// field and Run usable beside the four stable presets.
-    static let customMinimumWidth: CGFloat = 720
+    static let minimumWidth: CGFloat = standardWidth
 
     /// …and never let placement get wider than this. On a 5K or ultrawide display a
     /// full-width lane is thousands of points of mostly empty ink. Capping and
@@ -231,9 +220,9 @@ enum RibbonPlacement {
     /// can hold the lane at all.
     ///
     /// It is one command row: the lane as it opens still stands clear of the
-    /// words, and only a review gate reaches back over them — which, on a
-    /// selection, means a run the user deliberately retargeted at the whole
-    /// document. Staying against the text is worth that much, because the
+    /// words, and only a grown lane — Custom's drawer, an expanded error —
+    /// reaches back over them. Staying against the text is worth that much,
+    /// because the
     /// alternative covers the head of the same block from the far end of the
     /// screen.
     static let crampedRoom: CGFloat = 56
@@ -242,7 +231,8 @@ enum RibbonPlacement {
     /// currently measures.
     ///
     /// The lane opens as a single command row and grows later — phase labels
-    /// stay inside that row, but a review gate takes it to about 195pt, measured.
+    /// stay inside that row, but Custom's drawer at its full five lines takes
+    /// it to about 190pt.
     /// Placement is decided at open, on a lane barely 50pt tall, and then held
     /// for the session. Judging the room at the selection's ends on that
     /// opening height would let the lane claim a gap it cannot actually fit
@@ -333,7 +323,7 @@ enum RibbonPlacement {
         /// Where an anchor puts a lane of a given height. Each pins the edge
         /// facing the selection, so the lane grows away from what it sits
         /// against. A cramped end can still be clamped back over the far edge
-        /// once the review gate outgrows the room accepted at open.
+        /// once the lane outgrows the room accepted at open.
         func frame(_ anchor: Anchor, _ h: CGFloat) -> CGRect {
             let restingFrame = CGRect(
                 x: restingX, y: restingTop - h, width: restingWidth, height: h)
@@ -460,7 +450,7 @@ enum RibbonPlacement {
     ///
     /// The lower bound is applied last on each axis so it wins outright. That
     /// only matters when the lane is larger than the display, and there the
-    /// controls the user needs — the review region's buttons — sit at the
+    /// controls the user needs — Run, a status row's recoveries — sit at the
     /// lane's bottom edge, so overflowing off the top is the survivable failure
     /// and dropping off the bottom is not.
     private static func clamp(_ frame: CGRect, to screen: CGRect) -> CGRect {
