@@ -1,25 +1,27 @@
-/* Mancia landing page. Brand colors come from the shipping Swift palette. */
+/* Mancia landing page. Colors come from the shipping Swift palettes:
+   Palette.swift for the page and RibbonPalette.swift for the hero. */
 :root {
   color-scheme: light dark;
 
-  --background: hsl(39 48% 93%);
-  --foreground: hsl(33 21% 8%);
-  --card: hsl(43 65% 97%);
-  --card-foreground: hsl(33 21% 8%);
-  --primary: hsl(9 63% 44%);
-  --primary-foreground: hsl(43 65% 97%);
-  --secondary: hsl(39 41% 89%);
-  --secondary-foreground: hsl(33 21% 8%);
-  --muted-foreground: hsl(38 16% 37%);
-  --border: hsl(39 36% 82%);
-  --ring: hsl(9 63% 44%);
+  --background: #f3eee4;
+  --foreground: #1a1917;
+  --card: #fdfbf6;
+  --card-foreground: #1a1917;
+  --primary: #b74732;
+  --primary-foreground: #fdfbf6;
+  --secondary: #ebe4d6;
+  --secondary-foreground: #1a1917;
+  --muted-foreground: #6b6252;
+  --border: #ded5c4;
+  --ring: #b74732;
   --radius: 0.65rem;
 
-  --hero: hsl(33 21% 8%);
-  --hero-text: hsl(39 49% 91%);
-  --hero-muted: hsl(38 13% 63%);
-  --accent-bright: hsl(9 100% 65%);
-  --on-accent-bright: hsl(33 40% 10%);
+  /* The ribbon's graphite register (RibbonPalette.swift). */
+  --hero: #1a1917;
+  --hero-text: #f3f0e9;
+  --hero-muted: #a7a196;
+  --accent-bright: #ff5a36;
+  --on-accent-bright: #1a0d08;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "Avenir Next", "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -44,19 +46,17 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: hsl(30 17% 7%);
-    --foreground: hsl(39 49% 91%);
-    --card: hsl(33 24% 11%);
-    --card-foreground: hsl(39 49% 91%);
-    --primary: hsl(9 100% 65%);
-    --primary-foreground: hsl(33 40% 10%);
-    --secondary: hsl(36 16% 15%);
-    --secondary-foreground: hsl(39 49% 91%);
-    --muted-foreground: hsl(38 13% 66%);
-    --border: hsl(36 16% 22%);
-    --ring: hsl(9 100% 65%);
-    --hero: hsl(30 17% 7%);
-    --hero-muted: hsl(38 13% 66%);
+    --background: #141311;
+    --foreground: #f3f0e9;
+    --card: #1a1917;
+    --card-foreground: #f3f0e9;
+    --primary: #ff5a36;
+    --primary-foreground: #1a0d08;
+    --secondary: #232220;
+    --secondary-foreground: #f3f0e9;
+    --muted-foreground: #a7a196;
+    --border: #33302c;
+    --ring: #ff5a36;
     --shadow-proof: 0 1.75rem 4.5rem hsl(30 40% 2% / 0.4);
   }
 }
@@ -253,7 +253,7 @@ kbd {
 
 .product-proof {
   overflow: hidden;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
   border: var(--line) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--card);
@@ -275,9 +275,26 @@ kbd {
   color: var(--foreground);
 }
 
+.action-sets {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.action-set h3 {
+  margin-bottom: var(--space-3);
+}
+
+.action-set h3 span {
+  margin-left: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
 .action-ledger {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border-top: var(--line) solid var(--border);
   border-bottom: var(--line) solid var(--border);
 }
@@ -291,15 +308,30 @@ kbd {
   border-left: var(--line) solid var(--border);
 }
 
-.action-ledger h3,
+.action-ledger h4,
 .action-ledger p {
-  margin-bottom: 0;
+  margin: 0;
+}
+
+.action-ledger h4 {
+  font-size: 1.05rem;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
 }
 
 .action-ledger p {
   margin-top: var(--space-1);
   color: var(--muted-foreground);
   font-size: 0.82rem;
+}
+
+.action-note {
+  margin-bottom: 0;
+  color: var(--muted-foreground);
+}
+
+.action-note strong {
+  color: var(--foreground);
 }
 
 .compact-heading {
@@ -403,8 +435,9 @@ kbd {
     border-top: var(--line) solid var(--border);
   }
 
-  .action-ledger article:last-child {
-    grid-column: 1 / -1;
+  .action-set h3 span {
+    display: block;
+    margin-left: 0;
   }
 
   .capability-list {

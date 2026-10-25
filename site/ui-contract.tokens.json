@@ -1,29 +1,33 @@
 {
-  "$description": "shadcn/ui default theme normalized to DTCG, extended with Mancia brand aliases grounded in the shipping app palette.",
+  "$description": "shadcn/ui default theme normalized to DTCG, extended with Mancia brand aliases from Palette.swift and RibbonPalette.swift.",
   "brand": {
     "paper": {
       "$type": "color",
-      "$value": "hsl(43 65% 97%)"
+      "$value": "#fdfbf6"
     },
     "cream": {
       "$type": "color",
-      "$value": "hsl(39 48% 93%)"
+      "$value": "#f3eee4"
     },
     "ink": {
       "$type": "color",
-      "$value": "hsl(33 21% 8%)"
+      "$value": "#1a1917"
     },
     "muted": {
       "$type": "color",
-      "$value": "hsl(38 16% 37%)"
+      "$value": "#6b6252"
     },
     "vermilion": {
       "$type": "color",
-      "$value": "hsl(9 63% 47%)"
+      "$value": "#b74732"
     },
     "vermilion-on-ink": {
       "$type": "color",
-      "$value": "hsl(9 100% 65%)"
+      "$value": "#ff5a36"
+    },
+    "graphite": {
+      "$type": "color",
+      "$value": "#1a1917"
     }
   },
   "color": {

@@ -122,8 +122,9 @@ actor CopilotACPClient: CopilotACPClientProtocol {
         guard stopReason == nil || stopReason == "end_turn" else {
             throw ProviderError.nonZeroExit(1, "Copilot stopped with \(stopReason ?? "unknown reason").")
         }
-        let output = chunksBySession.removeValue(forKey: sessionID)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let output = Self.removingModelFallbackNotice(
+            chunksBySession.removeValue(forKey: sessionID) ?? ""
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !output.isEmpty else { throw ProviderError.emptyOutput }
         if Self.isCLIFailureReply(output) {
             throw ProviderError.nonZeroExit(1, output)
@@ -140,6 +141,18 @@ actor CopilotACPClient: CopilotACPClientProtocol {
     static func isCLIFailureReply(_ output: String) -> Bool {
         (output.hasPrefix("Warning: ") || output.hasPrefix("Error: "))
             && output.contains("Error: ")
+    }
+
+    /// When the chosen model is retired, the CLI streams a notice as reply
+    /// text before the real answer, with no break between them:
+    /// `Info: Model "x" is no longer available. Using "y" instead.` Remove it
+    /// so it is never pasted into the document.
+    static func removingModelFallbackNotice(_ output: String) -> String {
+        let trimmed = output.drop { $0.isWhitespace }
+        guard let match = trimmed.prefixMatch(
+            of: /Info: Model "[^"\n]+" is no longer available\. Using "[^"\n]+" instead\./
+        ) else { return output }
+        return String(trimmed[match.range.upperBound...])
     }
 
     func stop() async {

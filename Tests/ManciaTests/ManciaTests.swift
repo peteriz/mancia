@@ -730,6 +730,28 @@ func acpFailureReplyDetection() {
     #expect(!CopilotACPClient.isCLIFailureReply("Fix the Error: handling in parse()."))
 }
 
+@Test("A retired-model notice never reaches the pasted reply")
+func acpModelFallbackNoticeRemoved() {
+    let notice = #"Info: Model "gpt-5.4-mini" is no longer available. Using "claude-sonnet-5.5" instead."#
+    #expect(CopilotACPClient.removingModelFallbackNotice(notice + "The cat sat.") == "The cat sat.")
+    #expect(CopilotACPClient.removingModelFallbackNotice(notice).isEmpty)
+    let failure = notice + "Warning: budget.Error: No response was returned."
+    #expect(CopilotACPClient.isCLIFailureReply(CopilotACPClient.removingModelFallbackNotice(failure)))
+    let userText = "Info: Model sizes are no longer available."
+    #expect(CopilotACPClient.removingModelFallbackNotice(userText) == userText)
+    #expect(CopilotACPClient.removingModelFallbackNotice("Note. " + notice) == "Note. " + notice)
+}
+
+@Test("Both CLI wordings of an unsupported reasoning effort trigger a retry")
+func reasoningEffortRetryWordings() {
+    let old = #"Error: Reasoning effort "minimal" is not supported for model "claude-opus-5"."#
+    let new = #"Error: Model "claude-haiku-4.5" does not support reasoning effort configuration (requested: "low")."#
+    #expect(CopilotCLIProvider.shouldRetryWithoutReasoningEffort(text: old, reasoningEffort: "minimal"))
+    #expect(CopilotCLIProvider.shouldRetryWithoutReasoningEffort(text: new, reasoningEffort: "low"))
+    #expect(!CopilotCLIProvider.shouldRetryWithoutReasoningEffort(text: new, reasoningEffort: ""))
+    #expect(!CopilotCLIProvider.shouldRetryWithoutReasoningEffort(text: "Error: rate limited", reasoningEffort: "low"))
+}
+
 @Test("MCP server names parse from copilot mcp list output")
 func mcpServerListParsing() {
     let output = """
