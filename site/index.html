@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Mancia rewrites selected text in place across macOS apps with GitHub Copilot CLI, without opening a chat window.">
+  <meta name="description" content="Mancia rewrites selected text in place in any macOS app with GitHub Copilot CLI. There is no chat window.">
   <meta property="og:title" content="Mancia | Edit text with AI in any macOS app">
-  <meta property="og:description" content="Select text, choose the result you need, and replace it in place with GitHub Copilot CLI.">
+  <meta property="og:description" content="Select text, press a shortcut, and replace the text in place with GitHub Copilot CLI.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://peteriz.github.io/mancia/">
   <meta property="og:image" content="https://peteriz.github.io/mancia/assets/mancia-ribbon.png">
@@ -21,11 +21,11 @@
     <section class="hero">
       <div class="shell hero-inner">
         <h1>Edit the words.<br>Stay in the app.</h1>
-        <p>Mancia rewrites selected text in place across macOS apps with GitHub Copilot CLI, without opening a chat window.</p>
+        <p>Select text in any Mac app and press a shortcut. Mancia rewrites the text with GitHub Copilot CLI and puts it back in the same place. There is no chat window.</p>
         <div class="hero-actions" aria-label="Mancia links">
           <a class="button button-accent" href="https://github.com/peteriz/mancia/releases/latest">Download latest</a>
           <a class="button button-quiet" href="https://github.com/peteriz/mancia">View on GitHub</a>
-          <a class="text-link" href="https://github.com/peteriz/mancia/tree/main/docs">Read documentation</a>
+          <a class="text-link" href="https://github.com/peteriz/mancia#readme">Read documentation</a>
         </div>
       </div>
     </section>
@@ -34,20 +34,34 @@
       <div class="shell">
         <header class="section-heading">
           <h2 id="demo-title">Select. Invoke. Replace.</h2>
-          <p>Works in apps with standard Copy, Select All, and Paste.</p>
+          <p>Works in apps that support standard Copy, Select All, and Paste.</p>
         </header>
 
         <figure class="product-proof">
-          <img src="assets/mancia-ribbon.png" width="2160" height="1040" alt="A mail draft with a paragraph selected and Mancia's command ribbon below it, showing Improve, Sharpen, Plan first, Tighten, and Custom">
-          <figcaption><strong>Minimal example:</strong> select a rough sentence, press <kbd>⌃⌥⌘E</kbd>, choose Improve, and Mancia writes the polished version back.</figcaption>
+          <img src="assets/mancia-ribbon.png" width="2160" height="1040" alt="A mail draft with a paragraph selected. Mancia's command ribbon is below it and shows the selection target, the Prompt and Writing toggle, Improve, Sharpen, Plan first, Tighten, and Custom.">
+          <figcaption><strong>Example:</strong> select a paragraph, press <kbd>⌃⌥⌘E</kbd>, and click Improve. Mancia replaces the paragraph with the new version.</figcaption>
         </figure>
 
-        <div class="action-ledger" aria-label="Primary Mancia actions">
-          <article><h3>Improve</h3><p>Agent prompts and prose</p></article>
-          <article><h3>Sharpen</h3><p>Coding-agent requests</p></article>
-          <article><h3>Plan first</h3><p>Ask for goals and verifiers</p></article>
-          <article><h3>Tighten</h3><p>Fewer words, same meaning</p></article>
-          <article><h3>Custom</h3><p>Your own instruction</p></article>
+        <div class="action-sets">
+          <section class="action-set" aria-labelledby="prompt-set">
+            <h3 id="prompt-set">Prompt set <span>for text you write to coding agents</span></h3>
+            <div class="action-ledger">
+              <article><h4>Improve</h4><p>Make the request clear</p></article>
+              <article><h4>Sharpen</h4><p>Turn notes into instructions</p></article>
+              <article><h4>Plan first</h4><p>Ask for a plan with goals and checks</p></article>
+              <article><h4>Tighten</h4><p>Fewer words, same requirements</p></article>
+            </div>
+          </section>
+          <section class="action-set" aria-labelledby="writing-set">
+            <h3 id="writing-set">Writing set <span>for text you write to people</span></h3>
+            <div class="action-ledger">
+              <article><h4>Proofread</h4><p>Fix spelling and grammar only</p></article>
+              <article><h4>Unslop</h4><p>Remove AI-writing patterns and filler</p></article>
+              <article><h4>STE</h4><p>Rewrite in Simplified Technical English</p></article>
+              <article><h4>Markdown</h4><p>Format notes as Markdown</p></article>
+            </div>
+          </section>
+          <p class="action-note">Press <kbd>⌘E</kbd> to switch sets. <strong>Custom</strong> runs your own instruction, for example "make it one decisive sentence".</p>
         </div>
       </div>
     </section>
@@ -55,31 +69,31 @@
     <section class="why section-pad" aria-labelledby="why-title">
       <div class="shell">
         <header class="section-heading compact-heading">
-          <h2 id="why-title">Built for bounded edits, not another conversation.</h2>
-          <p>Use chat for exploration. Use Mancia when the text is already in front of you and the job is to change it.</p>
+          <h2 id="why-title">For short edits, not a new conversation.</h2>
+          <p>Use chat to explore ideas. Use Mancia when the text is in front of you and you want to change it.</p>
         </header>
 
         <div class="capability-list">
           <article>
             <h3>Stays with the selection</h3>
-            <p>The ribbon opens below or above a short selection and beside a tall block, so the words remain visible.</p>
+            <p>The ribbon opens below or above a short selection, or beside a tall block. Your text stays visible.</p>
           </article>
           <article>
-            <h3>Undoable revisions</h3>
-            <p>Press <kbd>⌘Z</kbd> to restore a previous Mancia-applied version when the target still matches. Otherwise, copy the result instead.</p>
+            <h3>Undo with <kbd>⌘Z</kbd></h3>
+            <p>Go back to the previous version that Mancia applied. If the field or text changed, Mancia gives you the result to copy and does not paste.</p>
           </article>
           <article>
-            <h3>Restores the clipboard</h3>
-            <p>Mancia restores its temporary clipboard changes without overwriting anything you copy while an edit runs.</p>
+            <h3>Keeps your clipboard</h3>
+            <p>Mancia puts your clipboard back after each edit. If you copy something while an edit runs, Mancia keeps your copy.</p>
           </article>
           <article>
-            <h3>Reviews whole-document changes</h3>
-            <p>Mancia asks before reading and sending the whole document, then offers a comparison before replacement. The replacement confirmation is configurable.</p>
+            <h3>Asks before it sends a document</h3>
+            <p>With no selection, Mancia asks before it reads and sends the whole document. After you approve, the result replaces the document. <kbd>⌘Z</kbd> brings the old version back.</p>
           </article>
         </div>
 
         <aside class="boundary-note">
-          <strong>Clear boundary:</strong> no telemetry and no direct AI API calls. Mancia uses the local GitHub Copilot CLI process. Selected text may be sent by that process to GitHub Copilot services.
+          <strong>Privacy:</strong> no telemetry and no direct AI API calls. Mancia gives your text to the local GitHub Copilot CLI process. That process can send it to GitHub Copilot services.
         </aside>
       </div>
     </section>
@@ -87,7 +101,7 @@
 
   <footer class="site-footer">
     <div class="shell footer-inner">
-      <p><strong>Mancia</strong> is MIT licensed and built in Swift for macOS 14 or newer.</p>
+      <p><strong>Mancia</strong> is MIT licensed. It is built in Swift for macOS 14 or later and needs GitHub Copilot CLI.</p>
     </div>
   </footer>
 </body>

@@ -187,6 +187,11 @@ minutes). ACP sessions load configured MCP servers' tool definitions even with
 `--available-tools=`; a large user server overflows the model's context and
 every ACP turn fails. Such failures arrive as `Error:` reply text, which
 `CopilotACPClient.isCLIFailureReply` treats as a failure so the fallback runs.
+When the saved model is retired, the CLI streams `Info: Model "x" is no longer
+available. Using "y" instead.` before the answer, with no break between them.
+`CopilotACPClient.removingModelFallbackNotice` removes it before the reply is
+used. An unsupported reasoning effort retries at the model default; the CLI has
+used two wordings for that error and both are matched.
 
 Provider and run timing are traced with `os.Logger` (subsystem
 `io.github.peteriz.mancia`, categories `provider` and `run`); user text and

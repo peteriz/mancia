@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-25
+
+### Added
+
+- A second action set, **Writing**, for text written to people: Proofread,
+  Unslop, STE, and Markdown. The first set is now called **Prompt**.
+- A Prompt / Writing toggle beside the target. ⌘E switches sets
+  while the ribbon has focus. Change or clear the shortcut in Settings under
+  Editing. Mancia remembers the last set you used.
+
+### Changed
+
+- The ribbon is one fixed-width graphite row with one vermilion accent. It
+  looks the same in light and dark mode. Buttons keep their size and position
+  when you switch sets or start a run.
+- Custom opens its field in a drawer below the row. The ribbon no longer gets
+  wider.
+- Whole-document results apply directly after you approve sending the
+  document. ⌘Z restores the previous version. The comparison view
+  and the "Confirm before replacing the whole document" setting are removed.
+- The default working color is warm vermilion. A color you chose is kept.
+- Copilot runs with your configured MCP servers turned off. Large servers no
+  longer fill the model's context and force a slow fallback run.
+
+### Fixed
+
+- Works with Copilot CLI 1.0.103 and later, which rejects `--no-remote`.
+- Copilot error text in a reply is treated as an error and is not pasted.
+- If the saved model is retired, Copilot CLI's "no longer available" notice is
+  no longer pasted into your text.
+- An unsupported reasoning effort retries at the model default again. Copilot
+  CLI 1.0.104 changed the wording of that error.
+
 ## [0.4.0] - 2026-09-05
 
 ### Added
@@ -213,7 +246,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.5.0...HEAD
+[0.5.0]: https://github.com/peteriz/mancia/compare/0.4.0...0.5.0
+[0.4.0]: https://github.com/peteriz/mancia/compare/0.3.3...0.4.0
+[0.3.3]: https://github.com/peteriz/mancia/compare/0.3.2...0.3.3
+[0.3.2]: https://github.com/peteriz/mancia/compare/0.3.1...0.3.2
+[0.3.1]: https://github.com/peteriz/mancia/compare/0.3.0...0.3.1
 [0.3.0]: https://github.com/peteriz/mancia/compare/0.2.2...0.3.0
 [0.2.2]: https://github.com/peteriz/mancia/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/peteriz/mancia/compare/0.2.0...0.2.1

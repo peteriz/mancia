@@ -35,8 +35,12 @@ echo "some text" | swift run Mancia --complete rewrite
 ```
 
 `make shot` redraws the README's hero image (`docs/assets/mancia-ribbon.png`).
-It renders the shipping `RibbonView` off screen — see `DocsShot.swift` — so run
-it after any change to how the lane looks, and commit the result.
+It renders the shipping `RibbonView` off screen (see `DocsShot.swift`). Run it
+after any change to how the ribbon looks. Copy the result to
+`site/assets/mancia-ribbon.png` too, and commit both files.
+
+`swift run Mancia --ribbon-click-check` clicks every ribbon control through
+Accessibility. Run it after you change the ribbon's controls.
 
 The `Makefile` targets run through `./scripts/swift.sh`, a thin wrapper around
 `swift` that keeps SwiftPM dependency resolution working in restricted
@@ -61,8 +65,8 @@ CODESIGN_ID="Mancia Dev Signing" make run
 - Keep provider and prompt logic testable with pure/static helpers.
 - Surface user-facing failures as clear errors or panel state, not crashes.
 - Avoid new dependencies unless the need is strong and discussed first.
-- Keep files small and aligned with the existing layout: `Panel/`, `Providers/`,
-  `Settings/`, and one primary type per file.
+- Keep files small and aligned with the existing layout: `Ribbon/`, `Panel/`,
+  `Providers/`, `Settings/`, and one primary type per file.
 
 ## Pull Requests
 
@@ -78,19 +82,27 @@ build warning-free and the tests green.
 
 ## Releasing
 
-Releases are cut by pushing a version tag; do not create releases in the
-GitHub UI. The [release workflow](../.github/workflows/release.yml) builds and
-tests at the tag, packages `Mancia-<version>.dmg`, and publishes the GitHub
-release with the DMG attached (this repo has immutable releases, so assets
-must be attached before publishing — the workflow handles that ordering).
+Push a version tag to make a release. Do not create releases in the GitHub UI.
+The [release workflow](../.github/workflows/release.yml) builds and tests the
+tag, packages `Mancia-<version>.dmg`, and publishes the release with the DMG.
+This repository has immutable releases, so the workflow attaches the DMG before
+it publishes.
+
+1. In a pull request, set `CFBundleShortVersionString` and `CFBundleVersion` in
+   `Support/Info.plist` to the new version. In `CHANGELOG.md`, move the
+   `[Unreleased]` entries under a dated heading for that version. A test fails
+   if the newest changelog version and the plist version are different.
+2. Merge the pull request.
+3. Tag the merge commit on an up-to-date `main` and push the tag:
 
 ```sh
-git tag 0.0.2          # from an up-to-date main
-git push origin 0.0.2
+git switch main && git pull
+git tag 0.5.0
+git push origin 0.5.0
 ```
 
-The tag version becomes `CFBundleShortVersionString`/`CFBundleVersion` in the
-released app; a leading `v` is stripped if present.
+The workflow writes the tag version into the app's `Info.plist`. It removes a
+leading `v` if there is one.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current app structure and
 [SPEC.md](SPEC.md) for implementation notes.

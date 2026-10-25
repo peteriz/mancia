@@ -279,8 +279,11 @@ final class CopilotCLIProvider: LLMProvider {
             return false
         }
         let lowered = text.lowercased()
+        // Older CLIs: `Reasoning effort "x" is not supported for model "y"`.
+        // 1.0.104: `Model "y" does not support reasoning effort configuration`.
         return lowered.contains("reasoning effort")
-            && lowered.contains("not supported for model")
+            && (lowered.contains("not supported for model")
+                || lowered.contains("does not support reasoning effort"))
     }
 
     private static func looksUnauthenticated(_ text: String) -> Bool {

@@ -2,31 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Mancia</string>
-    <key>CFBundleDisplayName</key>
-    <string>Mancia</string>
-    <key>CFBundleIdentifier</key>
-    <string>io.github.peteriz.mancia</string>
-    <key>CFBundleExecutable</key>
-    <string>Mancia</string>
-    <key>CFBundleIconFile</key>
-    <string>Mancia</string>
-    <key>CFBundleIconName</key>
-    <string>Mancia</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.4.0</string>
-    <key>CFBundleVersion</key>
-    <string>0.4.0</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 Peter Izsak. MIT License.</string>
-    <key>NSPrincipalClass</key>
-    <string>NSApplication</string>
+	<key>CFBundleDisplayName</key>
+	<string>Mancia</string>
+	<key>CFBundleExecutable</key>
+	<string>Mancia</string>
+	<key>CFBundleIconFile</key>
+	<string>Mancia</string>
+	<key>CFBundleIconName</key>
+	<string>Mancia</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.peteriz.mancia</string>
+	<key>CFBundleName</key>
+	<string>Mancia</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.5.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.5.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Peter Izsak. MIT License.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>
