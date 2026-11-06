@@ -32,6 +32,8 @@ final class RibbonWindow: NSObject {
     /// The edge the lane currently hangs from, which decides both the side it
     /// slides in from and — fed back through `Context` — where it stays for
     /// the rest of the session. Cleared by `show()`.
+    private var draggedTopLeft: CGPoint?
+    private var isDragging = false
     private var currentAnchor: RibbonPlacement.Anchor?
     private var screenObserver: (any NSObjectProtocol)?
     /// Bumped on every `show()`, so an exit animation still in flight when a
@@ -79,6 +81,7 @@ final class RibbonWindow: NSObject {
         hostWindow = HostWindowProbe.frontmostWindow()
         selectionRect = SelectionCapture.selectionScreenRect()
         currentAnchor = nil
+        draggedTopLeft = nil
         let resolution = resolveFrame()
         observeScreenChanges()
         present(panel, at: resolution.frame)
@@ -140,7 +143,7 @@ final class RibbonWindow: NSObject {
     /// Each anchor pins the edge it hangs from, so the lane grows away from
     /// whatever it is sitting against rather than moving across it.
     func reposition(animated: Bool = true) {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible, !isDragging else { return }
         let previousWidth = panel.frame.width
         let resolution = resolveFrame()
         guard resolution.frame != panel.frame else { return }
@@ -171,7 +174,7 @@ final class RibbonWindow: NSObject {
     /// taken again at the moment the target moved. `nil` (a host that cannot
     /// report bounds) changes nothing.
     func noteSelectionMoved(_ rect: CGRect?) {
-        guard let panel, panel.isVisible, let rect, rect != selectionRect else { return }
+        guard let panel, panel.isVisible, draggedTopLeft == nil, let rect, rect != selectionRect else { return }
         selectionRect = rect
         // The work moved, so re-read what it moved to. `show()`'s probe is
         // deliberately not refreshed per reposition — chasing a dragged window
@@ -193,7 +196,7 @@ final class RibbonWindow: NSObject {
     /// is. A lane already clear of the words holds still: a move that buys no
     /// visibility is churn.
     func avoidUpdatedText(caretRect: CGRect?) {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible, draggedTopLeft == nil else { return }
         let updated = RibbonPlacement.updatedTextRect(
             previousSelection: selectionRect, caretAfterApply: caretRect)
         guard RibbonPlacement.laneObstructs(panel.frame, updatedText: updated) else { return }
@@ -259,6 +262,16 @@ final class RibbonWindow: NSObject {
     /// for.
     private func resolveFrame() -> RibbonPlacement.Resolution {
         let context = currentContext()
+        if let draggedTopLeft {
+            let width = min(context.preferredWidth, context.visibleFrame.width)
+            let height = measuredHeight(width: width, anchor: .hostWindow)
+            let frame = RibbonPlacement.draggedFrame(
+                size: CGSize(width: width, height: height),
+                topLeft: draggedTopLeft, visibleFrame: context.visibleFrame)
+            currentAnchor = .hostWindow
+            hosting?.rootView = content(width: width, anchor: .hostWindow)
+            return .init(frame: frame, anchor: .hostWindow)
+        }
         let widthProbe = RibbonPlacement.resolve(height: 0, in: context)
         let height = measuredHeight(width: widthProbe.frame.width, anchor: widthProbe.anchor)
         let resolution = RibbonPlacement.resolve(height: height, in: context)
@@ -292,7 +305,18 @@ final class RibbonWindow: NSObject {
             // reports the height the lane is leaving, not the one it wants.
             onLayoutChange: { [weak self] in
                 Task { @MainActor in self?.reposition() }
-            })
+            },
+            onDrag: { [weak self] event in self?.drag(with: event) })
+    }
+
+    private func drag(with event: NSEvent) {
+        guard let panel, panel.isVisible else { return }
+        onPointerActivity?()
+        isDragging = true
+        panel.performDrag(with: event)
+        draggedTopLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        isDragging = false
+        reposition(animated: false)
     }
 
     /// The off-screen copy used only for sizing. It must not ask for a resize
@@ -343,6 +367,9 @@ final class RibbonWindow: NSObject {
     /// pointer only when neither did, since it is wherever the hand left it
     /// rather than where the words are.
     private func targetScreen() -> NSScreen? {
+        if draggedTopLeft != nil, let screen = screenOverlapping(panel?.frame) {
+            return screen
+        }
         if let screen = screenOverlapping(selectionRect) { return screen }
         if let screen = screenOverlapping(hostWindow?.frame) { return screen }
         let mouse = NSEvent.mouseLocation
@@ -412,9 +439,8 @@ final class RibbonWindow: NSObject {
         )
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        // Placement is the lane's contract; dragging would detach it from the
-        // selection or resting edge it was resolved against.
-        panel.isMovable = false
+        // Only the explicit handle moves the ribbon.
+        panel.isMovable = true
         panel.isMovableByWindowBackground = false
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
