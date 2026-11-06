@@ -6,8 +6,7 @@ import SwiftUI
 /// This is the one moment Mancia asks permission before it acts rather than
 /// after — a whole-document request means every word in the document leaves
 /// the Mac, which a per-selection request never implies. The copy says so
-/// plainly rather than hiding it behind "Document" as the target chip's own
-/// label, and Decline is the default focus so a stray Return never approves
+/// plainly, and Decline is the default focus so a stray Return never approves
 /// it by accident.
 struct RibbonScopeApprovalView: View {
     @Bindable var model: PanelModel
@@ -20,8 +19,11 @@ struct RibbonScopeApprovalView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(RibbonPalette.text)
                 Text(
-                    "Mancia will read the entire document and send it to Copilot. "
-                        + "Its contents may leave this Mac."
+                    model.pendingScopeApprovalIsLocal
+                        ? "Mancia will read and replace the entire document. "
+                            + "Nothing leaves this Mac."
+                        : "Mancia will read the entire document and send it to Copilot. "
+                            + "Its contents may leave this Mac."
                 )
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(RibbonPalette.caption)
@@ -37,14 +39,17 @@ struct RibbonScopeApprovalView: View {
                 .ribbonFocusRing(model.focusedCell == .scopeDecline, radius: 8, inset: -2)
                 .accessibilityIdentifier("DeclineScope")
                 AccentButton(
-                    "Send document", fill: RibbonPalette.accent, foreground: RibbonPalette.onAccent
+                    model.pendingScopeApprovalIsLocal ? "Read document" : "Send document", fill: RibbonPalette.accent, foreground: RibbonPalette.onAccent
                 ) {
                     model.onApproveDocumentGeneration?()
                 }
                 .focusable()
                 .focused(focus, equals: .scopeApprove)
                 .ribbonFocusRing(model.focusedCell == .scopeApprove, radius: 8, inset: -2)
-                .accessibilityLabel("Send whole document to Copilot")
+                .accessibilityLabel(
+                    model.pendingScopeApprovalIsLocal
+                        ? "Read the whole document on this Mac"
+                        : "Send whole document to Copilot")
                 .accessibilityIdentifier("ApproveScope")
             }
             .frame(height: 30)

@@ -90,6 +90,7 @@ enum PanelKeyCommand: Equatable {
         case ("3", []): return .activateAction(2)
         case ("4", []): return .activateAction(3)
         case ("5", []): return .activateAction(4)
+        case ("6", []): return .activateAction(5)
         default: return nil
         }
     }

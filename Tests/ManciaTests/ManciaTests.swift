@@ -1402,6 +1402,7 @@ func panelKeyCommandsResolve() {
         ("3", [], .activateAction(2)),
         ("4", [], .activateAction(3)),
         ("5", [], .activateAction(4)),
+        ("6", [], .activateAction(5)),
     ]
     for c in cases {
         #expect(
@@ -1421,15 +1422,15 @@ func panelKeyCommandsRejectNonShortcuts() {
     #expect(PanelKeyCommand.resolve(characters: "", modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: nil, modifiers: .command) == nil)
     #expect(PanelKeyCommand.resolve(characters: "\r", modifiers: []) == nil)
-    for digit in ["1", "2", "3", "4", "5"] {
+    for digit in ["1", "2", "3", "4", "5", "6"] {
         for modifiers: NSEvent.ModifierFlags in [.command, .shift, .option, .control] {
             #expect(PanelKeyCommand.resolve(characters: digit, modifiers: modifiers) == nil)
         }
     }
     #expect(PanelKeyCommand.resolve(characters: "0", modifiers: []) == nil)
-    #expect(PanelKeyCommand.resolve(characters: "6", modifiers: []) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "7", modifiers: []) == nil)
     #expect(PanelKeyCommand.resolve(characters: "0", modifiers: .command) == nil)
-    #expect(PanelKeyCommand.resolve(characters: "6", modifiers: .command) == nil)
+    #expect(PanelKeyCommand.resolve(characters: "7", modifiers: .command) == nil)
 }
 
 @Test("Tab and shift-Tab resolve to focus moves")
@@ -1460,7 +1461,7 @@ func panelKeyCommandsResolvePrimaryReturn() {
 @Test("Esc stops a running action and only closes the session when idle")
 func ribbonEscapeBacksOutOfTheRunFirst() {
     let model = PanelModel()
-    model.reset(hasSelection: true, charCount: 12)
+    model.reset(hasSelection: true)
     var cancelledRuns = 0
     var closes = 0
     var declines = 0
@@ -1495,10 +1496,10 @@ func ribbonEscapeBacksOutOfTheRunFirst() {
 @Test("Tab cycles the ribbon's cells in order and wraps")
 func ribbonFocusCycles() {
     let model = PanelModel()
-    model.reset(hasSelection: true, charCount: 12)
+    model.reset(hasSelection: true)
     #expect(model.focusedCell == .none)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4), .target, .presetGroup,
+        .action(0), .action(1), .action(2), .action(3), .action(4), .presetGroup,
     ])
 
     model.moveFocus(.next)
@@ -1510,7 +1511,7 @@ func ribbonFocusCycles() {
     model.selectCustomInstruction()
     #expect(model.focusedCell == .direction)
     #expect(model.focusableCells == [
-        .action(0), .action(1), .action(2), .action(3), .action(4), .direction, .run, .target, .presetGroup,
+        .action(0), .action(1), .action(2), .action(3), .action(4), .direction, .run, .presetGroup,
     ])
     model.moveFocus(.next)
     #expect(model.focusedCell == .run)
@@ -1520,7 +1521,7 @@ func ribbonFocusCycles() {
 @Test("Action focus order is unchanged by selection capture")
 func ribbonFocusIgnoresSelectionCapture() {
     let model = PanelModel()
-    model.reset(hasSelection: false, charCount: 0)
+    model.reset(hasSelection: false)
     #expect(model.focusableCells == [
         .action(0), .action(1), .action(2), .action(3), .action(4), .presetGroup,
     ])
@@ -1529,7 +1530,7 @@ func ribbonFocusIgnoresSelectionCapture() {
     #expect(model.focusedCell == .action(0))
 
     // Capturing hides the menu the same way, so the cell drops out too.
-    model.reset(hasSelection: true, charCount: 8)
+    model.reset(hasSelection: true)
     model.capturing = true
     #expect(model.focusableCells == [
         .action(0), .action(1), .action(2), .action(3), .action(4), .presetGroup,
@@ -1545,13 +1546,13 @@ func ribbonFocusIgnoresSelectionCapture() {
 @Test("Command-T swaps the target, and is inert without a selection")
 func ribbonTargetShortcutsSetScope() {
     let model = PanelModel()
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     model.toggleScope()
     #expect(model.scope == .document)
     model.toggleScope()
     #expect(model.scope == .selection)
 
-    model.reset(hasSelection: false, charCount: 0)
+    model.reset(hasSelection: false)
     #expect(model.scope == .document)
     model.toggleScope()
     #expect(model.scope == .document, "aiming at a selection that isn't there does nothing")
@@ -1563,7 +1564,7 @@ func ribbonKeyboardActionsRunImmediately() {
     let model = PanelModel()
     var calls: [(EditAction, String?)] = []
     model.onPerform = { calls.append(($0, $1)) }
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
 
     for (index, preset) in model.presets.enumerated() {
         let before = calls.count
@@ -1583,7 +1584,7 @@ func ribbonCustomShortcutDisclosesWithoutRunning() {
     let model = PanelModel()
     var calls: [EditAction] = []
     model.onPerform = { action, _ in calls.append(action) }
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     let before = model.focusSeq
 
     model.activateAction(at: PanelModel.customActionIndex)
@@ -1602,7 +1603,7 @@ func ribbonKeyboardActionIgnoresOutOfRange() {
     let model = PanelModel()
     var calls: [EditAction] = []
     model.onPerform = { action, _ in calls.append(action) }
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     let choice = model.actionChoice
 
     model.activateAction(at: PanelModel.actionIndices.count)
@@ -1618,7 +1619,7 @@ func ribbonShortcutsRespectTheLock() {
     let model = PanelModel()
     var calls: [EditAction] = []
     model.onPerform = { action, _ in calls.append(action) }
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     model.selectPreset(at: 0)
     let choice = model.actionChoice
 
@@ -1648,7 +1649,7 @@ func ribbonShortcutsRespectTheLock() {
 @Test("The target shortcut is inert until the capture reports back")
 func ribbonTargetShortcutWaitsForCapture() {
     let model = PanelModel()
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     model.capturing = true
 
     model.toggleScope()
@@ -1666,7 +1667,7 @@ func ribbonResetClearsFocus() {
     model.focusedCell = .direction
     let before = model.sessionSeq
 
-    model.reset(hasSelection: true, charCount: 30)
+    model.reset(hasSelection: true)
 
     #expect(model.focusedCell == .none)
     #expect(
@@ -1678,7 +1679,7 @@ func ribbonResetClearsFocus() {
 @Test("Action choices focus their primary control")
 func ribbonActionChoiceReturnsPrimaryFocus() {
     let model = PanelModel()
-    model.reset(hasSelection: true, charCount: 40)
+    model.reset(hasSelection: true)
     model.focusedCell = .action(0)
     let before = model.focusSeq
 
@@ -1825,7 +1826,7 @@ func presetGroupSwitching() {
     var calls: [EditAction] = []
     model.onPresetGroupChange = { changes.append($0) }
     model.onPerform = { action, _ in calls.append(action) }
-    model.reset(hasSelection: true, charCount: 10)
+    model.reset(hasSelection: true)
     #expect(model.actionChoice == .preset(.improve))
 
     model.selectPreset(at: 2)
@@ -1842,7 +1843,7 @@ func presetGroupSwitching() {
     #expect(calls == [.markdown])
 
     // A new session keeps the group, and opens on its first preset.
-    model.reset(hasSelection: true, charCount: 10)
+    model.reset(hasSelection: true)
     #expect(model.presetGroup == .writing)
     #expect(model.actionChoice == .preset(.proofread))
 
@@ -2172,7 +2173,7 @@ func resetRestoresDefaultAction() {
     model.selectCustomInstruction()
     model.instruction = "make it formal"
 
-    model.reset(hasSelection: true, charCount: 12)
+    model.reset(hasSelection: true)
 
     #expect(model.actionChoice == .preset(.improve))
     #expect(model.resolvedActionTitle == "Improve")

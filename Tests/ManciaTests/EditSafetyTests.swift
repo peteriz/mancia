@@ -343,7 +343,7 @@ struct EditSafetyTests {
 
         #expect(model.actionChoice == .preset(.improve))
         #expect(model.instruction == "keep this draft")
-        model.reset(hasSelection: true, charCount: 10)
+        model.reset(hasSelection: true)
         #expect(model.instruction.isEmpty)
     }
 

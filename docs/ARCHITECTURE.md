@@ -53,7 +53,7 @@ Sources/Mancia/
 │   │                             host's title bar
 │   ├── HostWindowProbe.swift     Reads the frontmost window's frame and full-screen state
 │   │                             through Accessibility (placement's second input)
-│   ├── RibbonView.swift          Target, five actions, Custom drawer, progress and recovery
+│   ├── RibbonView.swift          Action-set toggle, actions, Custom drawer, progress and recovery
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
 │   ├── RibbonDragHandle.swift    Grip that lets the user drag the ribbon elsewhere
 │   ├── RibbonScopeApprovalView.swift  Whole-document approval gate shown before sending
@@ -398,11 +398,12 @@ prompt):
   `"...: not found"` (exit 1), or `"...: error — <message>"` (exit 1).
 - `Mancia --complete <action> <<< "text"` — reads stdin as the input text,
   parses `<action>` via `EditAction.parse` (`improve | sharpen | plan-first |
-  tighten | rewrite | summarize | fix-grammar | custom:<instruction>`; unknown
-  values exit 2), builds the prompt with `PromptBuilder.build`, calls
+  tighten | rewrite | summarize | fix-grammar | oops | custom:<instruction>`;
+  unknown values exit 2), builds the prompt with `PromptBuilder.build`, calls
   `provider.complete(prompt)`, prints the result (exit 0) or an error to stderr
   (exit 1). (`fix-grammar` is the CLI id for the action labeled **Proofread** in
-  the lane, and `plan-first` for **Plan first**.)
+  the lane, and `plan-first` for **Plan first**.) `oops` prints the local
+  keyboard-layout conversion and never calls the provider.
 - `Mancia --list-models` — prints the cached and live Copilot model lists the
   settings pickers merge.
 
@@ -424,7 +425,14 @@ delimited `Input text` sections plus the shared output-only clause, so templates
 are easy to review and adjust.
 
 The action strip shows one `PresetGroup` at a time — four presets in slots
-1…4, then Custom. A segmented toggle beside the target names every group and
+1…4, then Custom. `AppSettings.showOopsAction` (off by default) adds Oops in
+slot 6 outside every group; the coordinator copies it to `PanelModel.showsOops`
+when a session starts, and `RibbonWindow` widens the lane by
+`RibbonPlacement.oopsWidth`. `EditAction.oops` is the one local action:
+`EditCoordinator.generate` runs `KeyboardLayoutConverter` instead of the
+provider, then hands the result to the same `EditSession` apply and history
+path, and `KeyboardInputSource` selects the matching layout once the paste is
+verified. A segmented toggle beside the target names every group and
 lights the live one. The switch-set shortcut (⌘E by default) lives in
 `AppSettings.presetGroupShortcut` as JSON rather than a
 `KeyboardShortcuts.Name`, because the library registers every saved name as a

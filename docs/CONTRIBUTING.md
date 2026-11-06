@@ -47,7 +47,9 @@ The `Makefile` targets run through `./scripts/swift.sh`, a thin wrapper around
 environments (some sandboxes force `safe.bareRepository=explicit`, which breaks
 SwiftPM's internal `git` calls). It is a no-op otherwise, so plain `swift build`
 and `swift test` are fine for normal local work; reach for the wrapper only if
-dependency resolution fails.
+dependency resolution fails. If the selected toolchain is the standalone Command
+Line Tools, which lack the SwiftUI macro plugin, the wrapper uses an installed
+Xcode instead. Set `DEVELOPER_DIR` to override that choice.
 
 `make run` is the fastest manual loop because it builds a real `.app` bundle.
 To avoid re-granting Accessibility after every rebuild, use a stable local
@@ -56,6 +58,10 @@ signing identity:
 ```sh
 CODESIGN_ID="Mancia Dev Signing" make run
 ```
+
+Without one, use `make rerun`. It quits Mancia, resets its Accessibility
+permission, rebuilds, and relaunches, so the next shortcut press asks for a
+fresh grant instead of failing on the stale one.
 
 ## Code Style
 

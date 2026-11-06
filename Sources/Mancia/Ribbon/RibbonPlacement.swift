@@ -188,11 +188,19 @@ enum RibbonPlacement {
     /// level — is what keeps the lane reachable.
     static let revealClearance: CGFloat = 28
 
-    /// The lane's one width. The target, the action-set switch and all five
-    /// actions share a single row, every label reserves room for its running form, and Custom opens
+    /// The lane's one width. The action-set switch and all five actions share
+    /// a single row, every label reserves room for its running form, and Custom opens
     /// downward rather than sideways — so no state needs more room across,
     /// and starting, finishing or customizing a request never resizes it.
-    static let standardWidth: CGFloat = 880
+    static let standardWidth: CGFloat = 722
+
+    /// Room the optional Oops button adds to the row when Settings shows it.
+    static let oopsWidth: CGFloat = 120
+
+    /// The lane's width for the actions it shows.
+    static func standardWidth(showsOops: Bool) -> CGFloat {
+        showsOops ? standardWidth + oopsWidth : standardWidth
+    }
 
     /// Never let the lane get narrower than this; below it the row's controls
     /// cannot hold their labels.

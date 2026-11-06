@@ -8,8 +8,8 @@ import SwiftUI
 /// — under the menu bar, or under the frontmost window's title bar. See
 /// `RibbonPlacement`.
 ///
-/// Everything lives on one row: the target, the action-set toggle, then the
-/// five actions. Custom
+/// Everything lives on one row: the action-set toggle, then the five actions.
+/// Custom
 /// stays in that row and opens a field *downward*, in a drawer under it, so
 /// the panel keeps one width in every state and only ever grows in height —
 /// the axis placement already pins away from the selection.
@@ -46,7 +46,6 @@ struct RibbonView: View {
     /// The ring reads the model, which is the stop the keyboard is actually on.
     @FocusState private var focus: PanelModel.Cell?
     @State private var hoveredAction: Int?
-    @State private var targetHovered = false
     @Namespace private var presetGroupNamespace
     @State private var customRunHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -158,14 +157,13 @@ struct RibbonView: View {
 
     // MARK: - Command row
 
-    /// The target and the set switch, a divider, then the five actions sharing
+    /// The set switch, a divider, then the five actions sharing
     /// what is left in equal measure — so a running label, a hover or a set
     /// switch never reflows the row.
     private var commandRow: some View {
         HStack(spacing: 2) {
             RibbonDragHandle(onDrag: onDrag)
                 .frame(width: 14, height: controlHeight)
-            targetChip
             presetGroupToggle
             Rectangle()
                 .fill(RibbonPalette.divider)
@@ -177,71 +175,6 @@ struct RibbonView: View {
         }
         .padding(inset)
         .animation(.easeInOut(duration: 0.2), value: model.phase)
-    }
-
-    /// The target chip: always visible, and the one place the ribbon states
-    /// what an action would actually act on. It reads "Reading…" — and
-    /// refuses both the click and ⌘T — for the same brief window the capture
-    /// makes `hasSelection` an optimistic guess, per `PanelModel.setScope`.
-    ///
-    /// While a request runs the chip is inert anyway, so it reports the
-    /// coordinator's live stage instead whenever that says more than the
-    /// active button already does — "Reading document" rather than a second
-    /// "Improving".
-    private var targetChip: some View {
-        Button {
-            model.toggleScope()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: model.scope == .document ? "doc.text" : "text.cursor")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(RibbonPalette.symbol)
-                    .frame(width: 14)
-                if let stage = liveStageNote {
-                    Text(stage)
-                        .foregroundStyle(RibbonPalette.text)
-                } else {
-                    Text(targetChipTitle)
-                        .foregroundStyle(RibbonPalette.caption)
-                    if let count = targetChipCount {
-                        Text(count)
-                            .monospacedDigit()
-                            .foregroundStyle(RibbonPalette.text)
-                    }
-                }
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, 9)
-            .frame(width: 156, height: controlHeight, alignment: .leading)
-            .background(
-                controlShape.fill(
-                    targetHovered && model.targetChipEnabled
-                        ? RibbonPalette.controlHover : .clear))
-            .contentShape(controlShape)
-        }
-        .buttonStyle(.plain)
-        // Gated by hit testing rather than `.disabled`, which would also wash
-        // out the label; `setScope` refuses a change while it is inert.
-        .allowsHitTesting(model.targetChipEnabled)
-        // Without a selection the chip is inert but still states the target,
-        // so it stays at full strength; only a capture or a locked phase
-        // dims it.
-        .opacity(
-            model.targetChipEnabled || liveStageNote != nil || !model.hasSelection ? 1 : 0.6)
-        .focusable()
-        .focused($focus, equals: .target)
-        .ribbonFocusRing(model.focusedCell == .target, radius: controlRadius, inset: 0)
-        .onHover { hovering in
-            guard isLive else { return }
-            targetHovered = hovering
-        }
-        .help(targetChipHelp)
-        .accessibilityLabel("Target")
-        .accessibilityValue(targetChipLabel)
-        .accessibilityHint(targetChipHelp)
-        .accessibilityIdentifier("Target")
     }
 
     /// The action-set switch: a two-segment toggle naming every set, with the
@@ -323,42 +256,6 @@ struct RibbonView: View {
             + "Switch action set"
         guard let shortcut = model.presetGroupShortcutLabel else { return action }
         return "\(action) (\(shortcut))"
-    }
-
-    private var targetChipTitle: String {
-        if model.capturing { return "Reading…" }
-        return model.scope == .document ? "Whole document" : "Selection"
-    }
-
-    private var targetChipCount: String? {
-        guard !model.capturing, model.scope == .selection, model.selectionCharCount > 0
-        else { return nil }
-        return model.selectionCharCount.formatted()
-    }
-
-    private var targetChipLabel: String {
-        [targetChipTitle, targetChipCount].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    /// The coordinator's stage, when it is not just the active action's own
-    /// progress label repeated.
-    private var liveStageNote: String? {
-        guard model.phase == .running, model.capturing || !model.runningTitle.isEmpty
-        else { return nil }
-        let stage = runningLabel
-        let index = model.isCustomInstructionSelected
-            ? PanelModel.customActionIndex
-            : model.actionDisplayOrder.first { model.isActionSelected(at: $0) }
-        guard let index, stage != model.actionProgressLabel(at: index) else { return nil }
-        return stage
-    }
-
-    private var targetChipHelp: String {
-        let scopeHelp = model.scope == .document
-            ? "Targets the whole document. The entire document is sent to Copilot"
-                + " after approval and may leave this Mac."
-            : "Targets the current selection. Command T for the whole document."
-        return model.targetAppName.isEmpty ? scopeHelp : "\(model.targetAppName). \(scopeHelp)"
     }
 
     // MARK: - Actions
@@ -841,7 +738,9 @@ extension RibbonView {
         case .scopeApproval:
             let action = model.pendingScopeApprovalActionTitle
             let question = action.isEmpty ? "Send the whole document?" : "\(action) the whole document?"
-            return "\(question) The entire document may leave this Mac."
+            return model.pendingScopeApprovalIsLocal
+                ? "\(question) The document stays on this Mac."
+                : "\(question) The entire document may leave this Mac."
         case .running: return "\(runningLabel)"
         case .applied: return appliedLabel
         case .retained: return retainedLabel

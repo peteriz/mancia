@@ -100,6 +100,7 @@ final class EditCoordinator {
         }
         guard ensureAccessibility() else { return }
         model.presetGroupShortcutLabel = ShortcutRecorderView.display(settings.presetGroupShortcut)
+        model.showsOops = settings.showOopsAction
 
         sessionActive = true
         autoCloseTask?.cancel()
@@ -107,7 +108,7 @@ final class EditCoordinator {
         capture = nil
         navigating = false
         capturing = true
-        model.reset(hasSelection: true, charCount: 0)
+        model.reset(hasSelection: true)
         model.capturing = true
         ribbon.show()
         ribbon.focus()
@@ -140,24 +141,20 @@ final class EditCoordinator {
 
     private func finishInitialCapture(_ result: SelectionCaptureResult) {
         capture = result
-        model.targetAppName = result.target?.targetApp.localizedName ?? ""
         capturing = false
         model.capturing = false
 
         let evidence = sessionEvidence(from: result)
         _ = session.begin(with: evidence)
         switch result.outcome {
-        case .selected(let text):
+        case .selected:
             model.hasSelection = true
-            model.selectionCharCount = text.count
             model.scope = .selection
         case .noSelection:
             model.hasSelection = false
-            model.selectionCharCount = 0
             model.scope = .document
         case .uncertain(let failure), .failed(let failure):
             model.hasSelection = false
-            model.selectionCharCount = 0
             model.scope = .selection
             fail(captureGuidance(for: failure))
         }
@@ -243,14 +240,12 @@ final class EditCoordinator {
         }
 
         switch refreshed.outcome {
-        case .selected(let text):
+        case .selected:
             guard session.adopt(sessionEvidence(from: refreshed)) == nil else {
                 throw CoordinatorError.uncertainTarget
             }
             self.capture = refreshed
-            model.targetAppName = refreshed.target?.targetApp.localizedName ?? ""
             model.hasSelection = true
-            model.selectionCharCount = text.count
             model.scope = .selection
             ribbon.noteSelectionMoved(SelectionCapture.selectionScreenRect())
         case .noSelection:
@@ -274,6 +269,7 @@ final class EditCoordinator {
         case .requestDocumentApproval:
             pendingDocumentAction = pending
             model.pendingScopeApprovalActionTitle = pending.action.title
+            model.pendingScopeApprovalIsLocal = pending.action.isLocal
             model.phase = .scopeApproval
             ribbon.focus()
         case .captureDocument:
@@ -359,24 +355,18 @@ final class EditCoordinator {
         ribbon.focus()
 
         do {
-            try PromptGuard.validate(
-                action: pending.action,
-                text: request.text,
-                note: pending.note)
-            let prompt = PromptBuilder.build(
-                action: pending.action,
-                text: request.text,
-                note: pending.note)
-            runLog.info("generate: provider start (\(request.text.count, privacy: .public) chars)")
-            let rawOutput = try await provider.complete(prompt)
-            runLog.info("generate: provider done (\(rawOutput.count, privacy: .public) chars)")
-            try Task.checkCancellation()
-            guard isCurrent(operation) else { return }
-            let output = try PromptBuilder.normalizeOutput(
-                action: pending.action,
-                source: request.text,
-                output: rawOutput,
-                preserveSourceBoundaryWhitespace: request.baseline.scope == .selection)
+            let output: String
+            var layoutLanguage: KeyboardLayoutConverter.Language?
+            if pending.action == .oops {
+                let conversion = KeyboardLayoutConverter.conversion(of: request.text)
+                output = conversion.text
+                layoutLanguage = conversion.language
+                runLog.info("generate: local layout conversion")
+            } else {
+                output = try await providerOutput(for: pending, request: request)
+                try Task.checkCancellation()
+                guard isCurrent(operation) else { return }
+            }
             let result = EditSession.GeneratedResult(output: output, for: request)
             switch session.consider(result) {
             case .retained:
@@ -395,6 +385,9 @@ final class EditCoordinator {
                     target: target,
                     actionName: pending.action.title,
                     operation: operation)
+                if let layoutLanguage, isCurrent(operation), model.phase == .applied {
+                    KeyboardInputSource.select(language: layoutLanguage)
+                }
             case .failure(let failure):
                 fail(message(for: failure))
             }
@@ -407,6 +400,28 @@ final class EditCoordinator {
             _ = session.fail()
             fail(error.localizedDescription)
         }
+    }
+
+    private func providerOutput(
+        for pending: PendingAction,
+        request: EditSession.GenerationRequest
+    ) async throws -> String {
+        try PromptGuard.validate(
+            action: pending.action,
+            text: request.text,
+            note: pending.note)
+        let prompt = PromptBuilder.build(
+            action: pending.action,
+            text: request.text,
+            note: pending.note)
+        runLog.info("generate: provider start (\(request.text.count, privacy: .public) chars)")
+        let rawOutput = try await provider.complete(prompt)
+        runLog.info("generate: provider done (\(rawOutput.count, privacy: .public) chars)")
+        return try PromptBuilder.normalizeOutput(
+            action: pending.action,
+            source: request.text,
+            output: rawOutput,
+            preserveSourceBoundaryWhitespace: request.baseline.scope == .selection)
     }
 
     // MARK: - Apply and retention

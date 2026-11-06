@@ -102,12 +102,16 @@ enum DebugCLI {
     private static func complete(actionArg: String) async {
         guard let action = EditAction.parse(actionArg) else {
             printErr(
-                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|proofread|unslop|ste|markdown|rewrite|summarize|custom:<instruction>."
+                "Unknown action: \(actionArg). Use improve|sharpen|plan-first|tighten|proofread|unslop|ste|markdown|oops|rewrite|summarize|custom:<instruction>."
             )
             exit(2)
         }
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input = String(data: data, encoding: .utf8) ?? ""
+        if action == .oops {
+            print(KeyboardLayoutConverter.conversion(of: input).text, terminator: "")
+            exit(0)
+        }
         let settings = AppSettings()
         let provider = CopilotCLIProvider(settings: settings)
         let prompt: String
@@ -225,7 +229,7 @@ enum DebugCLI {
     /// already publishes for VoiceOver rather than a position baked in ahead
     /// of time, so the check survives the lane's layout moving underneath it.
     /// It walks the phases a real session passes through — idle in both
-    /// action sets, the target and set chips, a run, Custom, the
+    /// action sets, the set switch, a run, Custom, the
     /// whole-document approval gate, a retained result, a failure, and a
     /// completed apply — asking the model
     /// what ran rather than a real provider, and it never touches the user's
@@ -244,7 +248,6 @@ enum DebugCLI {
         let width = RibbonPlacement.standardWidth
         let model = PanelModel()
         model.hasSelection = true
-        model.selectionCharCount = 42
 
         // Isolated callbacks: the model never reaches a real provider, a real
         // document, or the system pasteboard. Every phase this check drives is
@@ -322,8 +325,8 @@ enum DebugCLI {
                 failures.append("unexpected default accent control in the trailing lane")
             }
         }
-        for expected in ["Target", "PresetGroup"] where !idleIDs.contains(expected) {
-            failures.append("idle: missing control \(expected)")
+        if !idleIDs.contains("PresetGroup") {
+            failures.append("idle: missing control PresetGroup")
         }
 
         /// Click each preset slot and require it to run that slot's preset
@@ -348,42 +351,6 @@ enum DebugCLI {
             }
         }
         await clickPresets(of: .prompt)
-
-        // MARK: target chip
-
-        // With a selection the chip swaps the target both ways; without one it
-        // has nothing to swap to and must stay inert.
-        var scopeChanges: [PanelModel.Scope] = []
-        model.onScopeChange = { scopeChanges.append($0) }
-        for expected in [PanelModel.Scope.document, .selection] {
-            guard let target = axElement(id: "Target", in: axWindow),
-                  let frame = await windowFrame(of: target, panel: panel)
-            else {
-                failures.append("idle: could not locate Target via accessibility")
-                break
-            }
-            click(panel, at: frame.center)
-            await settle()
-            log.append("click (Target): scope now \(model.scope)")
-            if model.scope != expected || scopeChanges.last != expected {
-                failures.append("click (Target): expected scope \(expected), got \(model.scope) (reported \(scopeChanges))")
-            }
-        }
-        model.reset(hasSelection: false, charCount: 0)
-        resize(panel: panel, hosting: hosting, model: model)
-        await settle()
-        scopeChanges.removeAll()
-        if let target = axElement(id: "Target", in: axWindow),
-           let frame = await windowFrame(of: target, panel: panel) {
-            click(panel, at: frame.center)
-            await settle()
-            if model.scope != .document || !scopeChanges.isEmpty {
-                failures.append("click (Target): without a selection the chip should be inert, got \(model.scope) \(scopeChanges)")
-            }
-        }
-        model.reset(hasSelection: true, charCount: 42)
-        resize(panel: panel, hosting: hosting, model: model)
-        await settle()
 
         // MARK: preset groups
 
@@ -597,7 +564,7 @@ enum DebugCLI {
 
         // MARK: approval (whole-document scope gate)
 
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         model.phase = .scopeApproval
         model.pendingScopeApprovalActionTitle = "Improve"
         resize(panel: panel, hosting: hosting, model: model)
@@ -647,7 +614,7 @@ enum DebugCLI {
 
         // MARK: retained (a result Mancia refused to paste)
 
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         model.phase = .retained
         model.retainedResult = "The result the paste guard held back."
         model.retainedReason = "The frontmost app changed before the edit could land."
@@ -690,7 +657,7 @@ enum DebugCLI {
 
         // MARK: error
 
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         model.phase = .error
         model.errorText = "Simulated failure for the click check."
         resize(panel: panel, hosting: hosting, model: model)
@@ -726,7 +693,7 @@ enum DebugCLI {
 
         // MARK: applied
 
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         model.phase = .applied
         model.appliedActionName = "Improve"
         model.undoAvailable = true
@@ -753,6 +720,74 @@ enum DebugCLI {
             failures.append("applied: could not locate UndoApplied via accessibility")
         }
 
+        // MARK: oops
+
+        // Hidden by default: no sixth control, and 6 runs nothing.
+        model.reset(hasSelection: true)
+        panel.onActivateAction = { model.activateAction(at: $0) }
+        let sixEvent = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: panel.windowNumber, context: nil,
+            characters: "6", charactersIgnoringModifiers: "6", isARepeat: false, keyCode: 22)
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        if axElement(id: "Action-6", in: axWindow) != nil {
+            failures.append("oops: Action-6 is visible while Oops is off")
+        }
+        panel.makeFirstResponder(nil)
+        ran.removeAll()
+        if let sixEvent { panel.sendEvent(sixEvent) }
+        if !ran.isEmpty {
+            failures.append("oops: 6 ran \(ran.map(\.action.title)) while Oops is off")
+        }
+
+        model.showsOops = true
+        for group in PresetGroup.all {
+            model.selectPresetGroup(group)
+            resize(panel: panel, hosting: hosting, model: model)
+            await settle()
+            await checkBounds("oops \(group.id)")
+            var frames: [NSRect] = []
+            for id in (1...6).map({ "Action-\($0)" }) {
+                if let element = axElement(id: id, in: axWindow),
+                   let frame = await windowFrame(of: element, panel: panel) {
+                    frames.append(frame)
+                } else {
+                    failures.append("oops \(group.id): missing control \(id)")
+                }
+            }
+            for (left, right) in zip(frames, frames.dropFirst()) where left.maxX > right.minX + 1 {
+                failures.append("oops \(group.id): action controls overlap: \(left) vs \(right)")
+            }
+            log.append("oops \(group.id): panel \(panel.frame.width)pt, actions \(frames.map { Int($0.width) })")
+        }
+        model.selectPresetGroup(.prompt)
+        if let oops = axElement(id: "Action-6", in: axWindow),
+           let frame = await windowFrame(of: oops, panel: panel) {
+            ran.removeAll()
+            click(panel, at: frame.center)
+            await settle()
+            if ran.map(\.action) != [.oops] {
+                failures.append("oops: clicking Action-6 ran \(ran.map(\.action.title))")
+            }
+        }
+        model.reset(hasSelection: true)
+        panel.makeFirstResponder(nil)
+        ran.removeAll()
+        if let sixEvent { panel.sendEvent(sixEvent) }
+        if ran.map(\.action) != [.oops] {
+            failures.append("oops: 6 ran \(ran.map(\.action.title)) instead of Oops")
+        }
+        model.phase = .running
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        await checkBounds("oops running")
+        model.reset(hasSelection: true)
+        model.showsOops = false
+        resize(panel: panel, hosting: hosting, model: model)
+        await settle()
+        log.append("oops: hidden by default, Action-6 and key 6 run Oops when shown, running label fits")
+
         // The switch-set chord (⌘E by default) flips sets as a key equivalent.
         panel.onCyclePresetGroup = { model.cyclePresetGroup() }
         panel.presetGroupShortcut = { AppSettings.defaultPresetGroupShortcut }
@@ -772,8 +807,8 @@ enum DebugCLI {
         } else {
             failures.append("shortcuts: could not synthesize Command-E")
         }
-        // ⌘T swaps the target the same way the chip does.
-        model.reset(hasSelection: true, charCount: 42)
+        // ⌘T is the only way to swap the target.
+        model.reset(hasSelection: true)
         panel.onToggleTarget = { model.toggleScope() }
         if let commandT = NSEvent.keyEvent(
             with: .keyDown, location: .zero, modifierFlags: [.command],
@@ -791,7 +826,7 @@ enum DebugCLI {
         // `RibbonWindow`'s own panel, so drive a real one rather than this
         // check's stand-in.
         let laneModel = PanelModel()
-        laneModel.reset(hasSelection: true, charCount: 42)
+        laneModel.reset(hasSelection: true)
         laneModel.onPerform = { _, _ in failures.append("shortcuts: Return on the set toggle ran an action") }
         laneModel.onCancel = {}
         let lane = RibbonWindow(model: laneModel, settings: AppSettings())
@@ -822,7 +857,7 @@ enum DebugCLI {
         await settle()
 
         // Exercise unmodified digits through the native event routes.
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         panel.onActivateAction = { model.activateAction(at: $0) }
         let digitEvents = zip(["1", "2", "3", "4", "5"], [18, 19, 20, 21, 23]).compactMap {
             NSEvent.keyEvent(
@@ -839,7 +874,7 @@ enum DebugCLI {
             failures.append("shortcuts: digits did not run presets and open Custom, got \(ran.map(\.action.title))")
         }
         // The same digits address the Writing set once it is live.
-        model.reset(hasSelection: true, charCount: 42)
+        model.reset(hasSelection: true)
         model.cyclePresetGroup()
         ran.removeAll()
         for event in digitEvents.prefix(PresetGroup.slotCount) { panel.sendEvent(event) }
@@ -892,13 +927,13 @@ enum DebugCLI {
     /// view to fit — the same two-pass measurement `RibbonWindow` uses, so a
     /// phase that discloses more (Custom's drawer, an expanded failure
     /// detail) has real geometry to click into rather than being clipped by
-    /// the check's own fixed frame. The width never changes: the lane is
-    /// `RibbonPlacement.standardWidth` in every state.
+    /// the check's own fixed frame. The width only changes with Oops: the lane
+    /// is `RibbonPlacement.standardWidth(showsOops:)` in every phase.
     @MainActor
     private static func resize(
         panel: NSPanel, hosting: NSHostingView<RibbonView>, model: PanelModel
     ) {
-        let width = RibbonPlacement.standardWidth
+        let width = RibbonPlacement.standardWidth(showsOops: model.showsOops)
         let measurement = NSHostingView(
             rootView: RibbonView(model: model, width: width, anchor: .screen, isLive: false))
         measurement.safeAreaRegions = []

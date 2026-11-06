@@ -341,8 +341,8 @@ final class RibbonWindow: NSObject {
             menuBarHidden: menuBarHidden,
             selectionRect: selectionRect,
             establishedAnchor: currentAnchor,
-            preferredWidth: RibbonPlacement.standardWidth,
-            minimumContentWidth: RibbonPlacement.standardWidth
+            preferredWidth: RibbonPlacement.standardWidth(showsOops: model.showsOops),
+            minimumContentWidth: RibbonPlacement.standardWidth(showsOops: model.showsOops)
         )
     }
 
@@ -418,7 +418,8 @@ final class RibbonWindow: NSObject {
 
     private func makePanel() -> KeyablePanel {
         let hosting = NSHostingView(
-            rootView: content(width: RibbonPlacement.standardWidth, anchor: .screen))
+            rootView: content(
+                width: RibbonPlacement.standardWidth(showsOops: model.showsOops), anchor: .screen))
         // The lane *is* the window: no title bar strip to sit below, and no
         // 28pt of transparent window above the ink. Without this the titled
         // panel's safe area pushes the content down and the lane stops
@@ -540,9 +541,6 @@ final class RibbonWindow: NSObject {
         case .direction:
             // The field answers its own Return through `onSubmit`.
             return false
-        case .target:
-            model.toggleScope()
-            return true
         case .presetGroup:
             model.cyclePresetGroup()
             return true
