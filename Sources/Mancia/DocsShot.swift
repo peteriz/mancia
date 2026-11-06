@@ -21,7 +21,6 @@ enum DocsShot {
     static func render(to path: String) throws {
         let model = PanelModel()
         model.hasSelection = true
-        model.selectionCharCount = Copy.selection.joined(separator: " ").count
         // The shipping ribbon does not choose a button for the user. Keep the
         // documentation shot equally neutral rather than manufacturing a focus
         // ring.

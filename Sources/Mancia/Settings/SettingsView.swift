@@ -65,6 +65,10 @@ struct SettingsView: View {
                         Text(behavior.label).tag(behavior)
                     }
                 }
+                Toggle(isOn: $settings.showOopsAction) {
+                    Text("Show Oops button")
+                    Text("Fixes text typed in the wrong keyboard layout (English/Hebrew), on this Mac.")
+                }
             }
 
             Section("General") {

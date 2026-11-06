@@ -28,7 +28,7 @@ struct RibbonUITests {
         var scopeChanges = 0
         model.onPerform = { _, _ in performed += 1 }
         model.onScopeChange = { _ in scopeChanges += 1 }
-        model.reset(hasSelection: true, charCount: 10)
+        model.reset(hasSelection: true)
         model.phase = .scopeApproval
 
         model.selectPreset(at: 1)
@@ -86,7 +86,7 @@ struct RibbonUITests {
     @Test("Applied adds Undo only while a version is available to undo")
     func appliedFocusableCellsGateOnUndoAvailable() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.phase = .applied
 
         #expect(!model.focusableCells.contains(.appliedUndo))
@@ -102,7 +102,7 @@ struct RibbonUITests {
     @Test("A no-change applied outcome has no fake Undo history")
     func noChangeAppliedOutcomeDoesNotOfferUndo() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.appliedStatusText = "No changes needed"
         model.phase = .applied
 
@@ -116,17 +116,15 @@ struct RibbonUITests {
         let model = PanelModel()
         model.retainedResult = "private result"
         model.appliedStatusText = "No changes needed"
-        model.targetAppName = "Previous app"
-        model.reset(hasSelection: false, charCount: 0)
+        model.reset(hasSelection: false)
         #expect(model.retainedResult.isEmpty)
         #expect(model.appliedStatusText == nil)
-        #expect(model.targetAppName.isEmpty)
     }
 
     @Test("Retained offers Copy and Disclosure only when there is a result")
     func retainedFocusableCellsGateOnResultText() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.phase = .retained
 
         model.retainedResult = ""
@@ -141,23 +139,11 @@ struct RibbonUITests {
     @Test("Error always offers Details, Copy, and Retry as Tab stops")
     func errorFocusableCellsAreUnconditional() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.phase = .error
         #expect(model.focusableCells.contains(.errorDetails))
         #expect(model.focusableCells.contains(.errorCopy))
         #expect(model.focusableCells.contains(.errorRetry))
-    }
-
-    @Test("The target chip is a Tab stop exactly when it is enabled")
-    func targetCellFollowsAvailability() {
-        let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
-        model.undoAvailable = true
-        model.retainedResult = "text"
-        for phase: PanelModel.Phase in [.idle, .scopeApproval, .running, .applied, .retained, .error] {
-            model.phase = phase
-            #expect(model.focusableCells.contains(.target) == model.targetChipEnabled)
-        }
     }
 
     // MARK: - Auto-refocus on phase and availability changes
@@ -165,7 +151,7 @@ struct RibbonUITests {
     @Test("A phase change lands focus on the new phase's first cell when the old one no longer applies")
     func phaseChangeRefocusesAwayFromStaleCell() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
 
         model.phase = .scopeApproval
         #expect(model.focusedCell == .scopeDecline)
@@ -178,7 +164,7 @@ struct RibbonUITests {
     @Test("Undo disappearing mid-applied refocuses even without a phase change")
     func undoAvailableRefocusesWithoutPhaseChange() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.phase = .applied
         model.undoAvailable = true
         model.focusedCell = .appliedUndo
@@ -191,7 +177,7 @@ struct RibbonUITests {
     @Test("Retained's disclosure flag resets when the phase moves on")
     func retainedResultExpandedResetsOnPhaseExit() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.phase = .retained
         model.retainedResultExpanded = true
 
@@ -205,12 +191,12 @@ struct RibbonUITests {
     @Test("Custom keeps its button in the row and opens its field after it")
     func customKeepsItsButtonAndAddsTheDrawer() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.selectCustomInstruction()
 
         #expect(model.focusableCells == [
             .action(0), .action(1), .action(2), .action(3), .action(4),
-            .direction, .run, .target, .presetGroup,
+            .direction, .run, .presetGroup,
         ])
         #expect(model.focusedCell == .direction)
     }
@@ -218,7 +204,7 @@ struct RibbonUITests {
     @Test("Opening Custom never asks the lane for more width")
     func customDoesNotWidenTheLane() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         let context = RibbonPlacement.Context(
             screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
             visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875),
@@ -254,7 +240,7 @@ struct RibbonUITests {
     @Test("A neutral ribbon stays neutral when a result lands")
     func appliedKeepsNeutralFocus() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.actionChoice = .preset(.sharpen)
         model.phase = .running
         #expect(model.focusedCell == .action(1))
@@ -272,7 +258,7 @@ struct RibbonUITests {
     @Test("A fresh ribbon lights no action; a result lights the action that made it")
     func accentFollowsTheResult() {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         #expect(model.actionDisplayOrder.allSatisfy { !model.isActionHighlighted(at: $0) })
 
         model.actionChoice = .preset(.sharpen)
@@ -310,7 +296,7 @@ struct RibbonUITests {
         ])
     func everyPhaseMeasuresANonZeroHeight(_ phase: PanelModel.Phase) {
         let model = PanelModel()
-        model.reset(hasSelection: true, charCount: 12)
+        model.reset(hasSelection: true)
         model.onPerform = { _, _ in }
         model.onScopeChange = { _ in }
         model.onUndoVersion = { false }

@@ -16,6 +16,22 @@
 # other injected git config untouched. It is a no-op in normal environments.
 set -euo pipefail
 
+# Standalone Command Line Tools ship SwiftUI without the macro plugin that
+# `#Preview` blocks in dependencies need. When the selected toolchain lacks it,
+# use an installed Xcode instead. An explicit DEVELOPER_DIR always wins.
+if [[ -z "${DEVELOPER_DIR:-}" ]]; then
+	plugin="Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins/libSwiftUIMacros.dylib"
+	selected="$(xcode-select -p 2>/dev/null || true)"
+	if [[ ! -f "$selected/$plugin" ]]; then
+		for xcode in /Applications/Xcode.app /Applications/Xcode-beta.app; do
+			if [[ -f "$xcode/Contents/Developer/$plugin" ]]; then
+				export DEVELOPER_DIR="$xcode/Contents/Developer"
+				break
+			fi
+		done
+	fi
+fi
+
 count="${GIT_CONFIG_COUNT:-0}"
 export "GIT_CONFIG_KEY_${count}=safe.bareRepository"
 export "GIT_CONFIG_VALUE_${count}=all"

@@ -41,6 +41,7 @@ final class AppSettings {
         static let swooshColor = "swooshColor"
         static let presetGroup = "presetGroup"
         static let presetGroupShortcut = "presetGroupShortcut"
+        static let showOopsAction = "showOopsAction"
     }
 
     /// ⌘E: the same letter as the stock open hotkey, so opening with ⌘⇧E and
@@ -97,6 +98,11 @@ final class AppSettings {
     /// The ribbon's last-chosen preset group, so the next session opens on it.
     var presetGroup: PresetGroup {
         didSet { defaults.set(presetGroup.id, forKey: Key.presetGroup) }
+    }
+    /// Whether the ribbon offers Oops, the local English/Hebrew layout fixer.
+    /// Off by default: most users never type in the wrong layout.
+    var showOopsAction: Bool {
+        didSet { defaults.set(showOopsAction, forKey: Key.showOopsAction) }
     }
     /// The ribbon's switch-set shortcut; nil once the user clears it.
     ///
@@ -174,6 +180,7 @@ final class AppSettings {
         self.swooshColorHex = Self.normalizedColorHex(defaults.string(forKey: Key.swooshColor))
         self.presetGroup = PresetGroup.group(id: defaults.string(forKey: Key.presetGroup))
         self.presetGroupShortcut = Self.presetGroupShortcut(stored: defaults.string(forKey: Key.presetGroupShortcut))
+        self.showOopsAction = defaults.bool(forKey: Key.showOopsAction)
     }
 
     /// Absent means never set, so the default; empty means cleared.

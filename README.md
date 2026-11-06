@@ -21,7 +21,7 @@ GitHub Copilot CLI and puts it back in the same place. There is no chat window
 and no copy and paste.
 
 <p align="center">
-  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. Mancia's command ribbon is below it and shows the selection target, the Prompt and Writing toggle, Improve, Sharpen, Plan first, Tighten, and Custom." width="880">
+  <img src="docs/assets/mancia-ribbon.png" alt="A mail draft with a paragraph selected. Mancia's command ribbon is below it and shows the Prompt and Writing toggle, Improve, Sharpen, Plan first, Tighten, and Custom." width="880">
 </p>
 
 - The ribbon opens next to your selection: below or above short text, beside a
@@ -30,6 +30,9 @@ and no copy and paste.
 - Two action sets. **Prompt** is for text you write to coding agents.
   **Writing** is for text you write to people. Press <kbd>⌘E</kbd> to switch.
 - **Custom** runs your own instruction, for example "make it formal".
+- **Oops** is optional and off by default. It fixes text typed in the wrong
+  keyboard layout (English or Hebrew), then switches your layout. It runs on
+  your Mac and sends nothing to Copilot. Turn it on in **Settings → Editing**.
 - Mancia pastes only when it can confirm the field and the original text. If
   it cannot, it keeps the result for you to copy.
 - <kbd>⌘Z</kbd> or **Undo** restores the previous version that Mancia applied.
@@ -102,6 +105,7 @@ Mancia pastes plain text. Bold, links, and other rich-text styles can be lost.
 | <kbd>⌃⌥⌘E</kbd> | Open the ribbon (change it in Settings) |
 | <kbd>1</kbd> to <kbd>4</kbd> | Run the four actions of the current set |
 | <kbd>5</kbd> | Open Custom. In the Custom field, digits are normal text. |
+| <kbd>6</kbd> | Run Oops, when it is turned on in Settings |
 | <kbd>⌘E</kbd> | Switch between the Prompt and Writing sets (change it in **Settings → Editing**) |
 | <kbd>⌘T</kbd> | Switch between the selection and the whole document |
 | <kbd>Return</kbd> | Use the focused control, or run Custom. Approval buttons need focus first. |
@@ -145,6 +149,7 @@ request.
 make build   # debug build
 make test    # unit tests
 make run     # build the .app and open it
+make rerun   # quit, reset Accessibility, rebuild, and relaunch
 make shot    # redraw docs/assets/mancia-ribbon.png
 ```
 

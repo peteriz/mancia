@@ -1,4 +1,4 @@
-.PHONY: build test app release dmg run shot clean
+.PHONY: build test app release dmg run rerun shot clean
 
 SWIFT := ./scripts/swift.sh
 
@@ -20,6 +20,10 @@ dmg:
 
 run: app
 	open build/Mancia.app
+
+# Quit, reset the Accessibility grant, rebuild, and relaunch.
+rerun:
+	./scripts/rebuild_and_run.sh
 
 # Redraw the README's hero image from the shipping ribbon view.
 shot:

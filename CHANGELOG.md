@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An optional **Oops** button that fixes text typed in the wrong keyboard
+  layout (English or Hebrew) on this Mac, then switches the layout. Off by
+  default; turn it on in Settings → Editing. Ported from Tal Baumel's fork.
+- `make rerun` quits Mancia, resets its Accessibility grant, rebuilds the app
+  bundle, and opens it.
+
+### Changed
+
+- The command ribbon drops the target chip ("Selection · N") and is 158pt
+  narrower. ⌘T still switches between the selection and the whole document,
+  and a whole-document run still asks first.
+- `scripts/swift.sh` uses Xcode's toolchain when the active developer
+  directory is Command Line Tools without the SwiftUI macro plugins.
+- Refreshed the ribbon screenshot for 0.6.0.
+
 ## [0.6.0] - 2026-11-06
 
 ### Added

@@ -99,18 +99,26 @@ Mancia/
    `KeyablePanel` with `.nonactivatingPanel` style and floating level, so the
    target app keeps focus until the user interacts. Esc closes it.
 4. Ribbon UI (SwiftUI, a single lane whose width comes from placement and
-   whose height comes from content). Target, five compact Action buttons and Run
+   whose height comes from content). The action-set toggle, five compact Action buttons and Run
    form the default **one-row** interface. Selecting Custom moves that button to
    the leading edge of the action strip, inserts Direction beside it, and grows
    the centered ribbon from its standard width toward its expanded width.
-   - **Target** — a chip reading "Selection · N" or "Document", opening a menu
-     with the unabbreviated wording. If nothing was selected, default to
-     Entire document and drop the menu.
+   - **Target** — not shown on the row. The ribbon acts on the selection, or on
+     the entire document when nothing was selected; ⌘T switches between the
+     two when there is a selection. A whole-document run always stops at the
+     approval gate first, which names the scope.
    - **Actions** — Improve, Sharpen, Plan first, Tighten, and Custom are always
      visible as tight buttons. Hovering replaces each title with its ⌘1…⌘5
      shortcut without changing the button's size. Clicking a built-in or
      pressing ⌘1 / ⌘2 / ⌘3 / ⌘4 runs it immediately; ⌘5 selects Custom without
      running it.
+   - **Oops** — optional, off by default (Settings → Editing → "Show Oops
+     button"). When shown it follows Custom, owns key 6, and widens the lane by
+     `RibbonPlacement.oopsWidth`. It converts English↔Hebrew text typed in the
+     wrong keyboard layout on this Mac, with no provider call, applies through
+     the normal verified paste and version history, then selects the matching
+     keyboard input source. Whole-document Oops still asks first, but the gate
+     says the document stays on this Mac.
    - **Direction** — a hidden-by-default free-form field
      ("Optional instruction…", ⏎ submits). Selecting Custom reveals
      and focuses it with a fast horizontal grow. It wraps to four lines and then
@@ -136,9 +144,9 @@ Mancia/
      that history describes edits made in the old app and replaying it would
      post ⌘Z somewhere Mancia never pasted. With nothing selected in the new
      app the session stays where it is. Mancia itself is never a re-target.
-   - A selection captured mid-session — in either scope — becomes the target
-     the Target chip describes, so the chip always names the span the run will
-     actually send rather than the one the session opened on.
+   - A selection captured mid-session — in either scope — becomes the target,
+     so the run always sends the latest selection rather than the one the
+     session opened on.
    - If scope is Entire document: activate target app, post ⌘A, then capture
      via ⌘C as above (this yields the document text).
    - Build the prompt from `EditAction` template + text, call the provider

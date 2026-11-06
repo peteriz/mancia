@@ -24,4 +24,7 @@ struct PanelPreset: Identifiable, Equatable, Sendable {
     static let unslop = PanelPreset(id: "unslop", title: "Unslop", action: .unslop)
     static let ste = PanelPreset(id: "ste", title: "STE", action: .ste)
     static let markdown = PanelPreset(id: "markdown", title: "Markdown", action: .markdown)
+
+    // Optional, outside every group: shown after Custom when Settings enables it.
+    static let oops = PanelPreset(id: "oops", title: "Oops", action: .oops)
 }

@@ -5,7 +5,8 @@ import Foundation
 /// `improve`, `sharpen`, `planFirst`, and `tighten` back the Prompt preset
 /// group; `fixGrammar`, `unslop`, `ste`, and `markdown` back the Writing group
 /// (see `PresetGroup`). `rewrite` and `summarize` stay available through the
-/// debug CLI and prompt tests.
+/// debug CLI and prompt tests. `oops` is the one local action: it fixes text
+/// typed in the wrong keyboard layout without calling a provider.
 enum EditAction: Equatable, Sendable {
     case improve
     case sharpen
@@ -17,6 +18,7 @@ enum EditAction: Equatable, Sendable {
     case unslop
     case ste
     case markdown
+    case oops
     case custom(String)
 
     /// Short user-facing label for buttons/menus.
@@ -32,6 +34,7 @@ enum EditAction: Equatable, Sendable {
         case .unslop: return "Unslop"
         case .ste: return "STE"
         case .markdown: return "Markdown"
+        case .oops: return "Oops"
         case .custom: return "Custom"
         }
     }
@@ -42,6 +45,9 @@ enum EditAction: Equatable, Sendable {
         if case .custom = self { return true }
         return false
     }
+
+    /// True when the action runs on this Mac and sends nothing to a provider.
+    var isLocal: Bool { self == .oops }
 
     /// SF Symbol name for the button.
     var symbol: String {
@@ -56,6 +62,7 @@ enum EditAction: Equatable, Sendable {
         case .unslop: return "eraser"
         case .ste: return "character.book.closed"
         case .markdown: return "number"
+        case .oops: return "keyboard"
         case .custom: return "sparkles"
         }
     }
@@ -73,6 +80,7 @@ enum EditAction: Equatable, Sendable {
         case .unslop: return "Unslopping"
         case .ste: return "Simplifying"
         case .markdown: return "Formatting"
+        case .oops: return "Fixing layout"
         case .custom: return "Working"
         }
     }
@@ -93,6 +101,7 @@ enum EditAction: Equatable, Sendable {
         case "unslop": return .unslop
         case "ste": return .ste
         case "markdown": return .markdown
+        case "oops": return .oops
         default: return nil
         }
     }
@@ -352,6 +361,10 @@ enum PromptBuilder {
         case .unslop: base = unslopTemplate
         case .ste: base = steTemplate
         case .markdown: base = markdownTemplate
+        case .oops:
+            // Unreachable in the app: `EditCoordinator` converts Oops locally.
+            // Kept total so a stray caller still gets a sensible request.
+            return .custom(request: "This text was typed with the wrong keyboard layout selected (English or Hebrew). Retype it key for key in the other layout.")
         case .custom(let request): return .custom(request: request)
         }
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

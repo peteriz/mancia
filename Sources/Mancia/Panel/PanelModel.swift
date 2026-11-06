@@ -28,14 +28,12 @@ final class PanelModel {
     /// The gates and status rows each own their own cells so Tab can reach
     /// every visible, enabled control a phase discloses — the scope-approval
     /// gate, the applied/retained/error status rows — not just the command
-    /// row. The target follows the actions in
-    /// keyboard order, keeping the first Tab on the primary action.
+    /// row. The first Tab lands on the primary action.
     enum Cell: Hashable {
         case none
         case action(Int)
         case direction
         case run
-        case target
         case presetGroup
         case scopeDecline
         case scopeApprove
@@ -53,6 +51,8 @@ final class PanelModel {
     /// Custom follows the group's four presets and owns shortcut 5.
     static let customActionIndex = PresetGroup.slotCount
     static let actionIndices = Array(0...customActionIndex)
+    /// Oops follows Custom and owns shortcut 6, but only while `showsOops`.
+    static let oopsActionIndex = customActionIndex + 1
 
     var phase: Phase = .idle {
         didSet {
@@ -85,8 +85,6 @@ final class PanelModel {
     }
     var scope: Scope = .selection
     var hasSelection = true
-    var selectionCharCount = 0
-    var targetAppName = ""
     /// True while the selection is still being captured after an instant show.
     /// The status line reads "Reading selection…" until this clears.
     var capturing = false
@@ -98,11 +96,15 @@ final class PanelModel {
     /// The switch-set shortcut as shown on the switch ("⌘E"); nil hides the
     /// hint. Set by the coordinator from Settings.
     var presetGroupShortcutLabel: String?
+    /// Set by the coordinator from Settings.
+    var showsOops = false
     var runningTitle = ""
     var errorText = ""
     /// Describes a whole-document generation request without exposing or
     /// capturing the document text before the user approves it.
     var pendingScopeApprovalActionTitle = ""
+    /// Selects local-only wording in the document approval gate.
+    var pendingScopeApprovalIsLocal = false
     /// A generated result held for explicit copying rather than automatic paste.
     var retainedResult = ""
     var retainedReason = ""
@@ -189,11 +191,9 @@ final class PanelModel {
         }
     }
 
-    func reset(hasSelection: Bool, charCount: Int) {
+    func reset(hasSelection: Bool) {
         phase = .idle
         self.hasSelection = hasSelection
-        selectionCharCount = charCount
-        targetAppName = ""
         scope = hasSelection ? .selection : .document
         capturing = false
         instruction = ""
@@ -201,6 +201,7 @@ final class PanelModel {
         runningTitle = ""
         errorText = ""
         pendingScopeApprovalActionTitle = ""
+        pendingScopeApprovalIsLocal = false
         retainedResult = ""
         retainedReason = ""
         appliedActionName = ""
@@ -214,12 +215,10 @@ final class PanelModel {
         sessionSeq &+= 1
     }
 
-    /// ⌘T and the Target menu. Aiming at the selection is inert when there is
-    /// no selection to aim at — and while the capture that will answer that
-    /// question is still running, where `hasSelection` is only an optimistic
-    /// guess and the coordinator overwrites `scope` the moment it lands. The
-    /// Target chip reads "Reading…" and offers no menu in that window; the
-    /// shortcut has to be just as inert, or it silently does nothing.
+    /// ⌘T. Aiming at the selection is inert when there is no selection to aim
+    /// at — and while the capture that will answer that question is still
+    /// running, where `hasSelection` is only an optimistic guess and the
+    /// coordinator overwrites `scope` the moment it lands.
     func setScope(_ scope: Scope) {
         guard !isLocked, !capturing, scope == .document || hasSelection else { return }
         guard self.scope != scope else { return }
@@ -237,6 +236,16 @@ final class PanelModel {
 
     /// The first preset of the current group — what a fresh strip highlights.
     private var defaultActionChoice: ActionChoice { .preset(presets[0]) }
+
+    /// Nil for Custom, hidden Oops, or an unknown slot.
+    private func preset(at index: Int) -> PanelPreset? {
+        if presets.indices.contains(index) { return presets[index] }
+        return showsOops && index == Self.oopsActionIndex ? .oops : nil
+    }
+
+    private func actionIndex(of preset: PanelPreset) -> Int {
+        preset == .oops ? Self.oopsActionIndex : presets.firstIndex(of: preset) ?? 0
+    }
 
     /// The set switch and its shortcut. A selected preset hands its slot over to the
     /// new group's preset in the same position, so focus does not jump.
@@ -271,12 +280,11 @@ final class PanelModel {
         returnFocusToPrimaryControl()
     }
 
-    /// A visible action button or 1…5. Built-ins run immediately; Custom
+    /// A visible action button or 1…6. Built-ins run immediately; Custom
     /// opens its drawer and hands focus to the field.
     func activateAction(at index: Int) {
         guard !isLocked else { return }
-        if presets.indices.contains(index) {
-            let preset = presets[index]
+        if let preset = preset(at: index) {
             actionChoice = .preset(preset)
             returnFocusToPrimaryControl()
             onPerform?(preset.action, nil)
@@ -292,14 +300,6 @@ final class PanelModel {
         phase == .scopeApproval || phase == .running
     }
 
-    /// Whether the target chip accepts a click, ⌘T, or Return-while-focused
-    /// right now. Locked phases already refuse `setScope`; a selection-less
-    /// session refuses it too, because there is only one valid scope to be in
-    /// and nothing to switch to.
-    var targetChipEnabled: Bool {
-        !isLocked && !capturing && hasSelection
-    }
-
     /// Hand keyboard focus to the selected action, or to Custom's field.
     func returnFocusToPrimaryControl() {
         focusedCell = primaryFocusCell
@@ -309,7 +309,7 @@ final class PanelModel {
     var primaryFocusCell: Cell {
         switch actionChoice {
         case .preset(let preset):
-            return .action(presets.firstIndex(of: preset) ?? 0)
+            return .action(actionIndex(of: preset))
         case .custom:
             return .direction
         }
@@ -320,7 +320,7 @@ final class PanelModel {
     private var runningFocusCell: Cell {
         switch actionChoice {
         case .preset(let preset):
-            return .action(presets.firstIndex(of: preset) ?? 0)
+            return .action(actionIndex(of: preset))
         case .custom:
             return .run
         }
@@ -378,23 +378,23 @@ final class PanelModel {
             cells.append(.direction)
             cells.append(.run)
         }
-        if targetChipEnabled { cells.append(.target) }
         cells.append(.presetGroup)
         return cells
     }
 
-    /// Four built-ins then Custom, in the same order in every state.
+    /// Four built-ins, Custom, then Oops when shown, in the same order in
+    /// every state.
     var actionDisplayOrder: [Int] {
-        Self.actionIndices
+        showsOops ? Self.actionIndices + [Self.oopsActionIndex] : Self.actionIndices
     }
 
     func actionTitle(at index: Int) -> String? {
-        if presets.indices.contains(index) { return presets[index].title }
+        if let preset = preset(at: index) { return preset.title }
         return index == Self.customActionIndex ? "Custom" : nil
     }
 
     func actionSymbol(at index: Int) -> String? {
-        if presets.indices.contains(index) { return presets[index].action.symbol }
+        if let preset = preset(at: index) { return preset.action.symbol }
         return index == Self.customActionIndex ? EditAction.custom("").symbol : nil
     }
 
@@ -410,10 +410,13 @@ final class PanelModel {
     /// sizes each slot to the widest of these so switching groups or starting
     /// a run never moves a button.
     func actionLabelCandidates(at index: Int) -> [String] {
-        guard Self.actionIndices.contains(index) else { return [] }
+        guard actionDisplayOrder.contains(index) else { return [] }
         var labels = ["Cancel", "\(index + 1)"]
         if index == Self.customActionIndex {
             labels += ["Custom", EditAction.custom("").progressLabel]
+        }
+        if index == Self.oopsActionIndex {
+            labels += [PanelPreset.oops.title, EditAction.oops.progressLabel]
         }
         for group in PresetGroup.all where group.presets.indices.contains(index) {
             let preset = group.presets[index]
@@ -423,9 +426,7 @@ final class PanelModel {
     }
 
     func actionProgressLabel(at index: Int) -> String? {
-        if presets.indices.contains(index) {
-            return presets[index].action.progressLabel
-        }
+        if let preset = preset(at: index) { return preset.action.progressLabel }
         return index == Self.customActionIndex ? EditAction.custom("").progressLabel : nil
     }
 
@@ -446,7 +447,7 @@ final class PanelModel {
     func isActionSelected(at index: Int) -> Bool {
         switch actionChoice {
         case .preset(let selected):
-            return presets.indices.contains(index) && presets[index] == selected
+            return preset(at: index) == selected
         case .custom:
             return index == Self.customActionIndex
         }
@@ -486,7 +487,7 @@ final class PanelModel {
     /// The visible keyboard hint for an action. Keeping this beside the action
     /// catalog guarantees hover labels and actual key routing stay in lockstep.
     func actionShortcut(at index: Int) -> String? {
-        Self.actionIndices.contains(index) ? "\(index + 1)" : nil
+        actionDisplayOrder.contains(index) ? "\(index + 1)" : nil
     }
 
     /// A concise, one-line description of what an action does, for its hover
@@ -494,8 +495,8 @@ final class PanelModel {
     /// these mirror the wording `PanelPreset` and `EditAction` already
     /// document, so a tooltip and the action's real behavior cannot drift.
     func actionDescription(at index: Int) -> String? {
-        if presets.indices.contains(index) {
-            switch presets[index].action {
+        if let preset = preset(at: index) {
+            switch preset.action {
             case .improve: return "General proofread and rewrite"
             case .sharpen: return "Restructure text written for a coding agent"
             case .planFirst: return "Ask for a short plan with goals and verifiers"
@@ -504,6 +505,7 @@ final class PanelModel {
             case .unslop: return "Strip AI-writing tells and filler"
             case .ste: return "Rewrite in ASD-STE100 Simplified Technical English"
             case .markdown: return "Structure as GitHub-flavored Markdown"
+            case .oops: return "Fix text typed in the wrong layout (English/Hebrew), on this Mac"
             default: return nil
             }
         }
