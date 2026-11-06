@@ -438,3 +438,16 @@ Both run the async body on the main actor via a small `Task { @MainActor in
 `NSApplication` run loop to drive the actor hops. These flags are the
 intended way to exercise the real provider pipeline in CI without simulating
 UI or keystrokes.
+
+### Electron selection capture
+
+Explicit capture enables `AXManualAccessibility` when supported and waits for
+Electron initialization before reading field evidence or copying. The bounded
+wait checks cancellation, permission, and the target application. Capture and
+apply release the nonactivating ribbon's key focus before activating the host.
+Delayed selection evidence may recover without another copy, preserving every
+identity already captured. Rich-text verification permits nonbreaking-space
+encoding and a structural final newline while checking surrounding text.
+
+Ported from Tal Baumel's `talbaumel/mancia` commits `2342a18`, `b45b7c6`, and
+`45ab1e2`; automatic appearance and ribbon redesign are outside this port.

@@ -57,10 +57,14 @@ struct PasteboardOwnership: Equatable {
 
     static func claimCopiedSelection(
         expectedSelectedText: String?,
-        from pasteboard: NSPasteboard
+        from pasteboard: NSPasteboard,
+        isRichTextField: Bool = false
     ) -> PasteboardOwnership? {
         guard let expectedSelectedText, !expectedSelectedText.isEmpty else { return nil }
-        guard pasteboard.string(forType: .string) == expectedSelectedText else { return nil }
+        guard let copiedText = pasteboard.string(forType: .string),
+              SelectionTextVerification.matches(
+                expectedSelectedText, copiedText, isRichTextField: isRichTextField)
+        else { return nil }
         return claim(pasteboard)
     }
 }
@@ -70,6 +74,7 @@ enum SelectionCaptureFailure: Error, Equatable, LocalizedError {
     case targetTerminated
     case targetNotFrontmost
     case accessibilityPermissionRevoked
+    case accessibilityNotReady
     case targetChanged
     case keyEventCreationFailed
     case copyTimedOut
@@ -85,6 +90,8 @@ enum SelectionCaptureFailure: Error, Equatable, LocalizedError {
             "The application or field being edited is no longer active."
         case .accessibilityPermissionRevoked:
             "Mancia no longer has Accessibility permission."
+        case .accessibilityNotReady:
+            "The application's Accessibility support is still initializing. Try the edit again."
         case .targetChanged:
             "The focused window or text field changed while Mancia was reading it."
         case .keyEventCreationFailed:
@@ -234,6 +241,13 @@ enum SelectionCapture {
         let range: CFRange?
     }
 
+    private enum AccessibilityPreparation {
+        case requested(ContinuousClock.Instant)
+        case ready
+    }
+
+    private static var accessibilityPreparation: [pid_t: AccessibilityPreparation] = [:]
+
     private enum CopyResult {
         case selected(text: String, focus: AXFocus?)
         case noSelection(focus: AXFocus?)
@@ -247,6 +261,62 @@ enum SelectionCapture {
         case failed(SelectionApplyFailure)
     }
 
+    private static func prepareAccessibilitySelection(in app: NSRunningApplication) -> Bool {
+        let pid = app.processIdentifier
+        let application = AXUIElementCreateApplication(pid)
+        _ = AXUIElementSetMessagingTimeout(application, 0.25)
+        let now = ContinuousClock.now
+        switch accessibilityPreparation[pid] {
+        case .ready:
+            return true
+        case .requested(let requestedAt):
+            guard requestedAt.duration(to: now) >= .milliseconds(2300) else { return false }
+        case nil:
+            var value: CFTypeRef?
+            let status = AXUIElementCopyAttributeValue(
+                application, "AXManualAccessibility" as CFString, &value)
+            guard status == .success, let enabled = value as? Bool else {
+                if status != .attributeUnsupported && status != .notImplemented {
+                    NSLog("Mancia: could not query assistive access for process \(pid): \(status.rawValue).")
+                }
+                return true
+            }
+            if enabled {
+                accessibilityPreparation[pid] = .ready
+                return true
+            }
+        }
+        let status = AXUIElementSetAttributeValue(
+            application, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        guard status == .success else {
+            NSLog("Mancia: could not enable assistive access for process \(pid): \(status.rawValue).")
+            return true
+        }
+        // Electron debounces enablement for two seconds. Reannounce afterward
+        // so editors receive the enabled state, rather than restarting that delay.
+        if accessibilityPreparation[pid] == nil {
+            accessibilityPreparation[pid] = .requested(now)
+            return false
+        }
+        accessibilityPreparation[pid] = .ready
+        return true
+    }
+
+    static func waitForAccessibilityPreparation(
+        prepare: () -> Bool,
+        validate: () -> SelectionCaptureFailure?,
+        wait: () async throws -> Void = { try await Task.sleep(for: .milliseconds(250)) }
+    ) async throws -> SelectionCaptureFailure? {
+        for attempt in 0..<12 {
+            try Task.checkCancellation()
+            if let failure = validate() { return failure }
+            if prepare() { return nil }
+            guard attempt < 11 else { break }
+            try await wait()
+        }
+        return .accessibilityNotReady
+    }
+
     /// Capture the current selection from the frontmost app via ⌘C.
     static func captureSelection(
         pasteboard: NSPasteboard = .general
@@ -255,6 +325,8 @@ enum SelectionCapture {
         guard let app = NSWorkspace.shared.frontmostApplication else {
             return SelectionCaptureResult(outcome: .failed(.noTargetApplication), target: nil)
         }
+        activateTarget(app)
+        try await wait(milliseconds: 120)
         return try await captureSelection(in: app, pasteboard: pasteboard)
     }
 
@@ -271,7 +343,7 @@ enum SelectionCapture {
         if let failure = targetFailure(target) {
             return SelectionCaptureResult(outcome: .failed(failure), target: target)
         }
-        _ = target.targetApp.activate()
+        activateTarget(target.targetApp)
         try await wait(milliseconds: 120)
         guard isFrontmost(target) else {
             return SelectionCaptureResult(outcome: .failed(.targetNotFrontmost), target: target)
@@ -299,7 +371,7 @@ enum SelectionCapture {
             return SelectionCaptureResult(outcome: .uncertain(.targetChanged), target: target)
         }
 
-        _ = target.targetApp.activate()
+        activateTarget(target.targetApp)
         try await wait(milliseconds: 120)
         if let failure = targetFailure(target) {
             return SelectionCaptureResult(outcome: .failed(failure), target: target)
@@ -346,7 +418,11 @@ enum SelectionCapture {
                     )
                 )
             }
-            guard selectedText(in: selectedAll) == fullText else {
+            guard SelectionTextVerification.coversField(
+                fullText,
+                range: selectedRange,
+                selectedText: selectedText(in: selectedAll),
+                isRichTextField: isRichTextField(selectedAll.element)) else {
                 return SelectionCaptureResult(outcome: .uncertain(.targetChanged), target: target)
             }
         } else if selectedRange.length == 0 {
@@ -408,7 +484,7 @@ enum SelectionCapture {
             if let failure = targetApplyFailure(target) { return .failure(failure) }
             guard isFrontmost(target) else { return .failure(.targetNotFrontmost) }
 
-            _ = target.targetApp.activate()
+            activateTarget(target.targetApp)
             try await wait(milliseconds: 150)
             if let failure = targetApplyFailure(target) { return .failure(failure) }
             guard isFrontmost(target) else { return .retained(.targetChanged) }
@@ -441,7 +517,12 @@ enum SelectionCapture {
                 fieldBaseline,
                 range: appliedRange,
                 with: text,
-                entireDocument: target.scope == .entireDocument)
+                entireDocument: target.scope == .entireDocument
+                    || SelectionTextVerification.coversField(
+                        fieldBaseline,
+                        range: appliedRange,
+                        selectedText: baseline,
+                        isRichTextField: isRichTextField(focus.element)))
             else {
                 return .retained(.unverifiedTarget)
             }
@@ -490,7 +571,13 @@ enum SelectionCapture {
             try await postCommitDelay()
             guard let finalFocus = axFocus(pid: target.pid),
                   sameField(finalFocus, target),
-                  textValue(in: finalFocus.element) == expectedFieldValue
+                  let actualFieldValue = textValue(in: finalFocus.element),
+                  let verifiedRange = SelectionTextVerification.verifiedReplacementRange(
+                    expectedFieldValue: expectedFieldValue,
+                    actualFieldValue: actualFieldValue,
+                    replacing: appliedRange,
+                    with: text,
+                    isRichTextField: isRichTextField(finalFocus.element))
             else {
                 _ = restorePasteboard()
                 return .failure(.unexpected(
@@ -500,14 +587,12 @@ enum SelectionCapture {
             let verifiedTarget = SelectionTargetEvidence(
                 pid: target.pid,
                 capturedBaseline: text,
-                capturedFieldValue: expectedFieldValue,
+                capturedFieldValue: actualFieldValue,
                 scope: target.scope,
                 targetApp: target.targetApp,
                 window: finalFocus.window,
                 focusedElement: finalFocus.element,
-                selectedRange: CFRange(
-                    location: appliedRange.location,
-                    length: text.utf16.count)
+                selectedRange: verifiedRange
             )
             appliedTarget = verifiedTarget
             return .applied(
@@ -587,6 +672,16 @@ enum SelectionCapture {
 
     // MARK: - Capture
 
+    private static func activateTarget(_ app: NSRunningApplication) {
+        // A nonactivating ribbon can own key focus while the host remains
+        // frontmost. Activation alone then leaves Electron's AX field empty.
+        if let window = NSApp.keyWindow,
+           window.styleMask.contains(.nonactivatingPanel) {
+            window.resignKey()
+        }
+        _ = app.activate()
+    }
+
     private static func captureSelection(
         in app: NSRunningApplication,
         pasteboard: NSPasteboard
@@ -605,6 +700,22 @@ enum SelectionCapture {
             return SelectionCaptureResult(outcome: .failed(.targetNotFrontmost), target: nil)
         }
 
+        // Explicit edits need Electron's AX tree even when automatic appearance
+        // is disabled. Wait before copying so initial and final field evidence agree.
+        if let failure = try await waitForAccessibilityPreparation(
+            prepare: { prepareAccessibilitySelection(in: app) },
+            validate: {
+                guard !app.isTerminated else { return .targetTerminated }
+                guard AXIsProcessTrusted() else { return .accessibilityPermissionRevoked }
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                    return .targetNotFrontmost
+                }
+                return nil
+            }
+        ) {
+            return SelectionCaptureResult(outcome: .failed(failure), target: nil)
+        }
+
         let focus = axFocus(pid: pid)
         let copy = try await copyCurrentSelection(
             pid: pid,
@@ -612,7 +723,61 @@ enum SelectionCapture {
             pasteboard: pasteboard
         )
         try Task.checkCancellation()
-        return captureResult(from: copy, app: app, scope: .selection)
+        let result = captureResult(from: copy, app: app, scope: .selection)
+        return try await recoverSelectionEvidence(result) {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                return SelectionCaptureResult(outcome: .uncertain(.targetChanged), target: nil)
+            }
+            guard let text = result.text,
+                  let current = axFocus(pid: pid),
+                  let selected = selectedText(in: current) else { return nil }
+            guard SelectionTextVerification.matches(
+                selected, text, isRichTextField: isRichTextField(current.element)) else {
+                return SelectionCaptureResult(outcome: .uncertain(.targetChanged), target: nil)
+            }
+            return SelectionCaptureResult(
+                outcome: .selected(text),
+                target: evidence(app: app, baseline: text, scope: .selection, focus: current))
+        }
+    }
+
+    static func recoverSelectionEvidence(
+        _ initial: SelectionCaptureResult,
+        read: () -> SelectionCaptureResult?,
+        wait: () async throws -> Void = { try await Task.sleep(for: .milliseconds(50)) }
+    ) async throws -> SelectionCaptureResult {
+        guard initial.text != nil, initial.target != nil else { return initial }
+        var result = initial
+        for _ in 0..<6 {
+            try Task.checkCancellation()
+            guard let previous = result.target else { return result }
+            if previous.hasVerifiedRangeIdentity, previous.capturedFieldValue != nil {
+                return result
+            }
+            try await wait()
+            try Task.checkCancellation()
+            guard let next = read() else { continue }
+            guard let current = next.target,
+                  current.pid == previous.pid,
+                  current.scope == previous.scope,
+                  next.text == result.text,
+                  current.capturedBaseline == previous.capturedBaseline,
+                  previous.focusedElement.map({ expected in
+                      current.focusedElement.map { CFEqual(expected, $0) } ?? false
+                  }) ?? true,
+                  previous.window.map({ expected in
+                      current.window.map { CFEqual(expected, $0) } ?? false
+                  }) ?? true,
+                  previous.selectedRange.map({ expected in
+                      current.selectedRange.map { sameRange(expected, $0) } ?? false
+                  }) ?? true,
+                  previous.capturedFieldValue.map({ $0 == current.capturedFieldValue }) ?? true
+            else {
+                return SelectionCaptureResult(outcome: .uncertain(.targetChanged), target: nil)
+            }
+            result = next
+        }
+        return result
     }
 
     private static func captureResult(
@@ -680,11 +845,13 @@ enum SelectionCapture {
         let finalFocus = axFocus(pid: pid)
         let copiedText = pasteboard.string(forType: .string)
         let expectedSelectedText = finalFocus.flatMap(selectedText(in:))
+        let richTextField = isRichTextField(finalFocus?.element)
         let ownership = pasteboard.changeCount == startCount
             ? nil
             : PasteboardOwnership.claimCopiedSelection(
                 expectedSelectedText: expectedSelectedText,
-                from: pasteboard)
+                from: pasteboard,
+                isRichTextField: richTextField)
         defer {
             if let ownership {
                 _ = snapshot.restore(to: pasteboard, ifOwnedBy: ownership)
@@ -718,7 +885,9 @@ enum SelectionCapture {
             }
             return .uncertain(.copyTimedOut)
         }
-        if let expectedSelectedText, expectedSelectedText != text {
+        if let expectedSelectedText,
+           !SelectionTextVerification.matches(
+            expectedSelectedText, text, isRichTextField: richTextField) {
             return .uncertain(.targetChanged)
         }
         return .selected(text: text, focus: finalFocus)
@@ -773,7 +942,9 @@ enum SelectionCapture {
         else {
             return .retained(.selectedRangeChanged)
         }
-        guard selectedText(in: current) == baseline else {
+        guard let selected = selectedText(in: current),
+              SelectionTextVerification.matches(
+                selected, baseline, isRichTextField: isRichTextField(current.element)) else {
             return .retained(.baselineChanged)
         }
         guard let expectedFieldValue = target.capturedFieldValue,
@@ -891,6 +1062,30 @@ enum SelectionCapture {
 
     private static func sameRange(_ lhs: CFRange, _ rhs: CFRange) -> Bool {
         lhs.location == rhs.location && lhs.length == rhs.length
+    }
+
+    private static func isRichTextField(_ element: AXUIElement?) -> Bool {
+        guard let element else { return false }
+        for attribute in ["AXEditableAncestor", "AXHighestEditableAncestor"] {
+            if let ancestor = elementAttribute(element, attribute),
+               CFEqual(ancestor, element) {
+                return true
+            }
+        }
+        // WebKit omits editable-ancestor values, but still exposes its web area.
+        var ancestor = element
+        for _ in 0..<12 {
+            var role: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                ancestor, kAXRoleAttribute as CFString, &role) == .success,
+               role as? String == "AXWebArea" {
+                return true
+            }
+            guard let parent = elementAttribute(ancestor, kAXParentAttribute),
+                  !CFEqual(parent, ancestor) else { return false }
+            ancestor = parent
+        }
+        return false
     }
 
     private static func selectedRange(in element: AXUIElement) -> CFRange? {
