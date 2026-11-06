@@ -451,3 +451,10 @@ encoding and a structural final newline while checking surrounding text.
 
 Ported from Tal Baumel's `talbaumel/mancia` commits `2342a18`, `b45b7c6`, and
 `45ab1e2`; automatic appearance and ribbon redesign are outside this port.
+
+The ribbon's explicit drag handle overrides automatic placement for the open
+session. Resizing preserves the dragged top edge and clamps the ribbon to the
+current display's visible area. A new session restores selection-based placement.
+Manual verification: drag the handle across displays, expand Custom, apply an
+edit, and reopen the ribbon. Controls should still respond to clicks, and reopening
+should restore automatic placement.

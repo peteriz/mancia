@@ -239,6 +239,15 @@ enum RibbonPlacement {
     /// into, and discover it only once a result arrived.
     static let projectedHeight: CGFloat = 200
 
+    static func draggedFrame(size: CGSize, topLeft: CGPoint, visibleFrame: CGRect) -> CGRect {
+        let width = min(size.width, visibleFrame.width)
+        let x = min(max(topLeft.x, visibleFrame.minX), visibleFrame.maxX - width)
+        let top = min(
+            max(topLeft.y, visibleFrame.minY + min(size.height, visibleFrame.height)),
+            visibleFrame.maxY)
+        return CGRect(x: x, y: top - size.height, width: width, height: size.height)
+    }
+
     static func resolve(height: CGFloat, in context: Context) -> Resolution {
         let topGap = context.screenFrame.maxY - context.visibleFrame.maxY
         let menuBarReservesStrip = topGap > 1 && !context.menuBarHidden

@@ -34,6 +34,7 @@ struct RibbonView: View {
     var isLive = true
     /// Tell the window the lane wants to be a different height.
     var onLayoutChange: () -> Void = {}
+    var onDrag: (NSEvent) -> Void = { _ in }
 
     /// Mirrors `model.focusedCell`. The model is the source of truth because
     /// Tab arrives at the window rather than at a view.
@@ -162,6 +163,8 @@ struct RibbonView: View {
     /// switch never reflows the row.
     private var commandRow: some View {
         HStack(spacing: 2) {
+            RibbonDragHandle(onDrag: onDrag)
+                .frame(width: 14, height: controlHeight)
             targetChip
             presetGroupToggle
             Rectangle()

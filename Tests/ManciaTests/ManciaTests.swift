@@ -3232,3 +3232,19 @@ func sessionRejectsOverlappingGeneration() throws {
     guard case .apply = session.consider(.init(output: "current", for: second))
     else { throw SessionTestError.unexpectedDecision }
 }
+
+@Test("Dragged ribbon keeps its top edge as content grows and stays on screen")
+func draggedRibbonPlacement() {
+    let visible = CGRect(x: 100, y: 50, width: 1000, height: 700)
+    let topLeft = CGPoint(x: 200, y: 600)
+    let compact = RibbonPlacement.draggedFrame(
+        size: CGSize(width: 600, height: 50), topLeft: topLeft, visibleFrame: visible)
+    let expanded = RibbonPlacement.draggedFrame(
+        size: CGSize(width: 600, height: 200), topLeft: topLeft, visibleFrame: visible)
+    #expect(compact.maxY == expanded.maxY)
+    #expect(expanded.minX == topLeft.x)
+    let clamped = RibbonPlacement.draggedFrame(
+        size: CGSize(width: 600, height: 200),
+        topLeft: CGPoint(x: 1000, y: 20), visibleFrame: visible)
+    #expect(visible.contains(clamped))
+}
