@@ -106,3 +106,12 @@ leading `v` if there is one.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the current app structure and
 [SPEC.md](SPEC.md) for implementation notes.
+
+## Manual Slack edit checks
+
+Use an unsent Slack draft after freshly launching Slack. Invoke Mancia on a
+selected span and verify replacement, surrounding text, Undo, and clipboard
+restoration. Include repeated spaces, emoji, Hebrew, and a full-composer
+selection. During the initial Accessibility warm-up, cancel or switch apps;
+Mancia must not copy or paste into the other app. Repeat in TextEdit to check
+native editing. These checks require a local interactive session.

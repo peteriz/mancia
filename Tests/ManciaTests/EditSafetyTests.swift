@@ -284,6 +284,28 @@ struct EditSafetyTests {
             from: pasteboard) == nil)
     }
 
+    @MainActor
+    @Test("Rich-text copy ownership accounts only for known space encoding")
+    func richTextCopyOwnership() {
+        let pasteboard = NSPasteboard(
+            name: .init("mancia-rich-copy-attribution-\(UUID().uuidString)"))
+        defer { pasteboard.clearContents() }
+
+        pasteboard.clearContents()
+        pasteboard.setString("first  second", forType: .string)
+        #expect(PasteboardOwnership.claimCopiedSelection(
+            expectedSelectedText: "first \u{00A0}second",
+            from: pasteboard,
+            isRichTextField: true) != nil)
+        #expect(PasteboardOwnership.claimCopiedSelection(
+            expectedSelectedText: "first \u{00A0}second",
+            from: pasteboard) == nil)
+        #expect(PasteboardOwnership.claimCopiedSelection(
+            expectedSelectedText: "first  second\n",
+            from: pasteboard,
+            isRichTextField: true) == nil)
+    }
+
     @Test("Only the latest coordinator operation may mutate shared state")
     func coordinatorOperationEpochRejectsStaleWork() {
         var epoch = CoordinatorOperationEpoch()
