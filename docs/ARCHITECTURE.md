@@ -19,12 +19,18 @@ Sources/Mancia/
 ├── SelectionCapture.swift        Operation-local pasteboard capture, AX target evidence,
 │                                 verified range reselection and paste; keystrokes are
 │                                 posted to the target app's pid (CGEvent.postToPid)
+├── SelectionTextVerification.swift  Pure comparison of AX text with the copied plain text,
+│                                 tolerant of rich-text space encodings (Slack/Electron)
 ├── EditCoordinator.swift         Drives a cyclical edit session: capture → ribbon →
 │                                 provider → apply inline → iteration history/navigation
 ├── EditSession.swift             Pure decision core for a session — which text each cycle
 │                                 sends, how the result goes back, and the version history
-├── DebugCLI.swift                --provider-check / --complete / --about-check /
-│                                 --ribbon-click-check headless and UI entry points
+├── DebugCLI.swift                --provider-check / --list-models / --complete /
+│                                 --about-check / --ribbon-click-check / --shoot
+│                                 headless and UI entry points
+├── DocsShot.swift                Renders the README hero image from the shipping
+│                                 RibbonView (`make shot`)
+├── PromptGuard.swift             Pure bounds checks on input text and Custom instruction
 ├── AboutPanel.swift              The standard About panel's options, icon, and presentation
 ├── AppVersion.swift              Reads the version from the bundle; no version literal in Swift
 ├── Actions.swift                 EditAction enum + PromptBuilder (prompt templates)
@@ -49,6 +55,8 @@ Sources/Mancia/
 │   │                             through Accessibility (placement's second input)
 │   ├── RibbonView.swift          Target, five actions, Custom drawer, progress and recovery
 │   ├── RibbonControls.swift      Controls shared across the lane's registers
+│   ├── RibbonDragHandle.swift    Grip that lets the user drag the ribbon elsewhere
+│   ├── RibbonScopeApprovalView.swift  Whole-document approval gate shown before sending
 │   └── RibbonPalette.swift       Fixed graphite lane and state colors
 ├── Providers/
 │   ├── LLMProvider.swift         LLMProvider/WarmableLLMProvider protocols and ProviderStatus
@@ -56,6 +64,8 @@ Sources/Mancia/
 │   ├── CopilotACPConfig.swift    ACP sidecar configuration value
 │   ├── CopilotACPSidecar.swift   Keeps one Copilot ACP process/session warm
 │   ├── CopilotACPClient.swift    Minimal JSON-RPC client for `copilot --acp --stdio`
+│   ├── CopilotACPClientProtocol.swift  Actor protocol the sidecar uses (test seam)
+│   ├── CopilotMCPServers.swift   Lists the user's MCP servers so each can be disabled
 │   └── CopilotModelCatalog.swift Reads the CLI's cached model list from ~/.copilot/data.db
 │                                 (SQLite, read-only) and merges it with the live
 │                                 ACP listing for the settings pickers
@@ -66,13 +76,21 @@ Sources/Mancia/
     ├── ReadinessRow.swift        One "is this ready?" row (hotkey / Accessibility / provider)
     └── ShortcutRecorderView.swift  Native hotkey recorder (see note below)
 
-Tests/ManciaTests/ManciaTests.swift   Prompt templates, argv/ACP construction and parsing
-                                      (incl. --reasoning-effort), post-processing,
-                                      binary discovery order, model-catalog decoding/fallback
-                                      (all pure, no process spawning)
+Tests/ManciaTests/                   swift-testing suites (all pure, no process spawning)
+├── ManciaTests.swift                Prompt templates, argv/ACP construction and parsing
+│                                    (incl. --reasoning-effort), post-processing, binary
+│                                    discovery order, model catalog, plist/CHANGELOG version
+├── EditSafetyTests.swift            EditSession capture, approval, and apply decisions
+├── RibbonUITests.swift              PanelModel/ribbon state and locking
+├── SelectionTextVerificationTests.swift  AX vs. pasteboard text matching
+├── AccessibilityPreparationTests.swift   Slack/Electron AX warm-up before capture
+├── ActionQualityTests.swift         Prompt contracts and Tests/Fixtures/action-quality.json
+└── PaletteTests.swift               Ribbon text contrast in both appearances
 
 Support/Info.plist                   LSUIElement=true, bundle id io.github.peteriz.mancia
 scripts/make_app.sh                  swift build -c release → build/Mancia.app, stable codesign when available
+scripts/make_dmg.sh                  make_app.sh, then wraps the app in build/Mancia-<version>.dmg
+scripts/swift.sh                     `swift` wrapper that forces safe.bareRepository=all for SwiftPM
 ```
 
 There is no `Resources/` asset catalog — the menu bar icon is the SF Symbol
@@ -355,8 +373,10 @@ presence — this is a menu-bar-only app) and bundle id
 - **Makefile** — `build` (`swift build`), `test` (`swift test`), `app`
   (`scripts/make_app.sh`), `release` (requires explicit `CODESIGN_ID`, then
   `REQUIRE_SIGNING=1 scripts/make_app.sh`),
-  `run` (`app` + `open build/Mancia.app`), `clean`
-  (`swift package clean` + `rm -rf build`).
+  `dmg` (`scripts/make_dmg.sh`), `run` (`app` + `open build/Mancia.app`),
+  `shot` (`Mancia --shoot docs/assets/mancia-ribbon.png`), `clean`
+  (`swift package clean` + `rm -rf build`). Every SwiftPM call goes through
+  `scripts/swift.sh`.
 - **scripts/make_app.sh** — `swift build -c release`, assembles
   `build/Mancia.app/Contents/{MacOS,Resources}`, copies the binary and
   `Support/Info.plist`, writes a `PkgInfo`, then signs the bundle. Signing
@@ -383,6 +403,17 @@ prompt):
   `provider.complete(prompt)`, prints the result (exit 0) or an error to stderr
   (exit 1). (`fix-grammar` is the CLI id for the action labeled **Proofread** in
   the lane, and `plan-first` for **Plan first**.)
+- `Mancia --list-models` — prints the cached and live Copilot model lists the
+  settings pickers merge.
+
+Three more flags bring up an accessory-policy app (no Dock icon) instead of
+staying headless:
+
+- `Mancia --about-check` — opens and checks the About panel; run it from
+  `build/Mancia.app` so it reads a real bundle version.
+- `Mancia --ribbon-click-check` — shows the ribbon and clicks every control
+  through Accessibility.
+- `Mancia --shoot <output.png>` — renders `DocsShot` off screen (`make shot`).
 
 `PromptBuilder` keeps every Copilot prompt template in `Actions.swift`. Improve,
 Sharpen, Plan first, Tighten, Proofread, Unslop, STE, Markdown, Rewrite, and
@@ -433,7 +464,7 @@ The **Writing** group targets prose written for people:
 - **Markdown** — structures loose notes as GitHub-flavored Markdown (headings,
   lists, backticked identifiers, fenced logs) without rewording them.
 
-Both run the async body on the main actor via a small `Task { @MainActor in
+The headless flags run the async body on the main actor via a small `Task { @MainActor in
 ... }` + `dispatchMain()` shim (`DebugCLI.run`), since there's no
 `NSApplication` run loop to drive the actor hops. These flags are the
 intended way to exercise the real provider pipeline in CI without simulating
