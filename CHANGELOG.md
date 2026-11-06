@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-06
+
+### Added
+
+- A drag handle to reposition the command ribbon.
+
 ### Fixed
 
 - Initialize Slack/Electron Accessibility before shortcut capture, restore host
@@ -251,7 +257,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-install disk image.
 - Debug/E2E hooks: `--provider-check` and `--complete <action>`.
 
-[Unreleased]: https://github.com/peteriz/mancia/compare/0.5.0...HEAD
+[Unreleased]: https://github.com/peteriz/mancia/compare/0.6.0...HEAD
+[0.6.0]: https://github.com/peteriz/mancia/compare/0.5.0...0.6.0
 [0.5.0]: https://github.com/peteriz/mancia/compare/0.4.0...0.5.0
 [0.4.0]: https://github.com/peteriz/mancia/compare/0.3.3...0.4.0
 [0.3.3]: https://github.com/peteriz/mancia/compare/0.3.2...0.3.3
