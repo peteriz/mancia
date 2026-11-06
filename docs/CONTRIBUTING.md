@@ -82,9 +82,10 @@ fresh grant instead of failing on the stale one.
 - Document manual testing for hotkey, panel, pasteboard, or Accessibility
   changes.
 
-CI runs `swift build` and `swift test` on every pull request and on pushes to
-`main` (see [.github/workflows/ci.yml](../.github/workflows/ci.yml)). Keep the
-build warning-free and the tests green.
+CI runs `make build`, `make test`, and `make dmg` (which assembles the app
+bundle) on every pull request and on pushes to `main` (see
+[.github/workflows/ci.yml](../.github/workflows/ci.yml)). Keep the build
+warning-free and the tests green.
 
 ## Releasing
 

@@ -30,8 +30,6 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Assemble app bundle
-        run: make app
-
+      # make_dmg.sh assembles the app bundle itself, so this covers `make app`.
       - name: Package DMG
         run: make dmg
