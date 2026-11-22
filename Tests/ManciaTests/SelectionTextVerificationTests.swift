@@ -6,6 +6,24 @@ import Testing
 @Suite("Selection text verification")
 struct SelectionTextVerificationTests {
     @MainActor
+    @Test("Selection with a verified range does not require a full field value")
+    func selectionRangeVerificationDoesNotRequireFieldValue() {
+        #expect(SelectionCapture.applyVerification(
+            scope: .selection,
+            fieldValue: nil
+        ) == .selectedRange)
+    }
+
+    @MainActor
+    @Test("Whole-document editing still requires a full field value")
+    func documentVerificationRequiresFieldValue() {
+        #expect(SelectionCapture.applyVerification(
+            scope: .entireDocument,
+            fieldValue: nil
+        ) == nil)
+    }
+
+    @MainActor
     @Test("Delayed editor evidence is recovered without copying again")
     func delayedSelectionEvidence() async throws {
         let element = AXUIElementCreateApplication(NSRunningApplication.current.processIdentifier)

@@ -224,6 +224,17 @@ enum SelectionReselectionOutcome {
     case failure(SelectionApplyFailure)
 }
 
+enum ManualAccessibilityObservation: Equatable {
+    case enabled
+    case disabled
+    case unavailable
+}
+
+enum SelectionApplyVerification: Equatable {
+    case fieldValue
+    case selectedRange
+}
+
 /// Pasteboard-based selection capture and verified replacement. Every
 /// pasteboard borrow owns its own snapshot; session creation never retains a
 /// snapshot that could overwrite a later user copy.
@@ -261,6 +272,20 @@ enum SelectionCapture {
         case failed(SelectionApplyFailure)
     }
 
+    static func shouldEnableManualAccessibility(
+        _ observation: ManualAccessibilityObservation
+    ) -> Bool {
+        observation != .enabled
+    }
+
+    static func applyVerification(
+        scope: SelectionTargetEvidence.Scope,
+        fieldValue: String?
+    ) -> SelectionApplyVerification? {
+        if fieldValue != nil { return .fieldValue }
+        return scope == .selection ? .selectedRange : nil
+    }
+
     private static func prepareAccessibilitySelection(in app: NSRunningApplication) -> Bool {
         let pid = app.processIdentifier
         let application = AXUIElementCreateApplication(pid)
@@ -275,13 +300,16 @@ enum SelectionCapture {
             var value: CFTypeRef?
             let status = AXUIElementCopyAttributeValue(
                 application, "AXManualAccessibility" as CFString, &value)
-            guard status == .success, let enabled = value as? Bool else {
+            let observation: ManualAccessibilityObservation
+            if status == .success, let enabled = value as? Bool {
+                observation = enabled ? .enabled : .disabled
+            } else {
+                observation = .unavailable
                 if status != .attributeUnsupported && status != .notImplemented {
                     NSLog("Mancia: could not query assistive access for process \(pid): \(status.rawValue).")
                 }
-                return true
             }
-            if enabled {
+            guard shouldEnableManualAccessibility(observation) else {
                 accessibilityPreparation[pid] = .ready
                 return true
             }
@@ -290,6 +318,7 @@ enum SelectionCapture {
             application, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         guard status == .success else {
             NSLog("Mancia: could not enable assistive access for process \(pid): \(status.rawValue).")
+            accessibilityPreparation[pid] = .ready
             return true
         }
         // Electron debounces enablement for two seconds. Reannounce afterward
@@ -453,7 +482,10 @@ enum SelectionCapture {
     ) async -> SelectionApplyOutcome {
         guard !text.isEmpty else { return .retained(.emptyReplacement) }
         guard let baseline = target.capturedBaseline else { return .retained(.missingBaseline) }
-        guard let fieldBaseline = target.capturedFieldValue else {
+        guard let verification = applyVerification(
+            scope: target.scope,
+            fieldValue: target.capturedFieldValue
+        ) else {
             return .retained(.unverifiedTarget)
         }
 
@@ -490,9 +522,11 @@ enum SelectionCapture {
             guard isFrontmost(target) else { return .retained(.targetChanged) }
             originalRange = axFocus(pid: target.pid)?.range
 
-            let fieldValidation = validateField(target, expectedValue: fieldBaseline)
-            guard case .valid = fieldValidation else {
-                return applyOutcome(from: fieldValidation)
+            if let fieldBaseline = target.capturedFieldValue {
+                let fieldValidation = validateField(target, expectedValue: fieldBaseline)
+                guard case .valid = fieldValidation else {
+                    return applyOutcome(from: fieldValidation)
+                }
             }
 
             let prepared: Validation
@@ -513,18 +547,24 @@ enum SelectionCapture {
             guard let appliedRange = focus.range else {
                 return .retained(.unverifiedTarget)
             }
-            guard let expectedFieldValue = replacing(
-                fieldBaseline,
-                range: appliedRange,
-                with: text,
-                entireDocument: target.scope == .entireDocument
-                    || SelectionTextVerification.coversField(
-                        fieldBaseline,
-                        range: appliedRange,
-                        selectedText: baseline,
-                        isRichTextField: isRichTextField(focus.element)))
-            else {
-                return .retained(.unverifiedTarget)
+            let expectedFieldValue: String?
+            if let fieldBaseline = target.capturedFieldValue {
+                guard let replaced = replacing(
+                    fieldBaseline,
+                    range: appliedRange,
+                    with: text,
+                    entireDocument: target.scope == .entireDocument
+                        || SelectionTextVerification.coversField(
+                            fieldBaseline,
+                            range: appliedRange,
+                            selectedText: baseline,
+                            isRichTextField: isRichTextField(focus.element)))
+                else {
+                    return .retained(.unverifiedTarget)
+                }
+                expectedFieldValue = replaced
+            } else {
+                expectedFieldValue = nil
             }
 
             snapshot = .capture(from: pasteboard)
@@ -569,31 +609,53 @@ enum SelectionCapture {
             }
             committed = true
             try await postCommitDelay()
-            guard let finalFocus = axFocus(pid: target.pid),
-                  sameField(finalFocus, target),
-                  let actualFieldValue = textValue(in: finalFocus.element),
-                  let verifiedRange = SelectionTextVerification.verifiedReplacementRange(
-                    expectedFieldValue: expectedFieldValue,
-                    actualFieldValue: actualFieldValue,
-                    replacing: appliedRange,
-                    with: text,
-                    isRichTextField: isRichTextField(finalFocus.element))
-            else {
+            guard let finalFocus = axFocus(pid: target.pid), sameField(finalFocus, target) else {
                 _ = restorePasteboard()
                 return .failure(.unexpected(
                     "Mancia sent the paste but could not verify the resulting text. Check the document before trying again."
                 ))
             }
-            let verifiedTarget = SelectionTargetEvidence(
-                pid: target.pid,
-                capturedBaseline: text,
-                capturedFieldValue: actualFieldValue,
-                scope: target.scope,
-                targetApp: target.targetApp,
-                window: finalFocus.window,
-                focusedElement: finalFocus.element,
-                selectedRange: verifiedRange
-            )
+            let verifiedTarget: SelectionTargetEvidence
+            switch verification {
+            case .fieldValue:
+                guard let expectedFieldValue,
+                      let actualFieldValue = textValue(in: finalFocus.element),
+                      let verifiedRange = SelectionTextVerification.verifiedReplacementRange(
+                        expectedFieldValue: expectedFieldValue,
+                        actualFieldValue: actualFieldValue,
+                        replacing: appliedRange,
+                        with: text,
+                        isRichTextField: isRichTextField(finalFocus.element))
+                else {
+                    _ = restorePasteboard()
+                    return .failure(.unexpected(
+                        "Mancia sent the paste but could not verify the resulting text. Check the document before trying again."
+                    ))
+                }
+                verifiedTarget = SelectionTargetEvidence(
+                    pid: target.pid,
+                    capturedBaseline: text,
+                    capturedFieldValue: actualFieldValue,
+                    scope: target.scope,
+                    targetApp: target.targetApp,
+                    window: finalFocus.window,
+                    focusedElement: finalFocus.element,
+                    selectedRange: verifiedRange
+                )
+            case .selectedRange:
+                guard let selectedTarget = verifyPastedSelection(
+                    target,
+                    focus: finalFocus,
+                    replacing: appliedRange,
+                    with: text
+                ) else {
+                    _ = restorePasteboard()
+                    return .failure(.unexpected(
+                        "Mancia sent the paste but could not verify the resulting selection. Check the document before trying again."
+                    ))
+                }
+                verifiedTarget = selectedTarget
+            }
             appliedTarget = verifiedTarget
             return .applied(
                 target: verifiedTarget,
@@ -895,6 +957,46 @@ enum SelectionCapture {
 
     // MARK: - Validation
 
+    private static func verifyPastedSelection(
+        _ target: SelectionTargetEvidence,
+        focus: AXFocus,
+        replacing previousRange: CFRange,
+        with replacement: String
+    ) -> SelectionTargetEvidence? {
+        // Chromium composers may omit AXValue while still exposing a stable
+        // field and settable range. Reselect the replacement to verify the
+        // exact text without weakening the target's identity checks.
+        guard let element = focus.element,
+              sameField(focus, target)
+        else { return nil }
+        let expectedRange = CFRange(
+            location: previousRange.location,
+            length: replacement.utf16.count
+        )
+        guard setSelectedRange(expectedRange, on: element),
+              let selectedFocus = axFocus(pid: target.pid),
+              sameField(selectedFocus, target),
+              let actualRange = selectedFocus.range,
+              sameRange(actualRange, expectedRange),
+              let selected = selectedText(in: selectedFocus),
+              SelectionTextVerification.matches(
+                selected,
+                replacement,
+                isRichTextField: isRichTextField(selectedFocus.element)
+              )
+        else { return nil }
+        return SelectionTargetEvidence(
+            pid: target.pid,
+            capturedBaseline: replacement,
+            capturedFieldValue: textValue(in: selectedFocus.element),
+            scope: .selection,
+            targetApp: target.targetApp,
+            window: selectedFocus.window,
+            focusedElement: selectedFocus.element,
+            selectedRange: actualRange
+        )
+    }
+
     private static func reselectAndValidate(
         _ target: SelectionTargetEvidence,
         baseline: String
@@ -947,9 +1049,9 @@ enum SelectionCapture {
                 selected, baseline, isRichTextField: isRichTextField(current.element)) else {
             return .retained(.baselineChanged)
         }
-        guard let expectedFieldValue = target.capturedFieldValue,
-              textValue(in: current.element) == expectedFieldValue
-        else {
+        if let expectedFieldValue = target.capturedFieldValue,
+           textValue(in: current.element) != expectedFieldValue
+        {
             return .retained(.baselineChanged)
         }
         return .valid(current)
