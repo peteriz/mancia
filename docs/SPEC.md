@@ -83,6 +83,8 @@ Mancia/
 1. **Hotkey fires** (works system-wide; KeyboardShortcuts handles registration).
 2. `SelectionCapture.captureSelection()`:
    - Remember frontmost app (`NSWorkspace.shared.frontmostApplication`).
+   - Enable Electron's manual Accessibility mode when the host cannot report
+     the flag or reports it disabled, then wait for initialization.
    - Snapshot pasteboard contents (all string-type items) and `changeCount`.
    - Post ⌘C via `CGEvent` (requires Accessibility permission).
    - Poll `NSPasteboard.general.changeCount` every 30 ms, up to 600 ms.
@@ -154,6 +156,10 @@ Mancia/
 6. **Apply**:
    - Write result to pasteboard, `activate` the target app, wait ~150 ms,
      post ⌘V (for Entire document scope: ⌘A then ⌘V).
+   - Verify the same field and selection before pasting. Verify the resulting
+     full field when available. If a Chromium composer exposes only the
+     selected range, reselect and verify the replacement text there instead.
+     Entire-document edits still require the full field value.
    - After ~1 s, restore the user's original pasteboard.
    - While the target app still owns focus, read where the paste left the
      caret. If the ribbon landed on the text it just wrote — a longer result

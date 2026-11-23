@@ -121,12 +121,14 @@ wired to call `coordinator.start()`.
    Whole-document results apply directly, under the same verification as a
    selection; Undo restores the previous version.
 5. **Verified application.** Before posting Paste, `SelectionCapture` verifies
-   that the same editable field still contains the captured baseline. AX range
+   that the same editable field still contains the captured selection. When
+   available, it also verifies the captured full-field value. AX range
    reselection replaces the exact span; Mancia never sends Undo to discover
-   what is on a host's undo stack. After paste, the expected field value must
-   be observed before the coordinator records a successful history entry.
-   Missing evidence, changed contents, or unsupported hosts leave a copyable
-   result in `.retained` rather than attempting an unsafe replacement.
+   what is on a host's undo stack. After paste, Mancia observes the expected
+   field value when available. Chromium composers may omit it, so selection
+   edits can instead reselect the replacement in the same field and verify its
+   exact range and text. Missing range or field identity, changed contents, or
+   an unsupported document target leave a copyable result in `.retained`.
 6. **Iteration and recovery.** A fresh selection supplies new target evidence.
    History navigation uses the verified current field and range, and commits
    its index only after replacement succeeds. Custom's draft survives
@@ -147,9 +149,10 @@ cannot imply that the document was left untouched. Cleanup must finish without
 overwriting a newer clipboard value. A generated result and a verified applied
 result are distinct outcomes.
 
-Replacement is plain text. AX identity and full-field reads are not available
-in every host; this limits in-place editing and history, not the ability to
-return generated text for copying. Rich-text reconstruction is not implemented.
+Replacement is plain text. AX identity and selected-range reads remain required
+for in-place selection edits. Full-field reads are required only for
+whole-document edits. Hosts that provide neither leave the generated text
+available for copying. Rich-text reconstruction is not implemented.
 
 ### Ribbon placement and keyboard behavior
 
@@ -481,12 +484,16 @@ UI or keystrokes.
 ### Electron selection capture
 
 Explicit capture enables `AXManualAccessibility` when supported and waits for
-Electron initialization before reading field evidence or copying. The bounded
-wait checks cancellation, permission, and the target application. Capture and
-apply release the nonactivating ribbon's key focus before activating the host.
+Electron initialization before reading field evidence or copying. A host that
+does not expose the flag can still accept the corresponding write, so Mancia
+attempts to enable it before deciding the host is unsupported. The bounded wait
+checks cancellation, permission, and the target application. Capture and apply
+release the nonactivating ribbon's key focus before activating the host.
 Delayed selection evidence may recover without another copy, preserving every
-identity already captured. Rich-text verification permits nonbreaking-space
-encoding and a structural final newline while checking surrounding text.
+identity already captured. When a Chromium composer has no `AXValue`, Mancia
+can still verify a replacement through its exact selected range. Rich-text
+verification permits nonbreaking-space encoding and a structural final newline
+while checking surrounding text.
 
 Ported from Tal Baumel's `talbaumel/mancia` commits `2342a18`, `b45b7c6`, and
 `45ab1e2`; automatic appearance and ribbon redesign are outside this port.

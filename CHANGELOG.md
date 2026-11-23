@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Editing selected text in Slack and Microsoft Teams now works when Electron
+  cannot report its manual Accessibility flag or omits the composer's full
+  field value.
+
 ## [0.6.1] - 2026-11-06
 
 ### Added

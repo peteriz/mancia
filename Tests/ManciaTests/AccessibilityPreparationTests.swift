@@ -4,6 +4,19 @@ import Testing
 @Suite("Explicit capture Accessibility preparation")
 @MainActor
 struct AccessibilityPreparationTests {
+    @Test("Unreadable or disabled manual Accessibility support is enabled", arguments: [
+        ManualAccessibilityObservation.disabled,
+        .unavailable,
+    ])
+    func manualAccessibilityIsEnabled(observation: ManualAccessibilityObservation) {
+        #expect(SelectionCapture.shouldEnableManualAccessibility(observation))
+    }
+
+    @Test("Explicit manual Accessibility support does not need re-enabling")
+    func enabledManualAccessibilityIsReady() {
+        #expect(!SelectionCapture.shouldEnableManualAccessibility(.enabled))
+    }
+
     @Test("Explicit capture initializes delayed assistive access without automatic monitoring")
     func delayedPreparation() async throws {
         var preparations = 0
